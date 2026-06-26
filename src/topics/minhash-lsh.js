@@ -207,115 +207,95 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'A document is shown as a set of shingles, where a shingle is a small token group such as a word n-gram or character n-gram. Jaccard similarity is intersection size divided by union size, so it measures how much two sets overlap. In the signature view, each hash row is one randomized ordering experiment.',
+        'The safe inference rule is probabilistic: two sets match on one MinHash row with probability equal to their Jaccard similarity. In the banding view, a band collision means two signatures share a chunk and should become candidates. Candidate means worth checking exactly, not proven duplicate.',
         {type: 'image', src: './assets/gifs/minhash-lsh.gif', alt: 'Animated walkthrough of the minhash lsh visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        {type: 'callout', text: 'MinHash turns set overlap into collision probability, then LSH spends exact comparison only on likely pairs.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Near-duplicate detection becomes impossible if every document, profile, or item must be compared with every other one. MinHash exists to compress set similarity into signatures. LSH exists to turn those signatures into candidates so the exact comparison is paid only for likely matches.',
-        'This matters whenever the object is naturally a set: web-page shingles, tokens in a document, users who bought an item, neighbors of a graph node, permissions attached to a role, or chunks in a retrieval corpus. The question is not "are these vectors close?" It is "how much set overlap do these objects share?"',
-        {type: 'callout', text: 'MinHash turns set overlap into collision probability, then LSH spends exact comparison only on likely pairs.'},
+        'Near-duplicate search becomes impossible if every object must be compared with every other object. A million documents contain about 500 billion pairs. Even if each exact comparison is cheap, the all-pairs plan spends most of its work on pairs that obviously do not match.',
+        'MinHash exists when objects are naturally sets and set overlap is the signal. Web pages, code files, query logs, permission lists, graph neighborhoods, and retrieval chunks can all be represented this way. Locality-sensitive hashing, or LSH, adds an index so likely similar signatures are found without scanning every pair.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The direct approach builds shingles or token sets for every object and computes Jaccard similarity for all pairs. That is fine for dozens of documents and hopeless for millions. Embeddings can capture semantics, but they answer a different question than exact token-set resemblance.',
+        'The direct approach computes exact Jaccard similarity for every pair. For sets A and B, Jaccard(A, B) = |A intersect B| / |A union B|. If A has 100 shingles, B has 120, and 80 are shared, the similarity is 80 / 140 = 0.571.',
+        'Exact comparison is trustworthy for one pair, but pair count grows quadratically. With n objects, there are n(n - 1)/2 comparisons. Doubling the corpus roughly quadruples the number of pairs before any content is inspected.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6d/Venn_A_intersect_B.svg', alt: 'Venn diagram showing the intersection of sets A and B', caption: 'Jaccard similarity is intersection over union; the overlap area is the signal MinHash preserves probabilistically. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Venn_A_intersect_B.svg.'},
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Random sampling of tokens is unstable because common boilerplate and set size skew can dominate. A useful sketch needs an estimator whose collision probability is the similarity measure itself. Candidate generation then needs a threshold-like retrieval curve without scanning every signature.',
+        'Sampling arbitrary tokens does not preserve the right probability. Common boilerplate can dominate samples, while rare but meaningful overlaps may be missed. A useful sketch needs row matches whose probability is exactly tied to Jaccard similarity.',
+        'Indexing is the second wall. Even if every document has a compact signature, scanning all signatures is still O(n) per query and O(n^2) for a full dedupe job. The system needs a way to make near pairs collide in buckets more often than far pairs.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'Under a random permutation, the probability that two sets have the same minimum element equals their Jaccard similarity. Repeating that experiment with many hashes creates a signature. LSH banding hashes chunks of the signature so highly similar objects collide as candidates with high probability.',
+        'Under a random permutation of the universe, the minimum-ranked element of A union B belongs to A intersect B with probability equal to Jaccard(A, B). Therefore two sets have the same minimum under that permutation with probability equal to their Jaccard similarity. MinHash approximates this using many independent hash functions instead of explicit permutations.',
+        'LSH banding turns the signature into an index. Split k rows into b bands of r rows, hash each band, and make two objects candidates if any band matches exactly. The collision probability becomes about 1 - (1 - s^r)^b for similarity s, creating a tunable threshold curve.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt: 'Bloom filter diagram showing hash functions mapping keys into shared bit positions', caption: 'The shared design move is hash-derived compact evidence; MinHash stores minimum hash rows instead of membership bits. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.'},
-      ],
-    },
-    {
-      heading: 'Reading the visualization',
-      paragraphs: [
-        "In the signature view, read each row as one random ordering experiment. If two sets share the minimum under that ordering, that row votes for similarity. A short signature is noisy, but the fraction of matching rows is an unbiased estimate of Jaccard similarity under the MinHash model.",
-        "In the banding view, read a band collision as an invitation to verify, not as proof. LSH is a candidate generator. It deliberately accepts some false candidates so it can avoid comparing every pair.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For each hash row, store the minimum hash value found in the object set. The fraction of matching rows estimates Jaccard similarity. For LSH, split the signature into b bands of r rows and hash each band. A pair that shares any band bucket becomes a candidate for exact verification.',
+        'First choose the set representation. A text pipeline might lowercase, remove boilerplate, and create 5-word shingles. Each object becomes a set of shingle ids, not a sequence.',
+        'For each hash row, compute the hash value of every shingle in the set and keep the minimum. Repeating this for k rows gives a k-number signature. The fraction of rows where two signatures match estimates their Jaccard similarity.',
+        'For LSH, divide the signature into bands. Each band is hashed into a bucket table keyed by the band values. Objects sharing a bucket become candidate pairs, and the pipeline then runs exact Jaccard, containment, or a domain-specific check only on those candidates.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The minimum-permutation theorem ties one row collision directly to Jaccard similarity. Repetition reduces variance. Banding changes retrieval probability: for similarity s, collision probability is about 1 - (1 - s^r)^b, creating an S-curve that keeps many low-similarity pairs out of the candidate set.',
+        'The MinHash estimator works because the first element under a random ordering is equally likely to be any element of A union B. It creates a row match exactly when that first element lies in both sets. The chance of that event is |A intersect B| / |A union B|.',
+        'Repeating rows reduces noise. If true similarity is 0.8 and the signature has 100 rows, the expected number of matching rows is 80. The observed count will vary, but the estimate concentrates as k grows.',
+        'Banding works by requiring several row matches inside one band while giving many bands a chance to hit. Low-similarity pairs rarely match all r rows in a band. High-similarity pairs are likely to match at least one band and survive to exact verification.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Computing a k-row signature costs O(k times set size), though production systems use faster approximations and one-permutation variants. Memory is O(k) per object plus LSH buckets. Candidate lookup is hash-table work, and expensive exact comparison is reserved for candidate pairs.',
+        'Building a k-row signature costs O(k times set size) in the simple implementation. Storage is O(k) per object plus bucket entries for the LSH tables. Exact comparison cost moves from all pairs to candidate pairs.',
+        'The behavior knob is the band shape. More rows per band makes each collision stricter, reducing false candidates but increasing missed near-duplicates. More bands gives more chances to collide, increasing recall and bucket load.',
+        'When the corpus doubles, signature storage doubles and bucket entries double, but all-pairs exact comparison would roughly quadruple. That is the practical win. The price is probability: some false candidates are verified, and some true near-duplicates may miss every band.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png', alt: 'Chart showing false positive probability changing with Bloom filter parameters', caption: 'Approximate data structures turn memory into probability curves; MinHash LSH does the same with band collision probability. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bloom_filter_fp_probability.svg.'},
-        'The banding parameters are the main knob. More rows per band makes collisions stricter. More bands gives pairs more chances to collide. The resulting S-curve is useful because it turns similarity into a tunable retrieval threshold rather than a hard exact scan.',
       ],
     },
     {
-      heading: 'Parameter choices',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The signature length controls estimator variance. More rows give a steadier Jaccard estimate but cost more CPU and memory per object. Short signatures are useful for coarse filtering; longer signatures are needed when the decision boundary is close or the cost of a missed duplicate is high.',
-        'The banding layout controls candidate behavior. If a signature has b bands of r rows, a pair with similarity s collides with probability about 1 - (1 - s^r)^b. Increasing r makes each band stricter. Increasing b gives more chances to match. This is the knob that turns a sketch into a retrieval system.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Choose the set representation before choosing MinHash. Character shingles, word shingles, token ids, graph neighbors, and permission sets all define different similarity questions. Normalize text, remove or downweight boilerplate, and decide whether order should matter before building signatures.',
-        'Keep candidate generation separate from truth. Store enough metadata to run exact Jaccard, containment, or domain-specific verification on LSH candidates. Log candidate counts per bucket, false-positive samples, and missed-duplicate audits so the banding parameters can be tuned from evidence.',
-        'Use stable hash seeds and version the signature scheme. Changing shingling, tokenization, hash functions, signature length, or band layout changes the meaning of every stored signature and bucket.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'MinHash fits web-scale near-duplicate detection, plagiarism and boilerplate detection, document clustering, entity resolution, recommender candidate generation over set features, and RAG corpus cleanup. It is especially useful before training or evaluation, where duplicates can distort leakage and memorization claims.',
-        'It is also useful as a cheap first gate before more expensive models. A dedupe pipeline can use MinHash LSH to find likely copies, exact set comparison to confirm overlap, and embeddings only for cases where semantic similarity matters more than token resemblance.',
+        'MinHash LSH fits web crawl deduplication, plagiarism detection, code clone detection, entity-resolution blocking, recommendation over set features, and retrieval-corpus cleanup. The access pattern is first generate likely pairs cheaply, then spend exact comparison on a much smaller candidate set.',
+        'It is also useful before model training and evaluation. Duplicate or near-duplicate examples can cause leakage between train and test splits, inflate benchmark scores, and bias retrieval systems toward repeated boilerplate. MinHash gives a practical audit pass over large corpora.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'MinHash estimates token-set overlap, not semantic equivalence. Two texts can mean the same thing with low overlap, and boilerplate can create high overlap without useful duplication. LSH returns candidates, not truth; production dedupe still needs exact checks, thresholds, sampling audits, and leakage review.',
-        'It also fails when the shingling model is wrong. Character shingles catch copy-paste edits better than word sets. Word shingles capture phrase overlap better than individual terms. Too-small shingles produce many accidental overlaps; too-large shingles miss small edits. The set construction is part of the algorithm, not preprocessing trivia.',
-        'A second failure is bucket explosion. Boilerplate, common templates, or tiny sets can send huge numbers of objects into the same LSH buckets. Production systems cap bucket sizes, sample heavy buckets, or strip common shingles so candidate generation remains useful.',
+        'MinHash measures set overlap, not meaning. Two paraphrases can share few shingles and receive low similarity, while two pages with the same template can collide because boilerplate dominates. If semantic similarity is the target, embeddings or task-specific models may be the right candidate generator.',
+        'It also fails when the set construction is wrong. Character shingles, word shingles, token shingles, and graph-neighbor sets answer different questions. Too-small shingles create accidental overlap, while too-large shingles miss edited copies.',
+        'Large common buckets can destroy the speedup. Boilerplate, tiny sets, and repeated templates can make many unrelated objects share a band. Production systems cap heavy buckets, strip common shingles, sample candidates, or add secondary checks.',
       ],
     },
     {
-      heading: 'A worked case',
+      heading: 'Worked example',
       paragraphs: [
-        'Imagine two pages share 80 of 100 shingles in their union. Their exact Jaccard similarity is 0.8. With a 100-row MinHash signature, you expect about 80 matching rows, with sampling noise. You do not need to store all shingles for candidate search; the signature carries the resemblance signal.',
-        'Now split that signature into 20 bands of 5 rows. A pair with high similarity has a good chance of matching all rows in at least one band, so it enters the candidate set. A low-similarity pair rarely matches a full band, so it is skipped. The exact dedupe check then runs only on candidates.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Run sampling audits. Take random candidate pairs, false-positive-heavy buckets, and hand-labeled known duplicates, then measure how often the system catches the cases the product cares about. Near-duplicate detection is usually judged by downstream cleanup quality, not by sketch elegance.',
-        'Treat MinHash as one stage in a pipeline. In a RAG corpus, for example, the system may canonicalize text, remove boilerplate, shingle chunks, build MinHash signatures, retrieve candidates with LSH, verify overlap exactly, then decide whether to delete, cluster, or mark duplicates for review.',
-        'Keep containment in mind. Jaccard can underrate a short document copied into a much longer one because the union is large. Some dedupe systems need containment checks in addition to ordinary resemblance so small copied passages are not missed.',
-        'Separate batch rebuilds from incremental updates. A nightly corpus cleanup job can rebuild signatures and buckets from scratch, while a live ingestion pipeline needs stable buckets, deletion handling, and a policy for rechecking older documents when tokenization or boilerplate removal changes.',
+        'Let A = {a, b, c, d, e} and B = {a, b, c, f, g}. The intersection has 3 elements and the union has 7, so exact Jaccard similarity is 3/7 = 0.429. A 100-row MinHash signature should match on about 43 rows on average.',
+        'Now use 20 bands of 5 rows each. If true similarity is 0.429, the chance a specific band matches is 0.429^5, about 0.0145. The chance at least one of 20 bands matches is 1 - (1 - 0.0145)^20, about 0.253, so this pair often does not become a candidate.',
+        'For a near duplicate with similarity 0.85, one band matches with probability 0.85^5, about 0.444. Across 20 bands, candidate probability is 1 - (1 - 0.444)^20, about 0.99999. The banding curve spends verification on the likely copy while skipping many weaker overlaps.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Broder, "On the resemblance and containment of documents" at https://www.cs.princeton.edu/courses/archive/spr05/cos598E/bib/broder97resemblance.pdf, with the Stanford MMDS treatment at https://infolab.stanford.edu/~ullman/mmds/ch3n.pdf. Study Hash Table, HyperLogLog, Count-Min Sketch, Embeddings & Similarity, HNSW (Vector Search at Scale), RAG Pipeline, and RAG Dedup, MinHash, and Chunk Canonicalization next.',
+        'Study Broder on resemblance and containment and the Stanford Mining of Massive Datasets chapter on MinHash and LSH. Those sources give the probability proof and the banding S-curve in the form used by large-scale dedupe systems.',
+        'Study Hash Table for bucket mechanics, Bloom Filter for another probability-for-memory tradeoff, HyperLogLog for sketching cardinality, and HNSW for approximate search in vector space. Then study RAG deduplication and dataset leakage audits to see why near-duplicate detection matters beyond storage savings.',
       ],
     },
   ],

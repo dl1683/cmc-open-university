@@ -190,162 +190,103 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Doubly Robust Estimation. Predict with the model, correct the prediction with importance-weighted residuals: unbiased if the model OR the weights are right — stress-tested live both ways..",
+        'The animation has two views. "Model + correction" walks through the DR formula piece by piece: the direct-method estimate, the residual correction term, and two stress tests where either the model or the weights are deliberately broken. "The stress tests" runs 500 logged episodes and compares DR against the direct method (DM) and importance sampling (IPS) under adversarial conditions.',
         {type: "callout", text: "Doubly robust estimation makes a model answer auditable by weighting only the residual errors the model left behind."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/doubly-robust.gif', alt: 'Animated walkthrough of the doubly robust visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why this exists`,
-      paragraphs: [
-        `Doubly robust estimation answers a hard question: can you evaluate a new policy on logged data when the logs came from a different policy? Two classical tools exist — the direct method (fit a reward model, use it to predict) and importance sampling (reweight the logged data). Both fail cleanly: the model is biased when wrong, and importance weights explode when coverage is poor. Doubly robust estimation refuses to choose. It runs both tools at once, arranged so that the estimate is correct if EITHER ingredient is right. Two flawed tools, one honest answer.`,
+        'Active cells mark the current computation. Found cells mark estimates that passed the stress test. Removed cells mark estimates that failed. Compare-highlighted cells invite you to read two numbers side by side and ask why one survived.',
+        'At each frame, read the table title for context, the highlighted cells for the claim, and the explanation text below for the mechanism behind it. Pause the animation if you want to verify arithmetic yourself.',
+        {type: 'image', src: './assets/gifs/doubly-robust.gif', alt: 'Animated walkthrough of the doubly robust visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Read the formula as a model answer plus a weighted error audit. The direct-method term predicts what the new policy would get. The residual term asks where the model was wrong on logged samples, then reweights those errors into the new policy's action mix. In the stress tests, the model can be wrong or the weights can be noisy, but DR survives if one side is right enough. The naive baselines are direct method alone and IPS alone. The invariant is the double-safety condition: correct model makes residuals average to zero; correct propensities make the residual audit unbiased for the model's bias. If both model and support fail in the same region, the table's last row is the warning.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/College.png/250px-College.png`, alt: `Causal graph with observed variables and directed arrows`, caption: `A causal graph makes the logged-policy problem visible: treatment, covariates, and outcomes decide what the model and weights must adjust. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:College.png.`},
+        'You deployed a recommendation policy that logs which actions it took and what rewards came back. Now you want to know: if you had run a DIFFERENT policy, what would the total reward have been? You cannot rewind time, so you must answer from the logs alone. This is the off-policy evaluation problem.',
+        'Two classical estimators attack it. The direct method (DM) fits a reward model to the logs and predicts what the new policy would earn. Importance sampling (IPS) reweights each logged reward by the ratio p(a)/q(a) of the new policy\'s probability to the old policy\'s probability. Both are useful. Both break in predictable, opposite ways.',
+        'DR was invented because practitioners needed an estimator that could survive the failure of either ingredient. Not one that needed both to be perfect, but one that needed only one to be right.',
       ],
     },
     {
-      heading: `The wall`,
-      paragraphs: [
-        `The direct method is appealing because it is low variance: fit a reward model, predict rewards for the new policy, and average. Its wall is model bias. If the reward model is wrong where the new policy acts, the estimate can be confidently wrong.`,
-        `Inverse propensity scoring is appealing because it can be unbiased with correct propensities and support. Its wall is variance. If the new policy chooses actions that the logger rarely chose, weights become large and a few logged events can dominate the estimate.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The formula is the key: V_DR = Σ p(a)·m(a) + mean[ w(a)·(r(a) − m(a)) ]. Part 1 is the direct method: fit a reward model m to the logs and ask what the new policy p would see. Part 2 is an audit: for each logged sample, compute the model's error on it (the residual r − m), reweight that error by importance weight w = p / q (where q is the logger policy), and average the result.`,
-        `This arrangement has two independent safety proofs. If the MODEL is right: every residual is noise centered on zero, the audit term vanishes, and you inherit the direct method's serenity — low variance, no sampling noise. If the WEIGHTS are right: the audit term is an unbiased estimate of exactly the model's bias (the quantity you want to subtract), so even if the model is systematically distorted, the correction brings the answer home.`,
-        `The key insight is that the audit multiplies RESIDUALS, not raw rewards. In importance sampling, weights are asked to carry full reward magnitudes (up to 8 in the live stress tests); in doubly robust, weights carry only the model's ERRORS. A good model shrinks residuals to noise; the same weight multiplying noise instead of full rewards cuts variance by orders of magnitude.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `Compute cost: fit one reward model (same as the direct method), compute importance weights (same as importance sampling), run the formula above. The model-fitting step dominates; the audit is a single pass over the logged data. Variance: depends on the product of model error and weight error. If the model explains the rewards well, variance scales with the model's residual variance (usually tiny); if weights are wild, it scales with the residual magnitudes (much smaller than raw rewards). Bias: equals the PRODUCT of (model error) × (weight error) summed over actions. If either ingredient is right, bias is zero; if both are wrong, DR fails gracefully — the bias is smaller than the sum of independent failures.`,
-      ],
-    },
-    {
-      heading: `Implementation checklist`,
-      paragraphs: [
-        `Log propensities at decision time. Reconstructing them later is often impossible and usually dangerous. Check overlap before trusting the estimate: if the target policy often chooses actions that the logging policy almost never took, no estimator has enough evidence.`,
-        `Use cross-fitting for the reward model and report effective sample size, weight tails, confidence intervals, and slice-level diagnostics. A single DR number without support diagnostics is not an evaluation gate; it is a guess with a sophisticated formula.`,
-      ],
-    },
-    {
-      heading: `Real-world uses`,
-      paragraphs: [
-        `Doubly robust estimation has two famous lives. In statistics, it arrived as AIPW (augmented inverse propensity weighting) in Robins et al. (1994), the standard tool for causal inference from observational data — "would the patient recover under the other treatment?" — where the logger is nature and experiments are infeasible. In machine learning and industry, it reappeared for off-policy evaluation: ads and recommender teams use DR variants (the SNIPS/DR family) to score candidate rankers on logged clicks before any live test. Reinforcement learning uses DR and sequential extensions as default baselines in off-policy evaluation benchmarks. When the choice matters — evaluating an expensive ranker against logs without running a live A/A test — DR is the workhorse. When you CAN randomize, run the experiment instead: A/B Testing & p-values stays the gold standard.`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `The most common misunderstanding: "doubly robust means infinitely robust." It does not. The bias is the PRODUCT of model error and weight error; if both are substantially wrong AND correlated (e.g., the model is wrong in regions the logger never explores), DR fails. Robustness is doubled, not infinite — two independent chances to be correct, not a guarantee. Another trap: confusing the audit term with IPS. The audit computes IPS on RESIDUALS (r − m), not on rewards r; this is essential for variance control. A third pitfall: fitting the model on the same logged data you evaluate on. If the model overfits, its residuals become prediction noise on held-out data, and the audit loses its corrective power — always use cross-fitting or separate data.`,
-      ],
-    },
-    {
-      heading: `Where it fails (2)`,
-      paragraphs: [
-        `DR fails when model error and weighting error line up in the same unsupported region. If the logger rarely explored an action and the reward model is also wrong there, the residual audit has no reliable evidence to repair the direct estimate.`,
-        `It also cannot fix delayed, censored, or biased rewards by itself. Missing clicks, late conversions, position bias, and selective logging have to be handled in the logging and reward pipeline before the estimator can be trusted.`,
-        `The operational warning is support first, estimator second. If the target policy is mostly outside the logged policy's exploration, the honest answer is that the offline data cannot evaluate it. At that point the next step is a safer online experiment, not a more elaborate formula or leaderboard claim at all.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Start with "Importance Sampling & Off-Policy Estimation" to understand IPS and its failure modes — DR exists precisely to patch them. Then read "Contextual Bandit Logged Policy Evaluation Case Study" to see the DR formula embedded in a real logged-policy gate with propensities, support checks, delayed labels, and effective sample size. Read "Propensity Score Overlap Diagnostics" for the balance and common-support checks behind weighting, and "Causal Forest Uplift Policy" for heterogeneous treatment effects. Study "A/B Testing & p-values" to understand when you can run an experiment instead of relying on off-policy estimates. Explore "Gradient Boosting" to see an ensemble method that also learns to correct model predictions.`,
-      ],
-    },
-      {
       heading: 'The obvious approach',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'The direct method is the natural first attempt. Fit a regression model m(a) that predicts reward given action a. Compute the new policy\'s expected reward as V_DM = sum of p(a) * m(a). This is clean, low variance, and requires no importance weights. Teams reach for it because the estimate is a single forward pass through the model, and more data always improves the fit.',
+        'IPS is the other natural attempt. For each logged sample where the old policy chose action a and observed reward r, compute the importance weight w = p(a) / q(a) and report V_IPS = (1/n) * sum of w * r. This is unbiased when the propensities q(a) are correct and every action the new policy might choose was sometimes logged. Teams reach for it because unbiasedness is a hard mathematical guarantee: with enough data, IPS converges to the truth.',
+        'Both are reasonable starting points. The question is what happens when their assumptions crack.',
       ],
     },
-
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The direct method\'s wall is bias that more data cannot fix. If the reward model systematically under-predicts rewards for the actions the new policy favors, the estimate is confidently wrong and stays wrong forever. The error is structural, baked into the model\'s learned function, invisible from inside the model itself.',
+        'IPS\'s wall is variance that grows with coverage mismatch. If the new policy loves an action the old policy rarely chose, the importance weight p(a)/q(a) becomes large. A single logged sample with weight 8 can swing the entire estimate. In the animation\'s stress test B, the bad logger produces weights that spike to 6-8x, and the IPS variance reaches hundreds while the truth is only 5.4.',
+        'You face a dilemma: eat the bias or eat the variance. Neither estimator lets you have both stability and honesty at once.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Instead of choosing between a biased-but-calm estimate and an unbiased-but-wild one, DR runs the model first, then audits it with importance-weighted residuals. The model handles the bulk of the answer. The weights carry only the model\'s leftover errors. This is not a blend or average of two estimators. It is a specific algebraic arrangement where the weights\' job shrinks in exact proportion to how good the model is.',
+        'The formula: V_DR = sum of p(a)*m(a) + (1/n) * sum of w(a) * (r - m(a)). The first term is the direct method verbatim. The second term reweights not rewards but RESIDUALS: each logged sample asks "how wrong was the model here?" and importance weighting carries those errors into the new policy\'s action distribution. If the model were perfect, every residual would be noise centered on zero, and the second term would vanish. If the weights were perfect, the second term would measure the model\'s bias exactly and subtract it.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/College.png/250px-College.png`, alt: `Causal graph with observed variables and directed arrows`, caption: `A causal graph makes the logged-policy problem visible: treatment, covariates, and outcomes decide what the model and weights must adjust. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:College.png.`},
+        'The key architectural move is that weights carry residuals (small numbers) instead of raw rewards (large numbers). A model that explains 90% of the reward variance shrinks the payload under the weights by a factor of 100. This is why DR\'s variance is so much lower than IPS even when the weights are identical.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Step 1: Fit a reward model m(a) to the logged data. This can be any supervised model — linear regression, gradient-boosted trees, a neural network. The model predicts the expected reward for each action.',
+        'Step 2: Compute the direct-method baseline. For each action a, multiply the new policy\'s probability p(a) by the model\'s prediction m(a) and sum: V_DM = sum p(a)*m(a). This is the model\'s best guess at the new policy\'s value.',
+        'Step 3: For each of the n logged samples, compute the residual r_i - m(a_i), where r_i is the observed reward and a_i is the action the logger chose. Multiply by the importance weight w_i = p(a_i) / q(a_i). Average these weighted residuals to get the correction term: (1/n) * sum w_i * (r_i - m(a_i)).',
+        'Step 4: Add the correction to the baseline. V_DR = V_DM + correction. The correction is an IPS estimate applied to the model\'s errors rather than to the raw rewards. Because residuals are smaller than rewards when the model is decent, the weights multiply smaller numbers and the variance drops.',
+      ],
+    },
     {
       heading: 'Why it works',
       paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
+        'The proof has two independent branches, and DR is unbiased if either branch holds. Branch 1: suppose m(a) = E[r|a] exactly. Then r - m(a) is mean-zero noise for every action. The weighted residuals average to zero regardless of what the weights are. The correction vanishes, and V_DR = V_DM, which is already correct. Variance is tiny because the weights multiply noise, not signal.',
+        'Branch 2: suppose the weights are correct, meaning q(a) is the true logging probability for every action. Then E[w * (r - m(a))] = sum over actions of p(a) * (E[r|a] - m(a)) = V_true - V_DM. The correction exactly equals the model\'s bias, so V_DR = V_DM + (V_true - V_DM) = V_true. The estimate is unbiased even if the model is arbitrarily wrong.',
+        'DR\'s bias equals the sum over actions of (weight error) * (model error). This is a PRODUCT of two errors at each action. If either factor is zero everywhere, the bias is zero. If both are nonzero but small, the bias is second-order — the product of two small quantities — which is much smaller than either error alone. Two half-decent ingredients beat one perfect-on-paper one.',
       ],
     },
-
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Compute cost is dominated by fitting the reward model — the same cost as the direct method alone. Once the model exists, the DR correction is a single O(n) pass over the logged data: one subtraction, one multiplication, and one accumulation per sample. Memory is O(n) if you store the weights, or O(1) if you stream.',
+        'Statistical cost is measured in variance. DR variance is proportional to E[w^2 * (r - m)^2]. IPS variance is proportional to E[w^2 * r^2]. The ratio is (r - m)^2 / r^2. A model that explains 90% of reward variance reduces the quantity under the weights by a factor of 100. In the animation\'s stress test B, this turns an IPS variance of hundreds into a DR variance in the tens.',
+        'The practical overhead is bookkeeping: you must log propensities q(a) at decision time, fit the model with cross-fitting to avoid overfitting the residuals, and monitor effective sample size and weight tails. These are the same requirements as IPS, plus one model fit.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'In causal inference, DR is known as AIPW — augmented inverse propensity weighting — introduced by Robins, Rotnitzky, and Zhao in 1994. The canonical application is estimating treatment effects from observational medical data: "would the patient have recovered under the other drug?" The logging policy is whatever process assigned patients to treatments. The reward model is a regression of outcomes on covariates and treatment.',
+        'In industry, ads and recommender teams use DR variants (often called SNIPS/DR or switch estimators) to evaluate candidate ranking policies on logged click data before running any live A/B test. The model absorbs click noise, the weights keep the answer honest. This saves weeks of live experimentation per candidate policy.',
+        'In reinforcement learning, DR and its sequential extensions (doubly robust per-decision importance sampling) are standard baselines in off-policy evaluation benchmarks for game-playing and dialogue agents evaluated from replay buffers.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'DR is not infinitely robust. Its bias is the product of model error and weight error summed over actions. If the model is wrong in exactly the region the logger never explores, the residual audit has no samples to catch the error — both factors are nonzero in the same place, and the product is large. This is the bottom row of the animation\'s survival grid.',
+        'Overfitting the reward model on the same data you evaluate with is a subtle trap. If the model memorizes the training samples, its residuals on those samples are near zero, and the correction term disappears. On new data the model\'s errors reappear but the correction was trained away. Always use cross-fitting: split the logged data, fit the model on one fold, compute residuals on the other, and average.',
+        'DR also cannot fix problems upstream of the estimator. Position bias in logged clicks, delayed conversions, censored rewards, and selective logging all corrupt the reward signal before DR sees it. If the target policy lives mostly outside the logger\'s support, no estimator can save you — run a cautious online experiment instead.',
+      ],
+    },
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Five actions with true mean rewards R = [1, 2, 3, 5, 8]. New policy p = [0.05, 0.10, 0.15, 0.30, 0.40]. True value V = 0.05*1 + 0.10*2 + 0.15*3 + 0.30*5 + 0.40*8 = 0.05 + 0.20 + 0.45 + 1.50 + 3.20 = 5.40. Logging policy q = [0.30, 0.30, 0.20, 0.10, 0.10]. A bad reward model uses m(a) = 0.6*R(a) + 1, giving m = [1.60, 2.20, 2.80, 4.00, 5.80].',
+        'Direct method: V_DM = 0.05*1.60 + 0.10*2.20 + 0.15*2.80 + 0.30*4.00 + 0.40*5.80 = 0.08 + 0.22 + 0.42 + 1.20 + 2.32 = 4.24. This is off by 1.16 from truth, and no amount of data fixes it because the model compresses the reward range.',
+        'Suppose one logged sample: the logger chose action 5 (index 4), observed reward r = 9 (true mean 8, noise +1). Weight w = p(4)/q(4) = 0.40/0.10 = 4.0. Residual = 9 - m(4) = 9 - 5.80 = 3.20. IPS contribution: w*r = 4.0*9 = 36. DR contribution: V_DM + w*(r - m) = 4.24 + 4.0*3.20 = 4.24 + 12.80 = 17.04.',
+        'Both estimates are noisy from one sample. But notice what the weight multiplied: IPS asked it to carry 9 (the full reward), DR asked it to carry 3.20 (just the residual). Over 500 samples this difference compounds. The animation runs this exact scenario and shows DR\'s variance is several times smaller than IPS while both converge to approximately 5.4.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'The foundational paper is Robins, Rotnitzky, and Zhao, "Estimation of Regression Coefficients When Some Regressors Are Not Always Observed" (JASA, 1994), which introduced the AIPW estimator for missing-data problems. Dudik, Langford, and Li, "Doubly Robust Policy Evaluation and Learning" (ICML, 2011) brought DR into the machine-learning off-policy setting with finite-sample error bounds.',
+        'Start with "Importance Sampling & Off-Policy Estimation" on this site to understand IPS variance and weight explosions — DR exists to tame them. Then read "Contextual Bandit Logged Policy Evaluation Case Study" to see DR in a real evaluation pipeline with propensity logging, support checks, and effective sample size. Study "Propensity Score Overlap Diagnostics" for the balance checks that determine whether any estimator has enough evidence. For the experimental alternative, see "A/B Testing & p-values" — when you can randomize, DR is unnecessary.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Doubly Robust Estimation moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

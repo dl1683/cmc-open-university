@@ -103,104 +103,100 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The first frame shows the three-way handshake: SYN, SYN-ACK, ACK. This is connection setup, not speed control. It establishes byte-stream numbering before any data moves.',
-        'The plot frames track cwnd (congestion window) on the y-axis against round-trip times on the x-axis. The steep early curve is slow start: exponential growth while the sender knows nothing about the path. The gentler slope after ssthresh is congestion avoidance: linear probing near a guessed ceiling. The vertical drop at the loss marker is multiplicative decrease.',
-        'The sawtooth shape is not noise. It is the control loop made visible: probe upward, hit a limit, cut back, probe again. Each cycle discovers whether the path has changed since the last loss event.',
-        {type: 'callout', text: 'TCP congestion control is feedback control under blindness: the sender changes cwnd from ACK timing and loss, not from direct queue visibility.'},
-      
-        {type: 'image', src: './assets/gifs/tcp-congestion.gif', alt: 'Animated walkthrough of the tcp congestion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Read the first frame as connection setup. SYN, SYN-ACK, and ACK establish byte-stream numbering; they do not decide how fast the sender should transmit.',
+        'Read the plot as cwnd over round trips. cwnd is the congestion window, the sender-side limit on packets in flight based on inferred network capacity.',
+        {
+          type: 'callout',
+          text: 'TCP congestion control is feedback control under blindness: the sender changes cwnd from ACK timing and loss, not from direct queue visibility.',
+        },
+        {
+          type: 'image',
+          src: './assets/gifs/tcp-congestion.gif',
+          alt: 'Animated walkthrough of the tcp congestion visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'In October 1986, the internet suffered its first congestion collapse. Throughput on the NSFnet backbone dropped by a factor of nearly a thousand because senders responded to packet loss by retransmitting aggressively, flooding already saturated routers with duplicate traffic. More loss caused more retransmissions, which caused more loss.',
-        'Van Jacobson diagnosed the problem in his 1988 paper "Congestion Avoidance and Control." The core observation: TCP senders had no mechanism to discover network capacity. They sent as fast as the receiver allowed, treating the network as a pipe with infinite bandwidth. When routers ran out of buffer space, the resulting drops triggered blind retransmission storms.',
-        'Congestion control exists to solve two problems at once. It must let a single connection find and use available bandwidth efficiently. And it must ensure that many connections sharing a bottleneck link converge to fair shares without a central coordinator. The sender\'s only inputs are local: acknowledgements, timeouts, and round-trip time measurements.',
+        'TCP congestion control exists because a shared network can collapse when senders treat packet loss as only a reason to retransmit. More retransmission can add load to routers that are already dropping packets.',
+        'The sender cannot see router queues or competing flows. It must infer a safe rate from acknowledgements, timeouts, duplicate acknowledgements, and round-trip timing.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious rule is: send bytes as fast as the application produces them, and retry anything the receiver has not acknowledged. This is what pre-1988 TCP did. It works on an unloaded network. On a shared network it is catastrophic, because retransmissions add load to a path that is already dropping packets. The system has positive feedback: congestion causes more traffic, which causes more congestion.',
-        'A fixed send rate is slightly better but still wrong. A rate chosen for a fast LAN overloads a slow WAN link. A rate chosen for a slow link wastes capacity on a fast one. Even if you pick the right rate initially, network conditions change as other flows start and stop. TCP needs an adaptive control loop, not a static parameter.',
+        'The obvious approach is to send as fast as the application and receiver allow, then retransmit anything not acknowledged. That works on an unloaded path but fails when many senders share a bottleneck.',
+        'A fixed send rate is also wrong. A rate that is safe on a slow path wastes a fast path, and a rate that fills a fast path overloads a slow path.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The fundamental difficulty is that the sender cannot see the network. It cannot measure queue depths at intermediate routers. It cannot count how many other flows share the bottleneck link. It cannot read the link capacity. The only feedback is what comes back in acknowledgements: timing (round-trip delay) and gaps (missing sequence numbers imply loss).',
-        'This makes congestion control a distributed inference problem. Each sender must guess the network state from delayed, noisy, indirect signals and adjust its sending rate without coordinating with other senders. If the adjustment rule is too aggressive, senders overshoot and cause oscillations. If too timid, bandwidth sits idle. The wall is the information gap between sender and network.',
+        'The wall is blind feedback control. The sender needs high throughput and fairness, but its signals are delayed and indirect.',
+        'If it increases too aggressively, it builds queues and loss. If it backs off too much, available bandwidth sits idle.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Jacobson\'s insight was AIMD: additive increase, multiplicative decrease. Probe capacity by adding one packet per round trip (additive increase). When loss signals congestion, cut the sending window in half (multiplicative decrease). The asymmetry is the key property. The small additive step tests capacity gently near the ceiling. The large multiplicative cut drains queues quickly when the path is overloaded.',
-        'AIMD has a mathematical property that makes it special among linear control laws: when multiple flows share a bottleneck and each independently runs AIMD, their window sizes converge to equal shares. A flow with a larger window loses more absolute packets on each cut, shrinking faster than a smaller flow. Over repeated cycles, the shares equalize without any explicit fairness protocol. Chiu and Jain proved this convergence property in 1989.',
-        'TCP also separates two kinds of capacity. The receive window (rwnd) says how much data the receiver can buffer. The congestion window (cwnd) says how much data the sender believes the network can carry. The effective window is the minimum of both. This separation lets flow control and congestion control operate independently.',
+        'Use additive increase and multiplicative decrease, or AIMD. Add a small amount of in-flight data each round trip to probe for spare capacity, then cut the window hard when loss signals congestion.',
+        'The asymmetry matters. Gentle growth avoids large overshoot near the ceiling, while halving drains queues quickly after the sender discovers it went too far.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A TCP connection begins with the three-way handshake: the client sends SYN with an initial sequence number, the server replies SYN-ACK with its own sequence number, and the client sends ACK. After this exchange, both sides have proven they can send and receive, and they share a starting point for byte-stream numbering.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/82/TCP_connection_establishment.svg', alt: 'TCP three way connection establishment sequence', caption: 'The handshake establishes sequence-number agreement before congestion control begins moving data. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TCP_connection_establishment.svg.'},
-        'Slow start (Jacobson 1988): cwnd begins at one segment. For each ACK received, cwnd increases by one segment. Because each RTT\'s worth of ACKs roughly doubles the window, growth is exponential: 1, 2, 4, 8, 16, 32 segments over six round trips. The name is ironic; "slow" means slower than blasting the path blind, not slower than linear. Slow start ends when cwnd reaches the slow-start threshold (ssthresh) or when loss occurs.',
-        'Congestion avoidance: once cwnd reaches ssthresh, TCP switches from exponential to linear growth. The window increases by roughly one segment per round trip (specifically, cwnd increases by MSS * MSS / cwnd for each ACK, which sums to about one MSS per RTT). This is the additive-increase phase, probing for spare capacity one packet at a time.',
-        'Fast retransmit and fast recovery (added by TCP Reno, 1990): when the sender receives three duplicate ACKs, it infers loss without waiting for a timeout. It retransmits the missing segment immediately (fast retransmit), halves cwnd, sets ssthresh to the new cwnd, and continues transmitting at the reduced rate (fast recovery). This avoids the expensive timeout-and-restart path, which would reset cwnd to 1 and re-enter slow start.',
-        'Timeout-based recovery: if no ACKs arrive at all (the retransmission timer expires), the sender assumes severe congestion. It sets ssthresh to half the current cwnd, resets cwnd to 1, and re-enters slow start. This is the most aggressive backoff because silence means the path may be completely blocked.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/82/TCP_connection_establishment.svg',
+          alt: 'TCP three way connection establishment sequence',
+          caption: 'The handshake establishes sequence-number agreement before congestion control begins moving data. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TCP_connection_establishment.svg.',
+        },
+        'Slow start begins with a small cwnd and roughly doubles it each round trip: 1, 2, 4, 8, 16, 32. It finds a usable range quickly when the sender has no prior path estimate.',
+        'After cwnd reaches ssthresh, congestion avoidance grows linearly by about one segment per round trip. On loss, Reno-style TCP halves cwnd, updates ssthresh, retransmits, and resumes probing.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument rests on a conservation principle Jacobson called "packet conservation." In equilibrium, a new packet enters the network only when an old packet leaves (signaled by an ACK). This means the number of packets in flight stays roughly constant once the pipe is full. Slow start and congestion avoidance are mechanisms to reach that equilibrium safely; AIMD is the mechanism to maintain it under changing conditions.',
-        'AIMD converges to fairness because the multiplicative cut is proportional to window size. Consider two flows sharing a link, one with cwnd = 40 and another with cwnd = 10. After a loss event, they become 20 and 5. After another round of linear growth and loss, the ratio narrows. Over many cycles, the gap closes. This works without any router support or inter-flow communication.',
-        'The system is stable because the feedback loop has negative gain: congestion causes loss, loss causes window reduction, window reduction reduces congestion. As long as the detection signal (loss or delay) correlates with actual congestion, the loop self-corrects.',
+        'The control invariant is packet conservation. In steady state, a new packet should enter the network when an old packet leaves and produces an ACK.',
+        'AIMD also tends toward fairness. A flow with a larger window loses more absolute packets when all flows halve, and repeated additive growth plus multiplicative cuts pushes competing flows toward similar shares.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The per-connection CPU cost is minimal: a few counters (cwnd, ssthresh, RTT estimator), timers, and arithmetic per ACK. The real cost is in convergence time and bandwidth utilization.',
-        'Slow start reaches a window of W in log2(W) round trips. On a 100 ms RTT path, reaching cwnd = 1024 takes about 10 RTTs or one second. That is fast. Congestion avoidance is slower: recovering from a halving of cwnd = 1000 to cwnd = 500 takes 500 RTTs, or 50 seconds at 100 ms RTT. On high-bandwidth, high-delay paths, this linear recovery is painfully slow.',
-        'Memory cost is the send and receive buffers. The bandwidth-delay product (BDP) sets the minimum buffer needed to fill the pipe: on a 10 Gbps link with 100 ms RTT, BDP is 125 MB. The sender needs at least that much buffer to keep the pipe full during congestion avoidance. On a 100 Gbps link, it is 1.25 GB.',
-        'When the number of connections doubles, each connection\'s fair share halves, but the aggregate utilization should remain near 100%. The cost per connection stays O(1) in state. The convergence time to reach fair shares grows logarithmically with the number of flows.',
+        'Per connection, the state is small: cwnd, ssthresh, timers, sequence numbers, and round-trip estimates. The behavioral cost is convergence time.',
+        'Slow start reaches window W in about log2(W) round trips. Congestion avoidance recovers from a cut of 1,000 packets to 500 packets by adding about one packet per round trip, so a 100 ms RTT path needs about 50 seconds to climb back.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Every HTTP request over TCP uses congestion control. A browser loading a web page opens connections that each independently run slow start and congestion avoidance. CDNs place servers closer to users partly to reduce RTT and therefore speed up slow start convergence.',
-        'SSH, database connections (PostgreSQL, MySQL wire protocol), message brokers (Kafka replication), and internal service-to-service traffic all depend on TCP congestion control for reliable delivery without network collapse. QUIC runs over UDP but implements its own congestion control using the same AIMD principles.',
-        'The pattern generalizes beyond packets. Rate limiters, load shedders, and backpressure systems all implement the same idea: probe capacity with gentle increases, cut aggressively when the downstream path signals overload. If you design a system that sends work into a shared resource, you are designing a congestion controller.',
+        'Every HTTP request over TCP relies on congestion control unless another transport such as QUIC is used. SSH, database connections, message brokers, and service-to-service calls inherit the same feedback loop.',
+        'The pattern generalizes to application systems. Rate limiters, backpressure, and load shedding also probe capacity and reduce input when downstream signals overload.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Loss-based congestion control (Reno, NewReno, CUBIC) treats packet loss as the congestion signal. On paths with large buffers, this means the sender fills the buffer completely before detecting congestion. The result is bufferbloat: throughput looks fine but latency spikes to hundreds of milliseconds because packets sit in long queues. BBR addresses this by estimating bandwidth and RTT directly instead of waiting for loss.',
-        'Head-of-line blocking is a structural limitation. TCP delivers a single ordered byte stream. If one packet is lost, all later bytes are held even if they arrived. For multiplexed protocols like HTTP/2, one lost packet on one logical stream blocks all streams. HTTP/3 uses QUIC to give each stream independent loss recovery.',
-        'High-bandwidth, high-delay networks ("long fat networks") expose Reno\'s linear recovery problem. After a loss on a 10 Gbps, 100 ms path, recovering 62,500 segments of window takes over 100 minutes with +1/RTT growth. CUBIC and BBR were designed specifically for these paths.',
-        'Reno also conflates all loss with congestion. On wireless links, random bit errors cause packet loss that has nothing to do with queue overflow. Treating wireless loss as congestion reduces throughput unnecessarily. This mismatch motivated years of TCP-over-wireless research.',
+        'Loss-based control can create bufferbloat. If routers have large buffers, loss arrives only after queues are full, so throughput looks high while latency becomes terrible.',
+        'Reno also struggles on high-bandwidth, high-delay paths because linear recovery is too slow. CUBIC and BBR were designed to handle paths where classic AIMD leaves capacity unused or reacts to the wrong signal.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Trace a connection with ssthresh = 32, MSS = 1 segment, and a bottleneck that drops packets when cwnd reaches 44.',
-        'Slow start phase: RTT 0: cwnd = 1. RTT 1: cwnd = 2. RTT 2: cwnd = 4. RTT 3: cwnd = 8. RTT 4: cwnd = 16. RTT 5: cwnd = 32. After 6 round trips, cwnd has reached ssthresh. The sender has probed from 1 to 32 segments in flight, doubling each RTT. Total segments sent during slow start: 1 + 2 + 4 + 8 + 16 + 32 = 63.',
-        'Congestion avoidance phase: RTT 6: cwnd = 33. RTT 7: cwnd = 34. Each RTT adds roughly one segment. After 12 more RTTs (RTT 17), cwnd = 44. The sender is now probing one packet at a time near the bottleneck capacity.',
-        'Loss event: at cwnd = 44, the bottleneck drops a packet. The sender receives three duplicate ACKs. Fast retransmit fires. ssthresh is set to 44 / 2 = 22. cwnd is set to 22 (Reno halving). The sender retransmits the lost segment and enters fast recovery.',
-        'Recovery: from cwnd = 22, congestion avoidance resumes. RTT 19: cwnd = 23. RTT 20: cwnd = 24. The sender climbs linearly toward the bottleneck again. If no other flows have joined, it will reach 44 again in about 22 RTTs, and the sawtooth repeats. The average cwnd over the cycle is roughly 33, so average throughput is about 75% of the bottleneck capacity.',
-        'Compare with a timeout instead of fast retransmit: cwnd resets to 1 and slow start restarts. The sender must climb from 1 back to 22 (6 RTTs of slow start), then from 22 to 44 (22 RTTs of congestion avoidance). Total recovery: 28 RTTs instead of 22. Fast retransmit saves 6 RTTs of slow start and avoids the throughput collapse during those rounds.',
+        'Let ssthresh = 32 and the bottleneck drop packets when cwnd reaches 44. Slow start goes 1, 2, 4, 8, 16, 32 in six round trips, sending 63 total segments during that phase.',
+        'Congestion avoidance then grows 33, 34, and so on until cwnd = 44. Loss halves cwnd to 22, and the sender climbs linearly again; returning from 22 to 44 takes about 22 round trips.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Jacobson, "Congestion Avoidance and Control" (SIGCOMM 1988) is the foundational paper. Chiu and Jain, "Analysis of the Increase and Decrease Algorithms for Congestion Avoidance in Computer Networks" (1989) proves AIMD fairness convergence. RFC 5681 defines the current TCP congestion control standard (slow start, congestion avoidance, fast retransmit, fast recovery). Ha, Rhee, and Xu, "CUBIC: A New TCP-Friendly High-Speed TCP Variant" (2008) describes the cubic growth function used by Linux since 2006. Cardwell et al., "BBR: Congestion-Based Congestion Control" (ACM Queue, 2016) explains the model-based alternative to loss-based control.',
-        'Prerequisites: study Sliding Window for the byte-stream flow-control mechanic and How DNS Works for the step before the handshake. Extensions: study TCP Reassembly & SACK Scoreboard for selective acknowledgement and loss recovery internals, TCP Listen Backlog & Accept Queue for server-side connection admission, and QUIC Transport Streams & Loss Recovery for the UDP-based successor that solves head-of-line blocking. Contrasts: compare TCP\'s implicit network feedback with Rate Limiter (Token Bucket) and Circuit Breakers & Deadlines, which make throttling and failure policy explicit at the application layer.',
+        'Study Jacobson 1988, Congestion Avoidance and Control, Chiu and Jain 1989 for AIMD fairness, RFC 5681 for TCP congestion control, and the CUBIC and BBR papers for modern alternatives. Next study sliding windows, TCP SACK, listen backlogs, QUIC loss recovery, and token-bucket rate limiting.',
       ],
     },
   ],

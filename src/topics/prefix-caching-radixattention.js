@@ -291,14 +291,92 @@ const legacyArticle = {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'LLM serving spends a large part of its time in prefill: reading the prompt tokens, computing attention keys and values for every layer, and producing the KV cache that decode will reuse. Many applications repeat long prompt prefixes: system prompts, tool schemas, policy text, examples, retrieved documents, and conversation history.',
-        {type: 'callout', text: 'Prefix caching is correct only for exact token prefixes under the same model contract; semantic similarity is not enough to reuse KV state.'},
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie diagram showing words sharing prefix paths', caption: 'A trie stores shared prefixes once; RadixAttention applies the same shape to reusable token-prefix KV segments. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
-        'Prefix caching exists because recomputing identical prefixes is waste. If two requests begin with the exact same token sequence under the same model and execution contract, the server can reuse the KV state for that prefix and only prefill the suffix. RadixAttention is the SGLang design that organizes this reuse with a radix tree over token prefixes.',
+        'The prefix-trie view starts with repeated prompt structure. The shared system prompt is near the root, and user-specific suffixes are leaves. The new request follows the longest matching path, then computes only what comes after that node.',
+        {type: 'image', src: './assets/gifs/prefix-caching-radixattention.gif', alt: 'Animated walkthrough of the prefix caching radixattention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The eviction view shows the tax. Shared roots are valuable because many leaves depend on them. Cold leaves are cheaper to drop. The safe inference is that reuse is valid only for exact token prefixes under the same model contract.',
       ],
     },
-    ...legacyArticle.sections.slice(1),
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'LLM serving spends a large part of its time in prefill: reading prompt tokens and computing the key-value cache that decode will reuse. Many applications repeat long prefixes such as system prompts, tool schemas, policy text, examples, and conversation history. Recomputing identical prefixes wastes GPU time.',
+        {type: 'callout', text: 'Prefix caching is correct only for exact token prefixes under the same model contract; semantic similarity is not enough to reuse KV state.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie diagram showing words sharing prefix paths', caption: 'A trie stores shared prefixes once; RadixAttention applies the same shape to reusable token-prefix KV segments. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
+        'Prefix caching stores reusable KV state after a request finishes. RadixAttention is the SGLang design that organizes this state in a radix tree over token prefixes. The structure lets a later request reuse the longest exact cached prefix and prefill only the suffix.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to cache whole prompts by string. If the next request has the exact same prompt, reuse the result. This helps duplicates but misses shared prefixes such as the same system prompt followed by different user questions.',
+        'Another tempting approach is semantic reuse. If two prompts mean the same thing, reuse the cache. That is unsafe because KV cache is a tensor result of exact token ids, positions, model weights, adapters, and execution settings, not a meaning-level summary.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is identity. A single whitespace change can produce different token ids, and a different adapter or position scheme changes every downstream KV tensor. A cache hit that ignores these fields can silently return wrong attention state.',
+        'The second wall is memory pressure. KV blocks occupy high-bandwidth memory that active requests also need. Keeping every prefix forever can reduce throughput by starving live decoding.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Store shared prefixes once and treat every cache hit as a longest-prefix match. A trie represents token prefixes as paths, and a radix tree compresses long single-child paths into larger edge labels. The index follows token segments instead of comparing whole prompts repeatedly.',
+        'The invariant is exact reusable state. A node can be returned only when token ids and every computation-changing contract field match. Eviction must never remove KV blocks still needed by live requests.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'When a request arrives, the server tokenizes it and walks the radix tree from the root. The walk stops at the longest cached prefix that matches the request. The server attaches to the cached KV blocks at that node and computes KV only for the remaining suffix.',
+        'After the request finishes, useful suffixes can be inserted back into the tree. LRU-style eviction removes cold leaves first because leaves usually have fewer dependents than shared roots. PagedAttention or a similar block manager handles live KV allocation, while prefix caching decides which old blocks deserve reuse.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Transformer prefill is deterministic for a fixed model contract and token prefix. If two requests share the same first k token ids, those k positions produce the same KV tensors at every layer. Reusing that state is equivalent to recomputing it and copying the same result.',
+        'The radix tree is correct because each path encodes a concrete token prefix. Longest-prefix lookup never claims more reuse than the path proves. Eviction preserves correctness when it removes only unreachable or inactive cache entries and forces later requests to recompute instead of returning stale state.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Lookup cost is proportional to the matched prefix segments, and radix compression reduces pointer hops on long shared runs. If a 2,000-token system prompt is cached and a new 2,200-token request shares it, prefill work falls from 2,200 tokens to about 200 suffix tokens plus lookup overhead. The decode cost for new output tokens is unchanged.',
+        'The memory cost is KV storage across layers, heads, and token positions. Caching a long prefix can save repeated compute but occupy many blocks. The behavioral cost is eviction policy: too aggressive drops useful prefixes, while too generous harms live serving capacity.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'LLM applications with stable system prompts, tool schemas, few-shot examples, or long retrieved context benefit most. Agents that call tools often repeat the same policy and schema prefix across many requests. Chat systems repeat conversation history until a new turn extends it.',
+        'SGLang uses RadixAttention to retain and reuse KV cache across requests. vLLM supports automatic prefix caching with exact prefix matches over KV cache blocks. Both systems aim to reduce repeated prefill, not to make unique decode tokens cheaper.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Prefix caching fails when prompts are mostly unique or unstable near the front. Random request ids, timestamps, shuffled examples, or per-user noise before shared text can destroy the common prefix. Canonicalization must move stable content early when that is semantically safe.',
+        'It also fails across incompatible contracts. Different models, adapters, quantization modes, tokenizer versions, position ids, or cache formats cannot share KV state. In distributed serving, a cache hit on the wrong worker may cost more to transfer than to recompute.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Request 1 has 1,500 system-prompt tokens, 300 tool-schema tokens, and 200 user tokens, for 2,000 prefill tokens. The server computes KV for all 2,000 and stores the path. Request 2 has the same first 1,800 tokens and a different 150-token user suffix.',
+        'A whole-prompt cache misses because the full prompt differs. A radix prefix cache matches the first 1,800 tokens and computes only the 150-token suffix. If prefill costs 40 microseconds per token, the matched request avoids about 1,800 * 40 microseconds, or 72 ms of repeated work before overhead.',
+        'The saving is correct only if token ids, positions, model weights, adapter state, and cache format match. If one request used a different LoRA adapter, the same text would not be the same KV state. The cache must miss and recompute.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: the SGLang paper at https://arxiv.org/abs/2312.07104, the SGLang RadixAttention blog at https://lmsys.org/blog/2024-01-17-sglang/, SGLang documentation at https://sgl-project.github.io/, and vLLM automatic prefix caching documentation. These sources define the serving contract behind the animation.',
+        'Study next: Trie and Adaptive Radix Tree for the index shape, KV Cache for what is reused, PagedAttention for live KV block management, Prompt Cache-Key Canonicalization for identity fields, and SLO-Aware LLM Request Router for the locality versus queue-depth trade.',
+      ],
+    },
   ],
 };

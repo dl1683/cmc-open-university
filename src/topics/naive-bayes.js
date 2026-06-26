@@ -170,41 +170,18 @@ const legacyArticle = {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Naive Bayes exists because classification often starts with weak pieces of evidence rather than one decisive feature. A spam filter sees words. A fraud system sees transaction attributes. A medical triage model sees symptoms. Each signal is imperfect, but together they can shift the odds.',
-        'The model is deliberately small. It counts how often each feature appears in each class, starts from the base rate for each class, then multiplies in the evidence from the observed features. For text, that means asking which class better explains the words in the message.',
-        'It is called naive because it assumes features are conditionally independent given the class. Words are not really independent. "Free" and "winner" often travel together. The surprise is that the classifier can still work well because the decision boundary often survives the wrong independence story.',
-        {type: 'callout', text: 'Naive Bayes wins by turning many weak likelihood ratios into one odds ledger, then accepting the independence tax.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious spam filter is a keyword rule: if the message contains "free" or "winner," send it to junk. That fails immediately because legitimate messages can contain suspicious words, and spam can avoid any single keyword.',
-        'Another shortcut is to ignore base rates. If most mail is legitimate, a single suspicious token should not dominate the decision. Priors matter because the model is comparing explanations: how likely is this message under spam versus ham, including how common each class is before reading the words?',
-        'A third shortcut is to count words without smoothing. If a word never appeared in ham during training, the ham probability becomes zero, and one unseen token can decide the whole message. Real classifiers need smoothing so missing evidence is not treated as impossibility.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'The core insight is odds multiplication. Start with prior odds between classes, then multiply by each feature\'s likelihood ratio. If "free" is 15 times more common in spam than ham, it moves the odds toward spam. If "meeting" is 20 times more common in ham than spam, it moves the odds back.',
-        'The model does not need to understand language in a deep way to be useful. It only needs many features whose likelihood ratios point in mostly useful directions. Evidence accumulates, and the final class is the one with the larger posterior score.',
-        'This is why Naive Bayes is such a strong baseline. Training is counting. Prediction is adding log probabilities. The model is explainable as a ledger of which features pushed the decision toward which class.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c9/Bayes_theorem_visual_proof.svg', alt: 'Visual proof of Bayes theorem with overlapping events and probability formulas', caption: 'Bayes theorem converts priors and likelihoods into posterior odds; Naive Bayes repeats that update feature by feature. Source: Wikimedia Commons, CMG Lee, CC BY-SA 4.0.'},
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Training starts with labeled examples. For each class, count how often each word appears. Convert those counts into conditional probabilities such as P(free | spam) and P(free | ham). Also estimate the class priors, such as P(spam) and P(ham).',
-        'At prediction time, compute one score per class: prior times the likelihood of each observed word under that class. For "free winner click," the spam score is prior spam multiplied by the spam likelihoods for free, winner, and click. The ham score uses the ham likelihoods. Normalize the two scores if a posterior probability is needed.',
-        'Real implementations use log probabilities because raw products get tiny fast. Multiplying many small numbers can underflow to zero. Adding logs gives the same ranking while staying numerically stable.',
-        'Real implementations also use smoothing. Laplace smoothing adds a small count to every word-class pair so unseen words remain possible. Without smoothing, a single token missing from training can wipe out a class score.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/99/Probability_tree.svg', alt: 'Probability tree with conditional branches and joint event leaves', caption: 'A probability tree makes the multiplication rule visible: each branch multiplies prior mass by conditional evidence. Source: Wikimedia Commons, Erzbischof, CC0 1.0.'},
-      ],
-    }
+
+    { heading: 'How to read the animation', paragraphs: ['Read the tables as an odds ledger. The first table is the trained model: each cell estimates how often a word appears in spam or ham, where ham means legitimate mail. The later tables start from prior probabilities and multiply in one word at a time, so the spam-to-ham score ratio equals the prior odds times all likelihood ratios seen so far.']},
+    { heading: 'Why this exists', paragraphs: ['Classification often begins with many weak clues rather than one decisive signal. A mail filter sees words, a risk model sees transaction attributes, and a triage model sees symptoms. Naive Bayes estimates how likely each feature is under each class, starts from the base rate for each class, and asks which class best explains the observed features.', {type: 'callout', text: 'Naive Bayes wins by turning many weak likelihood ratios into one odds ledger, then accepting the independence tax.'}]},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a keyword rule: if an email contains free or winner, mark it as spam. That fails when legitimate mail contains those words or spam uses different language. Another shortcut is to ignore base rates, which fails when one class is rare and a suspicious token should not dominate the decision alone.']},
+    { heading: 'The wall', paragraphs: ['The full Bayesian classifier would need the joint probability of every feature combination under every class. With 50,000 possible words, the number of word-present or word-absent combinations is two raised to 50,000, far beyond any training set. The model needs a simplification that turns an impossible joint table into counts that can actually be learned.']},
+    { heading: 'The core insight', paragraphs: ['The core insight is conditional independence. Naive Bayes assumes that once the class is known, features can be multiplied as if they were independent evidence pieces. That assumption is false for language, but the classifier can still rank classes well when many likelihood ratios point in useful directions.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c9/Bayes_theorem_visual_proof.svg', alt: 'Visual proof of Bayes theorem with overlapping events and probability formulas', caption: 'Bayes theorem converts priors and likelihoods into posterior odds; Naive Bayes repeats that update feature by feature. Source: Wikimedia Commons, CMG Lee, CC BY-SA 4.0.'}]},
+    { heading: 'How it works', paragraphs: ['Training counts features by class. If free appears in 30 percent of spam and 2 percent of ham, the likelihood ratio for that word is 0.30 / 0.02 = 15 in favor of spam. Prediction computes one score per class: prior times the likelihoods of observed features, usually using log probabilities and smoothing in real systems.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/99/Probability_tree.svg', alt: 'Probability tree with conditional branches and joint event leaves', caption: 'A probability tree makes the multiplication rule visible: each branch multiplies prior mass by conditional evidence. Source: Wikimedia Commons, Erzbischof, CC0 1.0.'}]},
+    { heading: 'Why it works', paragraphs: ['The correctness argument is Bayes rule plus the independence approximation. For each class, the posterior score is the class prior multiplied by the likelihood of every observed feature under that class, then normalized across classes. The posterior may be poorly calibrated when evidence is correlated, but the ranking can still be useful when the likelihood ratios point the right way.']},
+    { heading: 'Cost and complexity', paragraphs: ['Training is one pass over labeled data. If the corpus has T tokens and C classes, counting costs O(T), and storage is O(V * C) for vocabulary size V. Prediction for a message with M tokens costs O(M * C), so doubling message length roughly doubles prediction work while doubling vocabulary mostly increases storage.']},
+    { heading: 'Real-world uses', paragraphs: ['Spam filtering is the classic use because words are cheap to count and email classification needs fast decisions. Naive Bayes also works as a baseline for sentiment, topic routing, language identification, risk triage, and symptom scoring. Its best role is often baseline and explanation before heavier models are justified.']},
+    { heading: 'Where it fails', paragraphs: ['It fails when feature dependence controls the answer. Phrases, word order, negation, and syntax can matter more than isolated word counts, so not good and good can look too similar. It also fails when raw posteriors are treated as calibrated confidence without checking smoothing, leakage, priors, and duplicates.']},
+    { heading: 'Worked example', paragraphs: ['Use priors P(spam) = 0.4 and P(ham) = 0.6. For free winner click, spam score = 0.4 * 0.30 * 0.20 * 0.25 = 0.006, and ham score = 0.6 * 0.02 * 0.01 * 0.05 = 0.000006. Normalizing gives 0.006 / (0.006 + 0.000006) = 0.999, or 99.9 percent spam.']},
+    { heading: 'Sources and study next', paragraphs: ['Study Bayes theorem, conditional independence, Laplace smoothing, log probabilities, calibration, precision and recall, and logistic regression. Paul Graham A Plan for Spam is useful historical context, but modern systems usually combine richer features and stricter evaluation.']},
   ],
 };

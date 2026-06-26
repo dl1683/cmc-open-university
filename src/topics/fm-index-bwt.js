@@ -232,8 +232,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The BWT-table view shows every cyclic rotation of the text sorted lexicographically. The first column (F) is the sorted characters; the last column (L) is the Burrows-Wheeler transform. Active cells highlight the BWT characters that participate in a search step. Found cells mark the suffix-array rows that match the current interval.',
-        'The backward-search view walks through the pattern from right to left, one character per step. Each step shrinks a suffix-array interval using the C table and the Occ (rank) function. When the interval is non-empty at the end, its width is the occurrence count, and the suffix-array rows inside it point to the text positions where the pattern appears.',
+        'The BWT-table view shows every cyclic rotation of the text sorted lexicographically. The first column (F) is the sorted characters; the last column (L) is the Burrows-Wheeler transform -- a reversible permutation of the original text. Active cells highlight the BWT characters participating in the current search step. Found cells mark suffix-array rows inside the current match interval.',
+        'The backward-search view walks through a pattern from right to left, one character per step. Each step narrows a suffix-array interval using two precomputed structures: the C table (where each character\'s block begins) and the Occ function (how many times a character appears in a prefix of the BWT). When the interval is non-empty at the end, its width equals the occurrence count.',
         {type: 'callout', text: 'The FM-index keeps suffix-array search but replaces random suffix access with BWT rank steps, so counting can happen inside compressed text.'},
         {
           type: 'diagram',
@@ -254,9 +254,9 @@ export const article = {
           ].join('\n'),
           label: 'BWT construction for banana$: sort all rotations, read off the last column',
         },
-        'The graph view shows the data-flow between components. Text produces a suffix array; the suffix array produces the BWT; the BWT feeds the C table and the Occ/rank structure; C and Occ together update the suffix-array interval during search.',
-      
-        {type: 'image', src: './assets/gifs/fm-index-bwt.gif', alt: 'Animated walkthrough of the fm index bwt visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The graph view shows data-flow between components. Text produces a suffix array; the suffix array produces the BWT; the BWT feeds the C table and the Occ/rank structure; C and Occ together update the suffix-array interval during each backward-search step.',
+        {type: 'image', src: './assets/gifs/fm-index-bwt.gif', alt: 'Animated walkthrough of the fm index bwt visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -274,18 +274,26 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest exact-match method is scanning: slide a window across the text, compare the pattern at every position. This uses O(1) extra space, but every query costs O(nm) in the worst case. For millions of queries against a genome, scanning is hopeless.',
+        'The simplest exact-match method is scanning: slide a window across the text and compare the pattern at every position. This uses O(1) extra space, but every query costs O(nm) in the worst case, where n is text length and m is pattern length. For millions of queries against a genome, scanning is hopeless.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie with words sharing prefixes', caption: 'A trie shows the uncompressed prefix-search idea: explicit edges make lookup easy but spend pointer-heavy space. The FM-index keeps the search power without storing a full trie or suffix tree. Source: Wikimedia Commons, Booyabazooka, public domain.'},
-        'The next step is a suffix array. Sort all n suffixes, then binary-search for the pattern in O(m log n) time, or O(m) with an LCP array. This is clean, correct, and fast. The problem is space: the suffix array alone is n integers, and the LCP array adds another n integers. For large texts, the index dwarfs the data.',
-        'A suffix tree solves the same search in O(m) time but uses even more memory -- typically 10n to 20n bytes due to node pointers, edge labels, and suffix links. Both structures pay a steep space tax for their speed.',
+        'The next step is a suffix array: sort all n suffixes, then binary-search for the pattern in O(m log n) time, or O(m) with an LCP array. The problem is space. The suffix array alone is n integers (4n or 8n bytes), and the LCP array adds another n integers. For large texts, the index dwarfs the data it indexes.',
+        'A suffix tree solves the same search in O(m) time but uses even more memory -- typically 10n to 20n bytes due to node pointers, edge labels, and suffix links. Both structures pay a steep space tax for speed.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is the gap between suffix-array search quality and suffix-array memory cost. A suffix array gives you exact sorted-suffix intervals, but the raw position table can use 4 to 8 times the text size. You cannot just throw it away -- binary search needs random access to suffix-array entries to compare suffixes.',
-        'A compressed full-text index must split the two jobs. Counting only needs interval boundaries; it never touches the actual text positions. Locating needs positions, but only for the rows inside the final interval, and even then the caller may not need all of them.',
-        'The insight behind the FM-index is that the Burrows-Wheeler transform already encodes enough structure to navigate suffix-array intervals without storing the suffix array itself. The BWT groups characters by their right context, making it compressible, and the LF-mapping property lets you simulate walking through the suffix array one character at a time.',
+        'The wall is the gap between suffix-array search quality and suffix-array memory cost. A suffix array gives you exact sorted-suffix intervals, but the raw position table can use 4 to 8 times the text size. You cannot just throw it away -- binary search needs random access to suffix-array entries to compare suffixes against the pattern.',
+        'A compressed full-text index must split the two jobs. Counting only needs interval boundaries; it never touches actual text positions. Locating needs positions, but only for rows inside the final interval, and the caller may not need all of them.',
+        'So the question becomes: can you navigate suffix-array intervals without storing the suffix array? The BWT groups characters by their right context, making it compressible, and its LF-mapping property lets you step through the suffix array one character at a time. But turning that observation into a practical index requires the right combination of auxiliary structures.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The Burrows-Wheeler transform already encodes enough structure to simulate suffix-array search without storing the suffix array itself. The key is the LF-mapping property: the k-th occurrence of character c in the last column of the sorted rotation matrix corresponds to the k-th occurrence of c in the first column. This is true because both columns are permutations of the same multiset and the sort is stable within each character class.',
+        'This property means that if you know where a suffix sits in the sorted order, you can find where the suffix one character longer sits -- without ever looking up the actual text position. A rank query (how many times does c appear in BWT[0..i)?) plus a simple offset (where do suffixes starting with c begin?) gives you the new row. That is the entire navigation primitive.',
+        'Ferragina and Manzini\'s contribution was recognizing that this primitive is enough to run binary-search-style interval narrowing backward through the pattern, and that the BWT itself compresses to the k-th order empirical entropy of the text. Compression and indexing become the same structure. The more compressible the text, the smaller the index -- a property suffix arrays and suffix trees do not have.',
       ],
     },
     {
@@ -351,8 +359,8 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'The correctness invariant: after processing pattern characters P[i..m-1] (scanning right to left), the interval [left, right) contains exactly the suffix-array rows whose suffixes begin with P[i..m-1].',
-        'Base case: before any character is processed, the interval is [0, n) -- all suffixes. After processing the last character P[m-1] = c, the interval is [C[c], C[c] + count(c)) -- exactly the suffixes starting with c.',
-        'Inductive step: suppose the interval [left, right) covers all suffixes starting with P[i+1..m-1]. To extend by one character c = P[i], we need to find, within that interval, only the rows whose BWT entry (the character before the suffix) is c. Those rows correspond to suffixes starting with c followed by P[i+1..m-1]. The LF-mapping property of the BWT guarantees that the k-th occurrence of c in the last column corresponds to the k-th occurrence of c in the first column. So Occ(c, left) counts how many c-rows appear before the current interval, and Occ(c, right) counts how many appear before or within it. Offsetting by C[c] maps these counts into the correct block of the first column. The new interval [C[c] + Occ(c, left), C[c] + Occ(c, right)) is exactly the suffixes starting with P[i..m-1].',
+        'Base case: before any character is processed, the interval is [0, n) -- all suffixes. After processing the last character P[m-1] = c, the interval becomes [C[c], C[c] + count(c)) -- exactly the suffixes starting with c.',
+        'Inductive step: suppose [left, right) covers all suffixes starting with P[i+1..m-1]. To extend by one character c = P[i], we need only the rows in that interval whose BWT entry is c, because those correspond to suffixes starting with cP[i+1..m-1]. The LF-mapping property guarantees the k-th c in the last column maps to the k-th c in the first column. Occ(c, left) counts c-rows before the interval; Occ(c, right) counts c-rows before or within it. Offsetting by C[c] maps these counts into the first column. The new interval [C[c] + Occ(c, left), C[c] + Occ(c, right)) contains exactly the suffixes starting with P[i..m-1].',
         {
           type: 'note',
           text: 'The LF-mapping property holds because sorting is stable on equal characters. The i-th "a" in the last column and the i-th "a" in the first column are the same row, because both columns are permutations of the same multiset and the cyclic structure preserves relative order within each character class.',
@@ -362,19 +370,11 @@ export const article = {
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Structure', 'Count time', 'Locate time (k results)', 'Space', 'Update'],
-          rows: [
-            ['FM-index', 'O(m)', 'O(m + k * s)', 'nH_k + o(n) + O(n/s)', 'rebuild'],
-            ['Suffix array', 'O(m + log n)', 'O(k) after search', 'O(n)', 'rebuild'],
-            ['Suffix tree', 'O(m)', 'O(k) after search', 'O(n), large constant', 'hard'],
-            ['Inverted index', 'O(posting list)', 'O(posting list)', 'O(terms)', 'append'],
-          ],
-        },
-        'Counting with the FM-index takes O(m) rank queries, where m is the pattern length. If the rank structure answers in O(1) (bitvector rank for small alphabets, or wavelet-tree rank for general alphabets at O(log sigma) per query), the count is independent of text length after construction.',
-        'Locating is slower. For each of the k matching rows, the index walks up to s LF-mapping steps (where s is the suffix-array sampling rate) to reach a stored position. Total locate cost is O(k * s). Halving s doubles memory for samples but halves locate time.',
-        'Space is where the FM-index earns its name. The BWT is compressible to nH_k(T) bits (the k-th order empirical entropy of the text) plus lower-order terms. For highly repetitive text like genomes with many similar chromosomes, this can be dramatically smaller than the raw text. The suffix-array samples add O(n/s) integers. In practice, a well-tuned FM-index for a 3 GB genome fits in 2 to 4 GB of RAM -- comparable to the compressed text.',
+        'FM-index: counting takes O(m) time using m rank queries, one per pattern character. Locating k results costs O(m + k * s) where s is the suffix-array sampling rate. Space is nH_k + o(n) bits for the compressed BWT plus O(n/s) integers for sampled suffix-array entries. Updates require a full rebuild.',
+        'Suffix array: counting takes O(m + log n) via binary search, or O(m) with an LCP array. Locating is O(k) since positions are stored directly. Space is O(n) integers -- 4n to 8n bytes with no compression. Updates require a full rebuild.',
+        'Suffix tree: counting takes O(m) by walking edges. Locating is O(k) after search. Space is O(n) but with a large constant -- typically 10n to 20n bytes due to pointers and edge labels. Incremental updates are possible but complex.',
+        'Inverted index: both counting and locating cost O(posting list length) for a term. Space is O(total terms). Supports incremental appends, but only works for word-level or token-level search, not arbitrary substring search.',
+        'The FM-index wins on space when the text is compressible. It trades locate speed (the s-factor walk) and update flexibility (full rebuild) for radical memory savings. For a 3 GB genome with s = 32, the index fits in 2 to 4 GB -- comparable to the compressed text itself.',
         {
           type: 'note',
           text: 'Construction cost is dominated by building the suffix array: O(n) with SA-IS or DC3, or O(n log n) with simpler algorithms. For static text, this is a one-time cost. The BWT and rank structures are derived from the suffix array in O(n) additional time.',
@@ -382,11 +382,11 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Bioinformatics is the FM-index home field. BWA (Li and Durbin, 2009) and Bowtie (Langmead et al., 2009) both use FM-indexes to align short DNA reads to reference genomes. The alphabet is small (A, C, G, T, N), rank structures are compact, and the text is static -- a reference genome rarely changes. The FM-index lets a single workstation hold a human genome index in memory and process billions of reads.',
-        'Compressed text retrieval is the second major use. When the corpus is too large to decompress fully but you need exact substring search, the FM-index lets you count and locate matches directly in compressed space. Pizza&Chili and the SDSL library provide production-quality implementations.',
-        'Any workload with these three properties is a good fit: the text is large and mostly static, queries are exact substring matches (or seeds for approximate matching), and memory pressure is the binding constraint. The FM-index trades locate speed and update flexibility for radical space savings.',
+        'Bioinformatics is the FM-index home field. BWA (Li and Durbin, 2009) and Bowtie (Langmead et al., 2009) both use FM-indexes to align short DNA reads to reference genomes. The alphabet is small (A, C, G, T, N), rank structures are compact, and the text is static -- a reference genome rarely changes. A single workstation can hold the human genome index in memory and process billions of reads.',
+        'Compressed text retrieval is the second major application. When a corpus is too large to decompress fully but you need exact substring search, the FM-index counts and locates matches directly in compressed space. The Pizza&Chili corpus and the SDSL library provide production-quality implementations and benchmarks.',
+        'The general pattern: any workload where the text is large and mostly static, queries are exact substring matches (or seeds for approximate matching), and memory pressure is the binding constraint. The FM-index trades locate speed and update flexibility for space savings that can be an order of magnitude.',
         {
           type: 'bullets',
           items: [
@@ -401,9 +401,9 @@ export const article = {
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The BWT is a global permutation of the text. Inserting, deleting, or modifying even a single character invalidates the entire transform and all rank structures. If your text changes frequently, an inverted index, a dynamic suffix structure, or periodic batch rebuilds will be simpler.',
-        'Locating can be expensive. Counting is O(m), but if the pattern occurs k = 1,000,000 times, returning all positions costs O(k * s) LF-mapping steps. Workloads that need all positions of common patterns may find the FM-index slower than a suffix array, which stores positions directly.',
-        'Approximate matching is not built in. FM-indexes handle exact seeds well, but extending to mismatches or gaps requires backtracking (exponential branching in the worst case) or a separate verification layer. Tools like BWA-MEM use the FM-index for exact seeds and Smith-Waterman for extension -- the FM-index does not replace the aligner.',
+        'The BWT is a global permutation of the text. Inserting, deleting, or modifying even a single character invalidates the entire transform and all rank structures. If the text changes frequently, an inverted index, a dynamic suffix structure, or periodic batch rebuilds will serve better.',
+        'Locating can be expensive. Counting is O(m), but if a pattern occurs k = 1,000,000 times, returning all positions costs O(k * s) LF-mapping steps. Workloads that need all positions of common patterns may find a plain suffix array faster, since it stores positions directly.',
+        'Approximate matching is not built in. FM-indexes handle exact seeds, but extending to mismatches or gaps requires backtracking with exponential branching in the worst case. Tools like BWA-MEM use the FM-index for exact seeds and Smith-Waterman for extension -- the FM-index does not replace the aligner, only the seed-finding stage.',
         {
           type: 'bullets',
           items: [
@@ -413,6 +413,15 @@ export const article = {
             'The sentinel character and alphabet ordering must be consistent; mismatches silently corrupt results.',
           ],
         },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Text: "banana$" (n = 7). Build the suffix array by sorting all suffixes: $, a$, ana$, anana$, banana$, na$, nana$. Their starting positions are SA = [6, 5, 3, 1, 0, 4, 2]. The BWT is the character before each suffix: BWT = "annb$aa" (position 0 wraps to the sentinel at the end).',
+        'Build the C table by counting characters lexicographically smaller: C[$] = 0 (nothing is smaller), C[a] = 1 (one $ is smaller), C[b] = 4 (one $ plus three a\'s), C[n] = 5 (one $ plus three a\'s plus one b). Build the Occ function from the BWT "annb$aa": for example, Occ(a, 3) = 1 because only BWT[0] = \'a\' appears before position 3 among the a\'s.',
+        'Search for "an". Start with the last character \'n\'. Set left = C[n] = 5, right = C[n] + (total n\'s) = 5 + 2 = 7. The interval [5, 7) covers rows 5 and 6, which are the suffixes "na$" and "nana$". Prepend \'a\': left = C[a] + Occ(a, 5) = 1 + 1 = 2, right = C[a] + Occ(a, 7) = 1 + 3 = 4. The interval [2, 4) covers rows 2 and 3, which are "ana$" (position 3) and "anana$" (position 1). Count = 4 - 2 = 2 occurrences.',
+        'Now locate those positions. Suppose the sampling rate is s = 2, so we store SA values at even rows: SA[0] = 6, SA[2] = 3, SA[4] = 0, SA[6] = 2. Row 2 is sampled: SA[2] = 3, so one occurrence is at text position 3. Row 3 is not sampled, so walk LF-mapping: BWT[3] = \'b\', LF(3) = C[b] + Occ(b, 3) = 4 + 0 = 4. Row 4 is sampled: SA[4] = 0. We took 1 step, so the original position is 0 + 1 = 1. The pattern "an" occurs at positions 1 and 3, which is correct: b-an-an-a$.',
       ],
     },
     {

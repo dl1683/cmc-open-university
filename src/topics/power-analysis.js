@@ -144,134 +144,87 @@ export const article = {
       paragraphs: [
         'The animation has two views. "The coin-flip experiment" sets up a scenario where the treatment genuinely works -- a 10% relative lift on a 5% baseline -- then computes the probability that a standard A/B test at n = 2,000 per arm actually detects it. Active cells mark the current calculation. Removed cells mark outcomes the experiment throws away. Compare cells highlight the probability you should be watching.',
         {type: 'callout', text: 'Power is a design-time probability: it says how often this experiment would detect the effect size you claim to care about.'},
-        '"Sizing the experiment, live" sweeps sample size and draws the power curve. The removed marker is the underpowered starting point; the found marker is the 80% convention. The lift table shows how required n scales with effect size. At each frame, read the number first, then the explanation -- the number is the claim, the explanation is the proof.',
-        {
-          type: 'note',
-          text: 'Every number in both views is computed live from the two-proportion power formula, not hard-coded. Change the baseline or the lift in the code and every cell updates.',
-        },
-      
-        {type: 'image', src: './assets/gifs/power-analysis.gif', alt: 'Animated walkthrough of the power analysis visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The sizing view draws the power curve as sample size changes. The safe reading rule is that power describes a design before data arrives, not a confidence score after one run. A found marker at 80% means this design still misses the target effect one time in five.',
+        {type: 'image', src: './assets/gifs/power-analysis.gif', alt: 'Animated walkthrough of the power analysis visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          text: 'The power of a statistical test is the probability that it will yield statistically significant results. Since statistical tests are done in order to yield results, a test\'s power is obviously an important characteristic of it.',
-          attribution: 'Jacob Cohen, Statistical Power Analysis for the Behavioral Sciences (1988)',
-        },
-        'An experiment can return "no significant difference" for two completely different reasons: the treatment genuinely does nothing, or the experiment was too small to see what the treatment does. A p-value after the fact cannot separate those stories. Power analysis exists to answer the question before any data arrives: given the effect size you care about, what is the probability that this design will detect it?',
-        'Without that calculation, teams routinely run experiments that have a 10-15% chance of catching real improvements. They interpret null results as evidence against the feature, shelve genuine wins, and waste weeks of traffic on rituals that were structurally doomed before the first user was enrolled. Power analysis converts "let\'s run it for two weeks and see" into an engineering specification.',
+        'An experiment can fail to find a real effect because the effect is absent or because the experiment is too small. A p-value after the fact cannot separate those two stories. Power analysis asks before launch how often a planned design will detect the effect size that matters.',
+        'This matters because traffic, patients, survey respondents, and benchmark runs are scarce. A team that runs an experiment with 12% power is mostly buying null results. Power analysis turns "run it for two weeks" into a traffic budget tied to a detectable effect.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is to pick a sample size by calendar -- "run for two weeks" -- or by gut -- "2,000 per arm should be enough." Teams reach for this because it is fast, requires no math, and fits neatly into sprint planning. If the effect is large, the test works fine, and the team concludes that planning is unnecessary.',
-        'The approach breaks on small effects. Conversion is a Bernoulli outcome: each user either converts or does not. When baseline conversion is 5%, most observations are zeros, and the sampling wobble in a difference of proportions is large relative to a 0.5 percentage-point true lift. At n = 2,000 per arm, the standard error swamps the signal. The experiment is not cautious; it is a coin flip biased toward "no effect found."',
-        'Calendar-based stopping also invites peeking. If the p-value looks close, the team runs a bit longer; if it crosses 0.05, they stop and celebrate. Unless the test was designed for sequential monitoring, each peek inflates the false-positive rate. The design decision lands at the end of the experiment, after the traffic budget is already spent.',
+        'The obvious approach is calendar sizing. Pick two weeks, split traffic evenly, and check whether p is below 0.05. This feels practical because it matches planning cycles and requires no statistical design work.',
+        'Another common approach is gut sizing. A team chooses 2,000 users per arm because that sounds large. If the effect is huge, the test may work, which hides the problem until the team tries to detect a small but valuable lift.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is the inverse-square law of experiments. The standard error of a difference shrinks as 1/sqrt(n), so to detect half the effect you need roughly four times the sample. A 50% relative lift on a 5% baseline needs about 1,500 users per arm; a 5% relative lift needs about 122,000. Most teams discover this only after collecting data, when the confidence interval is embarrassingly wide.',
-        {
-          type: 'bullets',
-          items: [
-            'Significant when the effect is real: true positive, counted by power = 1 - beta.',
-            'Significant when the effect is absent: false positive, controlled by alpha.',
-            'Not significant when the effect is real: false negative, counted by beta.',
-            'Not significant when the effect is absent: true negative, a correct non-rejection.',
-          ],
-        },
-        'Alpha (the false-positive rate) gets all the cultural attention because p < 0.05 is the threshold everyone memorizes. Beta (the false-negative rate) is equally dangerous but invisible: when power is 10%, the experiment discards 90% of real improvements. Worse, the rare significant results from underpowered tests are systematically inflated -- the winner\'s curse -- because only lucky overestimates clear the significance bar. This is a primary driver of the replication crisis in science and the "exciting result that melts on relaunch" pattern in product experimentation.',
+        'The wall is sampling noise. A 5% baseline conversion rate means 95 out of 100 users do not convert, so a 0.5 percentage-point lift is a small signal inside many zeros. At n = 2,000 per arm, ordinary binomial wobble is large compared with the effect.',
+        'The square-root law makes the wall expensive. Standard error shrinks like 1 / sqrt(n), so detecting half the effect needs about four times the sample. Most teams discover this only after the confidence interval is too wide to support a decision.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Power is the area of the alternative distribution that crosses the rejection threshold. The null distribution describes what the test statistic looks like when the treatment has no effect. The alternative distribution describes what it looks like when the chosen effect size is real.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal curve with standard deviation bands marked around the mean', caption: 'Power analysis is a signal-to-noise calculation over sampling distributions; more sample size narrows uncertainty slowly. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
+        'Increasing n narrows the sampling distributions and moves the alternative statistic away from zero in standard-error units. Raising the target effect does the same thing. Lowering alpha makes the rejection threshold stricter and reduces power unless n increases.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Power analysis connects four quantities: alpha (false-alarm rate), power (1 - beta, the detection rate), effect size (the smallest difference worth finding), and sample size n. Fix any three and the fourth is determined. The standard workflow is: set alpha = 0.05 by convention, set power = 0.80 by convention, choose the minimum detectable effect as a business decision, and solve for n.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal curve with standard deviation bands marked around the mean', caption: 'Power analysis is a signal-to-noise calculation over sampling distributions; more sample size narrows uncertainty slowly. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
-        'For a two-sample test of proportions with baseline p1 and treatment p2, the required n per arm is approximately ((z_alpha + z_beta)^2 * (p1(1-p1) + p2(1-p2))) / (p2 - p1)^2, where z_alpha = 1.96 for two-sided 5% and z_beta = 0.8416 for 80% power. The module computes this live.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Required sample size per arm for a two-sample t-test\n// alpha: significance level (two-sided)\n// power: target power (e.g. 0.80)\n// d: Cohen\'s d = (mu1 - mu2) / sigma_pooled\nfunction requiredN(alpha, power, d) {\n  // z-quantiles from normal CDF inverse\n  const zAlpha = 1.96;   // for alpha = 0.05 two-sided\n  const zBeta  = 0.8416; // for power = 0.80\n  // Each arm needs this many observations:\n  const nPerArm = Math.ceil(\n    2 * ((zAlpha + zBeta) / d) ** 2\n  );\n  return nPerArm;\n}\n// Example: detect d = 0.2 (small effect)\nrequiredN(0.05, 0.80, 0.2);  // => 394 per arm\n// Example: detect d = 0.5 (medium effect)\nrequiredN(0.05, 0.80, 0.5);  // => 64 per arm\n// Example: detect d = 0.8 (large effect)\nrequiredN(0.05, 0.80, 0.8);  // => 26 per arm',
-        },
-        'Cohen classified effect sizes into small (d = 0.2), medium (d = 0.5), and large (d = 0.8) for the two-sample t-test. Analogous conventions exist for other test families: Cohen\'s f for ANOVA, Cohen\'s w for chi-squared, and r for correlation. These benchmarks are starting points, not substitutes for thinking about what effect size matters in your domain. A d = 0.2 difference in drug efficacy might save thousands of lives; a d = 0.8 difference in button color preference might be worthless.',
+        'Choose alpha, power, baseline variance, and the minimum detectable effect. Alpha is the false-positive rate, often 0.05 for a two-sided test. Power is 1 minus beta, where beta is the false-negative rate for the effect size you care about.',
+        'For two proportions, the required n per arm is approximately ((z_alpha + z_beta)^2 * (p1(1-p1) + p2(1-p2))) / (p2 - p1)^2. The formula says the same thing the animation shows: more variance raises n, and a smaller effect raises n sharply. The computation is cheap; the traffic demand is not.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        {
-          type: 'diagram',
-          label: 'Overlapping distributions: null vs. alternative hypothesis',
-          text: '           Null (H0)              Alternative (H1)\n           mu = 0                  mu = delta\n\n      |         |                  |         |\n      |  .--.   |   alpha/2        |   .--.  |\n      | /    \\  |   ------->       |  /    \\ |\n     /  |    | \\|  |         beta  | /  |   \\|\n   /    |    |  \\  |  <----------- |/   |    \\\n  /     |    |   \\ |               /    |     \\\n /      |    |    \\|              /|    |      \\\n--------+----+-----+---->  ------+-----+-------+---->\n        0   z_crit  |             0   z_crit\n                    |             |<-- power -->|\n             rejection            beta is the\n              region              shaded area\n                                  under H1 left\n                                  of z_crit',
-        },
-        'Power analysis works because both the null and alternative distributions are known before data arrives. Under H0, the test statistic is centered at zero; under H1, it is shifted by an amount proportional to the effect size times sqrt(n). The critical value z_crit carves the null distribution into rejection and non-rejection regions. Power is the area of the alternative distribution that falls in the rejection region.',
-        'As n increases, the alternative distribution shifts further right (the signal-to-noise ratio improves), and more of its area lands past z_crit. As the effect size shrinks, the shift shrinks, and the two distributions overlap more. The entire calculation reduces to computing areas under normal curves at known locations -- which is why the formula is simple algebra rather than simulation.',
-        'This does not predict the result of any single experiment. It predicts the long-run detection rate of a design. An 80%-powered test still misses 20% of the time. But making the miss rate explicit before launch prevents the dangerous post-hoc excuse: "we did not find anything, so the effect must not exist."',
+        'The correctness argument comes from precomputing both worlds. Under the null hypothesis, the statistic is centered at zero. Under the alternative, it is shifted by the effect size divided by its standard error.',
+        'A test rejects when the statistic lands beyond the alpha threshold. Power is the probability that the alternative-world statistic lands beyond that same threshold. This is a long-run property of the design, so an 80% powered experiment still misses the chosen effect 20% of the time.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The computation itself is trivial -- a closed-form expression evaluated in microseconds. The real cost is the sample size it demands. Detecting a 10% relative lift on a 5% conversion baseline at 80% power requires roughly 31,000 users per arm -- 62,000 total. For a site with 1,000 daily visitors, that is two months of traffic on a single binary experiment.',
-        {
-          type: 'bullets',
-          items: [
-            '50 percent relative lift: about 2.5 percentage points, roughly 1,500 users per arm and 3,000 total.',
-            '20 percent relative lift: about 1.0 percentage point, roughly 8,000 users per arm and 16,000 total.',
-            '10 percent relative lift: about 0.5 percentage points, roughly 31,000 users per arm and 62,000 total.',
-            '5 percent relative lift: about 0.25 percentage points, roughly 122,000 users per arm and 244,000 total.',
-          ],
-        },
-        'The second cost is commitment. A power calculation forces you to declare a primary metric, a minimum effect, and a stopping rule before launch. That discipline feels restrictive but is the cure for peeking and p-hacking. The pre-registered n defines when the experiment ends, removing the temptation to stop on a lucky day.',
-        'The third cost is convention versus stakes. Eighty percent power and 5% alpha are defaults, not laws. A cheap, reversible UI tweak may tolerate 60% power. A clinical trial or infrastructure migration may need 90% power and 1% alpha. Power analysis makes those choices explicit rather than hiding them under a single p-value.',
+        'The calculation takes milliseconds, but the sample size can be enormous. A 10% relative lift on a 5% baseline means p1 = 0.050 and p2 = 0.055. At 80% power and two-sided alpha 0.05, the design needs roughly 31,000 users per arm.',
+        'The cost behaves quadratically with effect size. If the detectable lift falls from 0.5 percentage points to 0.25 percentage points, n rises by about four times. Power analysis also costs discipline: the metric, effect size, alpha, power, and stopping rule must be declared before launch.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Product A/B testing: converts "run it for two weeks" into a calculated traffic budget. Prevents shipping decisions based on underpowered null results.',
-            'Clinical trials: regulatory agencies (FDA, EMA) require power calculations in trial protocols. Underpowered trials are both scientifically wasteful and ethically problematic -- they expose patients to risk without generating actionable evidence.',
-            'Survey design and polling: determines how many respondents are needed to detect a difference of a given size between groups, preventing expensive data collection that cannot answer the question.',
-            'ML benchmark evaluation: when comparing model A to model B on a noisy metric, power analysis tells you how many evaluation runs or test examples are needed before a 0.5% accuracy difference is reliably distinguishable from noise.',
-            'Variance reduction justification: techniques like CUPED, stratification, and covariate adjustment reduce the effective variance, which is equivalent to increasing n. Power analysis quantifies exactly how much traffic each technique saves.',
-          ],
-        },
-        'The common thread is any setting where data is expensive, decisions are binary (ship or do not ship, approve or reject), and the effect of interest is small relative to noise. Power analysis is most valuable precisely when intuition about "enough data" is worst: rare events, small lifts, high-variance outcomes.',
+        'Product A/B testing uses power analysis to decide whether a traffic budget can answer a launch question. Clinical trials use it to avoid exposing participants to studies too small to produce evidence. Surveys use it to size comparisons between groups before respondents are recruited.',
+        'Machine-learning evaluation uses the same idea when benchmark metrics are noisy. If model A beats model B by 0.2 percentage points on one random split, power analysis asks how many examples or repeated runs are needed before that gap is distinguishable from noise. Variance reduction methods such as CUPED are valuable because reducing variance behaves like increasing n.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Power analysis assumes the design is unbiased. A huge confounded experiment is still confounded; more data does not fix bad identification. If treatment assignment correlates with an unmeasured variable, the test has power to detect a spurious effect, not the causal one. Causal Graphs, Confounding and Simpson\'s Paradox explains why sample size and causal validity are separate problems.',
-        'It fails when inputs are fictional. The formula needs a baseline rate, a variance estimate, and a minimum detectable effect. If any of these are wrong -- because the baseline shifted, attrition was higher than expected, users are clustered, or the team inflated the expected effect to get an affordable n -- the resulting sample size is wrong. "Garbage in, garbage out" is the most common failure mode in practice.',
-        'It fails for exploratory analysis. Power analysis is designed for a single pre-specified test. When teams run dozens of metrics, segments, and subgroup analyses on the same data, the per-test alpha no longer controls the family-wise error rate. Multiple Testing and False Discoveries covers the corrections needed when the dashboard has many endpoints.',
-        {
-          type: 'note',
-          text: 'A subtle misuse is computing power after the experiment (post-hoc power). Observed power is a deterministic function of the p-value and adds no information. If p = 0.25, post-hoc power will be low by construction. The calculation is only useful as a planning tool before data collection.',
-        },
+        'Power analysis assumes the design is unbiased. More sample size does not fix confounding, data leakage, nonrandom assignment, or a metric that measures the wrong behavior. A huge biased experiment has high power to find the wrong answer.',
+        'It also fails when the inputs are fictional. If the baseline rate shifts, users are clustered, attrition is higher than expected, or the minimum detectable effect was chosen only to make n affordable, the result is false precision. Post-hoc power is another trap because it mostly restates the p-value after the data are already known.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the baseline conversion rate is 5% and the team cares about a 10% relative lift, so treatment conversion is 5.5%. The absolute effect is 0.005. For alpha 0.05 two-sided, z_alpha is 1.96; for 80% power, z_beta is 0.84.',
+        'The variance term is 0.05 * 0.95 + 0.055 * 0.945 = 0.0995. The z sum is 2.80, and 2.80 squared is 7.84. The numerator is about 0.780, and dividing by 0.005 squared gives about 31,200 users per arm.',
+        'At 2,000 users per arm, the standard error is far larger, so the real lift is usually hidden inside noise. A non-significant result from that design should not be read as evidence that the feature has no 0.5 percentage-point lift. It mostly says the experiment was not built to see one.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Jacob Cohen, Statistical Power Analysis for the Behavioral Sciences, 2nd edition (1988) -- the foundational reference. Defines effect-size conventions (d, f, r, w), derives power formulas for t-tests, ANOVA, chi-squared, and correlation, and argues that power deserves equal billing with alpha.',
-            'John P.A. Ioannidis, "Why Most Published Research Findings Are False" (2005) -- demonstrates how low power, combined with researcher degrees of freedom, generates a literature dominated by false positives and inflated estimates.',
-            'Georgi Georgiev, Statistical Methods in Online A/B Testing (2019) -- practical treatment of power analysis for product experimentation, covering CUPED, sequential testing, and minimum detectable effects in the conversion-rate setting.',
-          ],
-        },
-        'Study A/B Testing and p-values for the single-test decision rule that power analysis calibrates. Study Confidence Intervals and the Bootstrap for what to report after the experiment concludes -- power determines if you can see; intervals report what you saw, with honest width. Study Multiple Testing and False Discoveries for the corrections needed when a dashboard runs many tests simultaneously. Study Causal Graphs, Confounding and Simpson\'s Paradox to understand why precision (which power controls) and identification (which design controls) are separate problems. For adaptive alternatives, study Multi-Armed Bandits and Thompson Sampling, where traffic allocation responds to incoming data rather than committing to a fixed n.',
+        'Primary sources: Jacob Cohen, Statistical Power Analysis for the Behavioral Sciences, 1988; John P.A. Ioannidis, Why Most Published Research Findings Are False, 2005; and Georgi Georgiev, Statistical Methods in Online A/B Testing, 2019. These sources connect formula design to the practical failure of underpowered studies.',
+        'Study next: A/B Testing and p-values for the single-test rule, Confidence Intervals and Bootstrap for reporting uncertainty after the run, Multiple Testing and False Discoveries for dashboards with many endpoints, and Causal Graphs for why identification and precision are separate problems.',
       ],
     },
   ],

@@ -244,90 +244,93 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The version-vector view compares replicated values using causal metadata. A version vector is a map from actor id to counter, where each counter records how far that actor has advanced.',
         {type: 'image', src: './assets/gifs/version-vectors-dotted-version-vectors.gif', alt: 'Animated walkthrough of the version vectors dotted version vectors visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference is dominance. If every component of vector A is less than or equal to vector B, and at least one is smaller, then B includes the causal history of A and can replace it.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Replicated key-value stores need to know whether a new value replaces an old value or conflicts with it. Physical timestamps are not enough. Two clients can update different replicas at nearly the same time, clocks can skew, and last-write-wins can silently delete real work.',
+        'Replicated databases need to know whether one write supersedes another or conflicts with it. Physical clocks cannot answer that safely because two replicas can accept writes concurrently while their clocks disagree.',
         {
           type: 'callout',
           text: 'Version vectors make replacement a causality question instead of a clock-sorting guess.',
         },
-        'Version vectors attach causal metadata to values. They let the store answer a precise question: did this update observe and descend from that update, or are the two concurrent? Dotted version vectors refine the answer when a small set of servers accepts writes for many clients and several sibling values exist for one key.',
+        'Version vectors exist to preserve updates instead of hiding uncertainty behind last-write-wins. Dotted version vectors refine the same idea when many client writes pass through a smaller set of replica actors.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is one integer version per key. Increment it on every write and keep the largest number. That works on one primary. It fails under multi-primary replication because two replicas can both create version 7 without observing each other.',
-        'The other obvious approach is wall-clock last-write-wins. It is operationally simple, but it converts uncertainty into data loss. If two shopping-cart updates are concurrent, keeping the later timestamp does not mean it is causally newer. It only means one clock value sorted after another.',
+        'The obvious approach is one integer version per key. A primary replica can increment it on each write, and the largest number wins.',
+        'That breaks when two primaries both accept writes from version 6 and each creates version 7. The number 7 no longer says which value observed the other, so replacing one with the other can delete real work.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'A version vector is a map from actor id to counter. Each actor increments its own counter when it creates a new event. To compare two vectors, check every actor component. If A is less than or equal to B in every component and smaller in at least one, A happened before B. If each vector is larger in some component, the updates are concurrent.',
+        'Wall-clock last-write-wins is operationally tempting because it always returns one value. The wall is that timestamp order is not causal order.',
+        'If Alice adds milk to a cart on replica A while Bob adds eggs on replica B, the later timestamp does not mean the later write saw the earlier one. Keeping only the latest value silently drops one user action.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is partial order. A vector [A:2, B:1] is newer than [A:1, B:1] because it includes all of that history plus one more A event.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/55/Vector_Clock.svg', alt: 'Vector clock diagram showing causal and independent events across processes', caption: 'The vector-clock picture shows the same partial-order idea used by version vectors: some events dominate, while independent events remain concurrent. Source: Wikimedia Commons, Schoreck, CC BY-SA 3.0.'},
-        'A dotted version vector separates the causal past from the exact event dot that created a value. The context can summarize many observed events, while the dot names this specific write, such as replica a event 4. That distinction lets the store replace exactly the sibling a client observed while preserving siblings it did not observe.',
+        'A dotted version vector separates the summary of causal past from the exact event that created one sibling. The context says what the client had seen, and the dot says which actor-counter event produced this value.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A read returns values plus causal context. A write sends back the context the client observed. The receiving replica increments its own entry, creates a new value, and compares the incoming context against existing siblings. Existing values covered by the context are obsolete. Values not covered remain concurrent siblings.',
-        'Plain version vectors work well when actor identity is precise and metadata stays small. In Dynamo-style systems, actor identity is often a vnode or server, not every client. Many clients can write through the same actor, which makes a plain summarized vector lose the ability to say which sibling was actually observed.',
-        'Dotted vectors fix this by tagging each sibling with its event dot. If Bob has dot a:1 and Sue has dot a:2, a later write with context covering a:1 should replace Bob but keep Sue. A summarized vector alone can blur those events and either keep obsolete siblings or remove too much.',
-        'The client context is therefore not optional decoration. It is the evidence the server uses to decide which previous values the client knew about. A blind write with no context may be a valid new concurrent update, but it should not erase siblings that the client never observed.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The comparison view proves that vectors encode partial order, not total order. One value can dominate another, two values can tie, or two values can be concurrent. The interesting case is concurrency: the store should expose both values instead of inventing a winner.',
-        'The dotted-vector view proves why per-sibling dots matter. The context says what the client had seen. The dot says which event produced each stored value. Replacement becomes a set operation over causal evidence rather than a timestamp contest.',
-        'When reading an example, track two things separately: the context sent with the write and the dot assigned to the new value. Many confusions come from mixing those together. Context is memory of the past; the dot is the identity of the new event.',
+        'A read returns the current value or siblings plus context. A write sends that context back, and the receiving replica increments its own actor counter to create a new event dot.',
+        'The store compares the incoming context with existing siblings. Any sibling covered by the context is obsolete; any sibling not covered remains concurrent and must be returned or merged later.',
+        'Dotted vectors matter when two siblings share the same actor summary. The dot keeps each sibling identifiable even when the context compresses the rest of the causal past.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The vector comparison works because each actor counter is monotonic. Seeing counter 5 for actor a means the replica has incorporated all events by a up through 5, under the representation contract. Dominance across every actor means one value carries at least as much causal history as the other.',
-        'Dotted vectors work because they avoid confusing a summary with an event identity. A context can say "I have seen through a:1" while a sibling dot says "this value is a:2." The store can preserve a:2 because it is not included in the client causal past.',
+        'The invariant is monotonic counters per actor. If a replica has seen actor A at counter 5, it has incorporated A events through 5 under the representation contract.',
+        'Dominance across all actors proves causal replacement. Concurrency is detected when each vector is larger in some component, meaning neither value contains the full history of the other.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is metadata and comparison work. A vector can grow with the number of actors that update a key. Client-id vectors are precise but can become large. Server-id vectors are bounded by replica count but lose precision unless dotted metadata restores event identity.',
-        'Pruning is dangerous. Removing old entries may be necessary, but it can create false concurrency because the system forgets that one value had observed another. Some systems accept extra siblings as the cost of bounded metadata. Accepting silent lost updates is much harder to justify.',
-        'There is also an API cost. Clients must round-trip context with reads and writes, and application developers must understand that a write may return siblings rather than one winner. The data model is more honest, but it pushes reconciliation into the product surface.',
+        'Comparison costs O(a), where a is the number of actors in the vector. Storage also grows with actor count, so client-id vectors are precise but can become large.',
+        'Server-id vectors bound metadata by replica count, but they can blur distinct client events. Dots add per-sibling precision, which costs a little extra metadata to avoid deleting siblings the client never observed.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Version vectors win in eventually consistent systems that choose availability and explicit reconciliation over global locking. Shopping carts, collaborative metadata, replicated object stores, offline-first systems, and Dynamo-style databases all need a way to surface concurrent writes.',
-        'Dotted vectors win when many clients write through a smaller replica set and sibling precision matters. They keep metadata closer to replication degree while still making replacement behavior precise enough for real object histories.',
-        'They are also useful as an engineering diagnostic. If a system claims active-active writes, ask how it distinguishes overwrite from concurrency. If the answer is only a timestamp, the system may be choosing data loss as its conflict policy.',
+        'Version vectors fit eventually consistent stores that prefer availability and explicit conflict handling over global locking. Shopping carts, offline documents, replicated object stores, and Dynamo-style systems are natural examples.',
+        'They are also diagnostic. If an active-active system claims safe writes but only keeps timestamps, it is choosing a conflict policy that can discard concurrent updates.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is pretending that causality is business reconciliation. A vector can say two cart updates are concurrent, but it cannot decide whether to union items, sum quantities, reject a change, or ask a user. The application still owns semantic merge policy.',
-        'The second failure is hiding siblings behind last-write-wins because conflict handling is inconvenient. That makes the user experience simpler until it drops a real update. Version vectors are valuable because they refuse to erase uncertainty.',
-        'A third failure is unbounded sibling growth. If clients repeatedly write without reading current context, the store may accumulate many concurrent versions. Systems need read-repair, merge functions, user conflict flows, or limits that surface the problem rather than letting metadata and value sets grow forever.',
+        'Causal metadata does not solve semantic merging. It can say two cart updates are concurrent, but the application must decide whether to union items, sum quantities, reject the write, or ask a user.',
+        'Vectors can also grow or create many siblings when clients repeatedly write without reading current context. Systems need pruning, read repair, merge functions, or explicit limits, and each choice changes conflict behavior.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Clocks and Ordering for happened-before, Vector Clocks for the broader event-ordering idea, Amazon Dynamo Case Study for sibling values, Read Write Quorums for replica coordination, CRDTs for automatic merge designs, Delta-State CRDT Anti-Entropy for compact replication, and CAP Theorem for the availability tradeoff that makes explicit conflict metadata necessary.',
-        'A good exercise is to simulate two clients writing through the same replica actor. First use only a summarized vector, then add dots to each sibling. The moment one client updates after reading only one sibling is where the dotted representation earns its keep.',
-        'After that, design the merge rule for a real object. A shopping cart, profile document, and bank transfer should not use the same reconciliation policy. The vector tells you what happened concurrently; the domain tells you what a safe merge means.',
+        'Start with key cart at context [A:0, B:0]. Alice writes through replica A, which creates value milk with dot A:1 and context [A:1, B:0].',
+        'Bob concurrently writes through replica B from the old context, creating eggs with dot B:1 and context [A:0, B:1]. Neither vector dominates because milk is ahead on A and eggs is ahead on B.',
+        'A later client reads both siblings and writes merged cart [milk, eggs] through A. The write carries context [A:1, B:1], creates dot A:2, and covers both older siblings, so the store can replace them with the merged value.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are Lamport, Time, Clocks, and the Ordering of Events in a Distributed System; Fidge and Mattern on vector clocks; the Amazon Dynamo paper; and Almeida et al. on dotted version vectors. These cover happened-before, replica metadata, siblings, and dot precision.',
+        'Study logical clocks, vector clocks, read/write quorums, Dynamo, CRDTs, delta-state anti-entropy, and CAP tradeoffs next. The central lesson is that causality tells you when replacement is safe, while the application owns the merge policy.',
       ],
     },
   ],

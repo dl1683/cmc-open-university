@@ -1,4 +1,4 @@
-﻿// Sliding-window attention as a context policy: cap pairwise attention and
+// Sliding-window attention as a context policy: cap pairwise attention and
 // rolling KV state while preserving recent local detail.
 
 import { matrixState, plotState, InputError } from '../core/state.js';
@@ -168,43 +168,91 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each row as one token deciding which older tokens it may inspect. A token is a position in the prompt or generated text; attention is the operation that scores older positions and mixes their stored key-value information into the next computation.',
         {type: 'image', src: './assets/gifs/sliding-window-attention-context-policy.gif', alt: 'Animated walkthrough of the sliding window attention context policy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The bright band is the active window. Tokens inside the band are visible through exact attention; tokens outside it are not directly visible unless another mechanism such as a summary, retrieval result, or anchor token brings them back. The safe inference rule is local: if a key is outside the allowed band, this layer cannot read it directly.',
       ],
     },
     {
-      heading: 'The context budget problem',
+      heading: 'Why this exists',
       paragraphs: [
-        'Sliding-window attention exists because full attention gives a beautiful interface and an ugly cost curve. In a causal Transformer, each token can attend to every previous token. That direct access is powerful, but the number of token pairs grows with the square of sequence length during training, and the KV cache grows with every token during inference. A model that accepts a long prompt still has to decide which evidence remains cheap to access.',
+        'Full causal attention lets token i read every token before it. That is a simple interface, but it creates a pair for every earlier token, so the attention table grows with sequence length squared during training and the key-value cache grows with every token during generation.',
         {type: 'callout', text: 'Sliding-window attention is not a longer memory; it is a policy that makes recent exact memory cheap and distant exact memory scarce.'},
-        'A sliding window is a context policy. It says: keep exact, direct attention for recent tokens, and stop paying full direct-attention cost for older tokens. That sounds like a compromise because it is one. The point is not to pretend old information is irrelevant. The point is to make memory and compute budgets explicit so long-context systems can run at all.',
+        'A context policy is a rule for deciding which previous information remains cheap to access. Sliding-window attention is the most direct policy: keep recent tokens exact and make old tokens expensive or invisible. It exists because long prompts are only useful when the serving system can still afford latency, memory, and user concurrency.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive answer is full attention forever. That gives every token exact access to every older token, which is appealing for reasoning, quoting, and long dependency chains. The wall is cost. A 4x longer sequence creates roughly 16x more attention pairs during training. During decoding, a long prompt creates a large cache that consumes scarce accelerator memory and limits concurrency. At serving time, the question is not only "can the model read this?" but "how many users can we serve while it reads this?"',
-        'Another naive answer is to advertise a large context length without explaining the internal policy. A model may accept a long input while using local attention, compressed memory, grouped attention, sink tokens, retrieval, or other tricks. Those policies are legitimate, but they are not the same as every token having equal direct access to every other token. Educational material should make that distinction clear.',
-        'The opposite mistake is to use a local window and hope the model remembers everything important. If an exact old clause, variable definition, instruction, or citation falls outside the window and there is no summary, anchor, recurrence, or retrieval path, the model may behave as though the fact is gone. Sliding windows reduce cost by giving something up. The design question is whether the workload can tolerate that loss.',
+        'The obvious approach is full attention forever. If a prompt has 8,000 tokens, each new training position can score all older positions, and no information is hidden by architecture policy.',
+        'That approach is attractive because correctness is easy to reason about: if the answer depends on a clause 6,000 tokens back, the model has a direct path to it. It also keeps model code simple because the mask is just the usual causal lower triangle. The cost is paid as more score entries, more memory traffic, and a larger inference cache.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is quadratic pair growth. A 2,000-token sequence has about 2,000 x 2,000 attention score slots in a dense layer; an 8,000-token sequence has about 16 times as many. Hardware improves constants, but it does not change that multiplication.',
+        'Inference has a different wall: the key-value cache. Every generated token needs stored key and value vectors from previous tokens, and those rows compete for accelerator memory with model weights and other users. A system that can answer one long conversation may still be uneconomical if it cannot serve many conversations at once.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Most next-token decisions depend heavily on recent text. A local attention band spends exact compute where dependency probability is high and refuses to spend the same compute on every distant pair.',
+        'The attention mask is the main idea. Instead of allowing token i to attend to positions 0 through i, the mask allows only positions max(0, i - w) through i, where w is the window size. The model still uses query-key scoring and softmax; the policy changes which scores exist.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'In full causal attention, token i may attend to every token from 0 through i. In sliding-window attention, token i attends only to a bounded recent range, such as the previous w tokens. The attention mask changes from a full lower triangle into a diagonal band. The compute shape changes from roughly n squared token pairs to roughly n times w token pairs, where w is the window size.',
+        'In a transformer, a query vector from the current token is compared with key vectors from allowed older tokens. The resulting scores pass through softmax, then weight the corresponding value vectors. Sliding-window attention changes the allowed older tokens before scoring starts.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Scaled dot-product attention block with query key value mask softmax and output', caption: 'The sliding-window policy changes the mask inside this attention block, not the idea of query-key scoring itself. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_attention_block_diagram.png.'},
-        'During inference, the same idea becomes a rolling cache policy. The system keeps key and value rows for recent tokens and evicts or deprioritizes older rows. Some designs add anchor tokens, attention sinks, recurrent summaries, compressed memory, or retrieval so old information can still influence the model indirectly. A pure local window is the simplest case: old tokens outside the window are not directly visible to new tokens.',
-        'The mechanism is easy to draw but hard to deploy well. The right window size depends on the task. Chat often depends heavily on recent turns. Code editing often depends on the current function, nearby imports, and active errors. Legal analysis may depend on definitions hundreds of pages earlier. A sliding window is therefore not just a model architecture choice; it is a product and evaluation choice.',
+        'With sequence length n and window w, each token scores at most w older positions. Training attention work changes from about n squared pairs to about n times w pairs. During generation, the cache can keep only the most recent w key-value rows for a pure local layer.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Multiheaded_attention%2C_block_diagram.png/250px-Multiheaded_attention%2C_block_diagram.png', alt: 'Multi-head attention block with parallel attention heads and concatenation', caption: 'Multiple heads can learn different local or anchor routes, but each head still pays for the keys its policy exposes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Multiheaded_attention,_block_diagram.png.'},
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Sliding-window attention works when useful context is local or can be made local. Natural language has many short-range dependencies. Code often has strong local structure. Conversation usually weights recent turns heavily. If the model can solve most next-token decisions from a nearby band, full all-pairs attention spends a large amount of compute on weak or redundant dependencies.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Multiheaded_attention%2C_block_diagram.png/250px-Multiheaded_attention%2C_block_diagram.png', alt: 'Multi-head attention block with parallel attention heads and concatenation', caption: 'Multiple heads can learn different local or anchor routes, but each head still pays for the keys its policy exposes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Multiheaded_attention,_block_diagram.png.'},
-        'It also works because local attention improves serving economics. Accelerator memory is one of the hardest constraints in LLM inference. A bounded cache lets systems serve longer streams, more concurrent sessions, or lower latency than they could with unbounded exact history. This matters in real products: a context policy is part of capacity planning.',
-        'The strongest long-context systems rarely rely on a blind local window alone. They combine local detail with other paths: retrieval for exact old evidence, summaries for durable state, sink tokens for stable attention behavior, global tokens for special positions, or hierarchical processing for documents. Sliding windows are often the cheap recent-memory layer in a larger memory system.',
+        'The correctness claim is conditional, not absolute. Sliding-window attention preserves exact access to every dependency whose source token lies inside the window. If the needed evidence is local, the masked model has the same direct attention path that full attention would have used.',
+        'The invariant is that every allowed score is a real causal score and every disallowed score is treated as impossible for that layer. No token can accidentally read the future, and no token can read outside the policy through that attention head. Long-range correctness must come from other paths: summaries, retrieval, recurrence, global tokens, or later architecture layers that expose selected old information.',
       ],
-    }
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'For dense full attention, doubling n roughly quadruples the number of score pairs. For sliding-window attention with fixed w, doubling n roughly doubles the score pairs because each token still sees at most w neighbors. At n = 8,000 and w = 512, a layer considers about 4.1 million local pairs instead of 64 million dense pairs.',
+        'Memory behavior changes in the same direction. The training score matrix can be computed as a band rather than a full square, and a pure local inference cache can evict old key-value rows after w tokens. The hidden cost is quality risk: the model may lose exact old facts unless the system supplies another route.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Sliding windows fit chat, code completion inside a local edit region, speech and audio streams, log analysis, and any task where recent context carries most of the predictive load. They also fit serving systems that need predictable memory per session.',
+        'They are usually one layer in a larger memory design. A long-document assistant may keep local attention for nearby wording, retrieval for old evidence, and summaries for durable task state. That combination is more honest than advertising a huge context length while hiding which tokens are directly visible.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when exact old details matter and no other path preserves them. A contract definition, variable binding, user instruction, or citation outside the window can become unreachable even though it remains in the original prompt.',
+        'It also fails as a product claim when context length is reported without policy. Accepting 128,000 tokens is not the same as every token reading every other token at full fidelity. Evaluation must test the actual workload: quote recovery, codebase navigation, legal cross-reference, multi-turn instruction retention, and distractor resistance.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take 10 tokens numbered 0 through 9 and a window size w = 4. Token 9 may attend to tokens 5, 6, 7, 8, and 9 if self-attention includes the current position. Tokens 0 through 4 are outside the direct band for that layer.',
+        'Full attention for 10 causal tokens has 55 visible pairs if each token can see itself and all previous tokens. The windowed version has 1 + 2 + 3 + 4 visible pairs for the first four tokens, then 5 visible pairs for each of the remaining six tokens, for 40 visible pairs. At 10 tokens the saving is small; at 8,000 tokens with w = 512, the dense count is about 32 million causal pairs while the windowed count is about 4 million.',
+        'Now place the sentence "use euros" at token 2 and the question at token 9. A pure w = 4 layer cannot directly read token 2 from token 9. The answer can still be correct only if earlier layers, summaries, retrieval, or special global positions have moved that fact into the visible band.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study the Transformer paper by Vaswani et al. for scaled dot-product attention, Longformer for local plus global attention, Transformer-XL for recurrence, Mistral-style sliding-window attention for modern decoder use, and FlashAttention for memory-efficient exact attention kernels. The common question is which score pairs are computed, stored, skipped, or approximated.',
+        'Inside this curriculum, study Attention, Grouped-Query Attention KV Sharing, KV Cache Paging, Softmax Temperature, Retrieval-Augmented Generation, Ring Buffer, and Sparse Matrix formats. Those topics explain the math, the serving memory, and the data layout behind the mask.',
+      ],
+    },
   ],
 };

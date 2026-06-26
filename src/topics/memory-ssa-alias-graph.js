@@ -185,109 +185,46 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+    { heading: 'How to read the animation', paragraphs: [
+        'MemorySSA gives memory its own SSA-like graph. A MemoryDef is a write, a MemoryUse is a read, and a MemoryPhi merges memory states at control-flow joins. Active nodes are candidate clobbers, while removed nodes are skipped only when alias analysis proves they cannot affect the address.',
         {type: 'image', src: './assets/gifs/memory-ssa-alias-graph.gif', alt: 'Animated walkthrough of the memory ssa alias graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Ordinary SSA gives each register-like value a clear definition. Memory is harder: a load from `*p` may depend on a store through `*p`, a store through an alias, a call that writes unknown memory, or a path-specific write from another block.',
-        'Optimizers still need direct answers. Can this load reuse an earlier value? Is this store dead? Can this memory operation move out of a loop? MemorySSA exists so those questions start from a sparse graph of memory accesses instead of a new search through raw control flow every time.',
+      ], },
+    { heading: 'Why this exists', paragraphs: [
+        'Ordinary SSA gives each register-like value a clear definition. Memory is harder because a load through p may depend on a store through p, an alias, a call, or a path-specific write. MemorySSA exists so optimizers can ask memory questions through a sparse graph instead of rescanning control flow.',
         {type: 'callout', text: 'MemorySSA makes memory effects searchable by naming every may-reaching write before alias analysis decides which one can actually matter.'},
-      ],
-    },
-    {
-      heading: 'The naive baseline and its wall',
-      paragraphs: [
-        'The naive baseline is a backward scan from each load. Walk previous instructions, then predecessor blocks, until a store or call that might affect the loaded address appears. In a straight-line toy program, that is easy to explain and easy to implement.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is a backward scan from each load. Walk earlier instructions and predecessor blocks until a possible write appears. This works in straight-line code but repeats dense work across branches, loops, and many optimization passes.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png', alt: 'Several control-flow graph shapes showing branches and loops', caption: 'Branches and loops are why a raw backward memory scan keeps revisiting the same control-flow structure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.'},
-        'The wall is repeated dense work. Branches create joins, loops create backedges, calls may write broad memory, and pointers may alias. A pass that scans the CFG for every load can rediscover the same candidate writes again and again. Worse, every pass has to encode its own version of the same memory walk.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'MemorySSA names memory state the way SSA names values. Stores and write-like calls become `MemoryDef` nodes. Loads and read-like calls become `MemoryUse` nodes. Control-flow joins that merge possible memory states get `MemoryPhi` nodes. Memory that existed before the function is represented by `liveOnEntry`.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'Branches create joins, loops create backedges, and calls may write unknown memory. Most candidate writes are irrelevant, but a scan has to inspect them to prove that. The compiler needs a reusable index over may-reaching memory effects.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Name memory accesses explicitly. Stores and write-like calls become MemoryDef nodes, loads become MemoryUse nodes, and joins can receive MemoryPhi nodes. MemorySSA supplies the may-reach structure, while alias analysis supplies address precision.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'MemorySSA is a directed access graph over memory state, not a rescan of source order. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        'The key split is structure versus precision. MemorySSA tells a query where to start walking and which memory definitions may reach it. Alias analysis answers whether a candidate definition can actually clobber the queried address. A `MemoryPhi` is a may-reach merge, not proof that every incoming write aliases the later load.',
-      ],
-    },
-    {
-      heading: 'Animation notes',
-      paragraphs: [
-        'In the def/use/phi view, read the graph as memory state rather than ordinary value flow. `EntryM` is memory before the function. `Def P` and `Def Q` are writes. `Phi` says that either write may reach the join. `Load P` is the read that wants a clobbering definition. The alias node is a separate query, because MemorySSA alone is intentionally conservative.',
-        'In the clobber-walk case study, follow the newest candidate first. The load asks about `*p`. The walker checks the recent store through `q`; if alias analysis says `NoAlias(q,p)`, that store is removed from consideration and the walk continues. If the answer is `MayAlias`, the optimizer must stop with an unknown value. If it reaches a must-alias store to `p`, the load can become an ordinary SSA value fact.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        'Construction starts from the control-flow graph and dominance information. Memory-affecting instructions are mapped to access nodes, and blocks that need to merge different incoming memory states receive `MemoryPhi` nodes. The result is not a full memory version for every variable; it is a sparse access graph for operations that can read or write memory.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Construction uses the control-flow graph and dominance information. Memory-affecting instructions receive access nodes, and merge blocks may receive MemoryPhi nodes. A clobber walk starts from the load\'s defining memory access and walks backward through candidate defs and phis.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Control_flow_graph.svg', alt: 'Control-flow graph with basic blocks connected by directed edges', caption: 'Memory access nodes are placed on top of CFG and dominance structure; the graph controls which memory states can reach a load. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Control_flow_graph.svg.'},
-        'A clobber query starts from the defining memory access of a load or read-like operation. The walker moves backward through candidate `MemoryDef` and `MemoryPhi` nodes. `NoAlias` candidates are skipped because they cannot affect the queried address. `MustAlias` candidates stop the walk with a precise clobber. `MayAlias` candidates stop conservatively unless a more expensive walker can refine the answer.',
-        'Calls fit the same model. A call that may write memory is a broad `MemoryDef`; a readonly call can be modeled as a `MemoryUse`. The precision depends on side-effect summaries and alias information, but the graph shape still gives the optimizer one place to start.',
-      ],
-    },
-    {
-      heading: 'Correctness',
-      paragraphs: [
-        'The safety rule is that a candidate write may be skipped only when alias analysis proves it cannot affect the queried location. If the answer is uncertain, the analysis returns a conservative clobber instead of inventing a value fact. Conservative loss of optimization is acceptable; folding a load past a possible write is a correctness bug.',
-        'Ordering also matters. The walker begins from the newest memory definition visible to the load, so the first non-skippable clobber is the write that blocks replacement, movement, or deletion. `MemoryPhi` nodes preserve path uncertainty at joins until alias analysis and control-flow facts can remove it.',
-      ],
-    },
-    {
-      heading: 'Case study',
-      paragraphs: [
-        'For `*p = 7; *q = 9; x = *p`, the optimizer wants to replace the load with `7`. MemorySSA gives the candidate chain: the load sees the most recent memory state, which includes the store through `q`, and before that the store through `p`.',
-        'If alias analysis proves `q` and `p` do not overlap, `Def Q` cannot clobber the load and the walker continues to `Def P`. Since `Def P` must alias the load of `*p`, the load result is `7`. If alias analysis only says `MayAlias(q,p)`, the optimizer keeps the load because `*q = 9` might have overwritten the same memory.',
-        'The same reasoning powers dead-store elimination, redundant-load elimination, loop-invariant code motion, and GVN-style memory reasoning. MemorySSA does not optimize by itself; it gives those passes a reliable clobber vocabulary.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The build cost includes finding memory accesses, placing memory phis, linking definitions, and maintaining dominance relationships. Query cost depends on how many candidate accesses the clobber walker inspects before alias analysis proves `NoAlias` or finds a stopping clobber.',
-        'The maintenance cost is real. CFG edits, moved instructions, deleted stores, split blocks, new calls, and loop transformations must update MemorySSA or invalidate it. The payoff comes when several passes reuse the same sparse structure instead of each pass scanning CFG regions independently.',
-      ],
-    },
-    {
-      heading: 'Where it wins and fails',
-      paragraphs: [
-        'MemorySSA wins in scalar optimizers that need memory precision while staying sparse: dead-store elimination, redundant-load elimination, LICM, GVN, store-to-load forwarding, and transformations that need fast invalidation after local edits.',
-        'It fails to deliver precision when alias analysis is weak, side-effect summaries are broad, or memory effects are intentionally opaque. It is also the wrong abstraction for reasoning about high-level ownership, data races, or whole-program object lifetimes unless other analyses provide those facts.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'MemorySSA can only be as precise as the alias and side-effect facts attached to it. If every pointer may alias every other pointer, the clobber walk becomes conservative quickly and many optimizations disappear.',
-        'Incorrect maintenance is another failure mode. If a transform moves a store, splits a block, or deletes a call without updating MemorySSA, later passes may reason from a stale memory graph. Optimizers usually treat stale analysis as a correctness risk, not just a missed optimization.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Cache clobber queries carefully, but invalidate them when the CFG or memory accesses change. The useful speedup comes from reusing the sparse graph without making old answers survive transformations that invalidate them.',
-        'Expose conservative answers in diagnostics. When a load cannot be folded because a call or pointer write may clobber it, showing the stopping MemoryDef helps compiler engineers improve alias summaries rather than guessing why an optimization failed.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A loop repeatedly loads a field after a call. The optimizer wants to hoist the load, but only if the call cannot write the same field. MemorySSA gives the load a starting memory definition and makes the call visible as a candidate clobber.',
-        'If function attributes and alias analysis prove the call is readonly for that memory, the walker skips it and finds the earlier stable definition. If the call may write unknown memory, the transform stops. That is the practical value: the optimizer gets a fast answer and a conservative reason when it cannot move the load.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: LLVM MemorySSA documentation at https://llvm.org/docs/MemorySSA.html, LLVM MemorySSA implementation at https://github.com/llvm/llvm-project/blob/main/llvm/lib/Analysis/MemorySSA.cpp, and MemorySSA header reference at https://llvm.org/doxygen/MemorySSA_8h_source.html.',
-        'Study Static Single Assignment & Phi Nodes for value SSA, Dominance Frontier SSA Construction for phi placement, Data-Flow Worklist Analysis for the dense baseline, Sparse Conditional Constant Propagation for sparse reasoning, Alias Analysis for the precision provider, and Loop-Invariant Code Motion for a pass that benefits from fast memory clobber answers.',
-      ],
-    },
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'Safety comes from conservative skipping. A candidate write is ignored only when alias analysis proves NoAlias for the queried address. If the answer is MayAlias, the optimizer stops rather than inventing a value that might be wrong.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Build cost depends on memory accesses, CFG shape, phi placement, and dominance maintenance. Query cost depends on how many candidate defs the walker checks before finding a clobber or proving NoAlias. The payoff is that many passes reuse the same sparse memory graph.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'MemorySSA helps dead-store elimination, redundant-load elimination, loop-invariant code motion, store-to-load forwarding, and value numbering. It also explains missed optimizations by pointing to the MemoryDef or call that conservatively stops a query.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'MemorySSA cannot be more precise than alias and side-effect information. If every pointer may alias every other pointer, walks stop early and optimizations disappear. Stale MemorySSA after CFG edits is worse: it can become a correctness bug.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'For *p = 7; *q = 9; x = *p, the load asks whether x can become 7. The newest candidate write is *q = 9. If alias analysis proves NoAlias(q, p), the walker skips it and reaches *p = 7, so x can fold to 7; if it returns MayAlias, the load must stay.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Start with LLVM MemorySSA documentation and implementation notes. Study SSA, dominance frontiers, data-flow worklists, alias analysis, loop-invariant code motion, global value numbering, and dead-store elimination next.',
+      ], },
   ],
 };

@@ -173,93 +173,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The prefix-table view builds the failure function for pattern ababac. Active cells mark the position being computed. Found cells show border lengths already finalized. The compare color traces the fallback chain when a character fails to extend the current border -- watch it cascade through shorter borders until one works or the chain bottoms out at zero.',
+        'Read the prefix table as a record of pattern self-overlap. Active cells are being computed, found cells are finalized border lengths, and compare cells show the fallback chain through shorter borders.',
         { type: 'callout', text: 'KMP never moves the text pointer backward because every fallback is a proof about pattern self-overlap, not a guess about the text.' },
-        'The search-fallback view runs KMP on text ababababac. Active cells are the text window currently aligned with the pattern. Found cells mark characters confirmed as part of a match. On mismatch, the pattern pointer drops through the fallback chain while the text pointer stays fixed. That frozen text pointer is the visual proof that KMP never backtracks through the text.',
-        'In both views, track two things: the text pointer only moves right, and every fallback of the pattern pointer was paid for by an earlier advance. Those two facts make the algorithm linear.',
-      
+        'The safe inference rule is that a border can be reused after a mismatch. A border is a proper prefix that is also a suffix, so the already matched suffix can become the next candidate prefix without rereading text.',
         {type: 'image', src: './assets/gifs/kmp-prefix-function.gif', alt: 'Animated walkthrough of the kmp prefix function visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Knuth, Morris, and Pratt published "Fast Pattern Matching in Strings" in 1977 to kill redundant work in substring search. The paper circulated as a Stanford technical report from 1974. The problem: when a naive search matches several characters of a pattern and then fails, it slides the pattern forward by one position and re-examines characters it already compared. If the pattern has internal repetition, those re-examinations compound to O(nm) comparisons.',
-        'KMP eliminates them with a precomputed table called the failure function (also called the partial match table or prefix function). The table encodes the pattern\'s self-overlap so that on any mismatch, the algorithm knows exactly how far to shift without re-reading a single text character. The result is the first guaranteed linear-time single-pattern string matcher: O(n+m) time, no exceptions. KMP is also the cleanest introduction to failure links, the structural idea that Aho-Corasick later generalizes to a trie of many patterns.',
+        'Substring search asks whether a pattern appears inside a text. The naive method can repeat the same comparisons many times when the pattern has internal repetition.',
+        'KMP exists to reuse the information learned from a partial match. It preprocesses the pattern once, then scans the text left to right without backing up the text pointer.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Align the pattern at text position 0 and compare left to right. On mismatch, slide the pattern one position forward and start over. This brute-force method is correct and works fine for short inputs or low-repetition text.',
-        'The problem is not correctness -- it is amnesia. If the pattern matched five characters before failing, the algorithm has learned something about those five text characters. Sliding by one and restarting throws that information away. Every discarded partial match is wasted work that a smarter algorithm could reuse.',
+        'The obvious method aligns the pattern at text position 0 and compares characters left to right. On mismatch, it shifts the pattern one position and starts again.',
+        'This is correct and easy to code. It is also forgetful because a mismatch after five matched characters throws away what those five comparisons proved about the text.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The worst cases are built from repetition. Search for AAAAAB in a text of ten thousand A characters followed by a B. At each alignment the naive algorithm matches five A characters, fails at B versus A, slides by one, and repeats almost the same comparisons. For text length n and pattern length m, this costs O(nm) comparisons.',
-        'The text is not large because it contains rich information. It is large because the algorithm keeps forgetting what it already proved. KMP exists to remember just enough about the pattern\'s internal structure to avoid that repeated proof.',
+        'The wall appears on repeated characters. Searching for AAAAAB inside a long run of A characters makes naive search match five A characters, fail on B, shift one step, and repeat.',
+        'For text length n and pattern length m, that worst case is O(nm). The input is not hard because it has rich structure; it is hard because the algorithm keeps reproving the same overlaps.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The key concept is a border: a proper prefix of a string that is also a suffix. In ABABA, the string ABA is a border because ABABA starts with ABA and ends with ABA. The prefix function pi[i] stores the length of the longest border of pattern[0..i].',
+        'A prefix function stores, for every pattern prefix ending at i, the length of its longest border. In ABABA, the substring ABA is a border because it is both the start and the end.',
         { type: 'image', src: 'https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/Pic/kmp-shift.png', alt: 'KMP shift after mismatch using a prefix that is also a suffix', caption: 'The failure shift keeps the matched border and resumes without re-reading earlier text characters. Source: https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/.' },
-        'When a mismatch occurs after matching j characters, the matched portion pattern[0..j-1] has a longest border of length pi[j-1]. That border is simultaneously the end of what was just matched and the beginning of the pattern. So the algorithm can jump the pattern pointer to position pi[j-1] -- keeping those already-matched border characters -- and continue comparing from there. The text pointer never moves backward. Every skipped alignment is provably impossible: it would require a border longer than the one pi already records.',
+        'After a mismatch at pattern index j, pi[j-1] tells which prefix can still match the suffix just seen. The pattern pointer falls back to that length, while the text pointer stays where it is.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'KMP runs two passes. First, build the prefix table from the pattern alone. Walk through the pattern with index i and a candidate border length j. If pattern[i] equals pattern[j], extend the border: pi[i] = j+1, advance both. If they differ and j > 0, fall back: j = pi[j-1] and retry with the next shorter border. If j = 0, record pi[i] = 0 and advance i. This builds the entire table in O(m) time.',
+        'First build the prefix table from the pattern alone. Walk the pattern with index i and candidate border length j; on a match, extend j, and on a mismatch, set j to pi[j-1] until a shorter border works or j reaches zero.',
         { type: 'image', src: 'https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/Pic/kmp-failure-function.png', alt: 'KMP failure function values for pattern abaaba', caption: 'The failure function stores the longest usable border at each pattern position, which turns mismatch recovery into an array lookup. Source: https://cgi.cse.unsw.edu.au/~cs2521/19T1/lecs/week09a/.' },
-        'Second, scan the text. Maintain a match length j (how many pattern characters are currently matched). If text[i] equals pattern[j], advance both pointers. If they differ and j > 0, set j = pi[j-1] -- the pattern pointer drops to the next viable border while the text pointer stays put. If j = 0, advance only the text pointer. When j reaches m, a full match is found.',
-        'The critical detail: a fallback changes the pattern position, not the text position. The algorithm holds the current text character fixed and asks whether a shorter prefix of the pattern can still be extended by that character. This is why KMP works on streams, pipes, and network sockets where rewinding the input is expensive or impossible.',
+        'Then scan the text with match length j. If text[i] matches pattern[j], advance; if it mismatches and j is positive, fall back with j = pi[j-1]; if j is zero, advance the text pointer.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness follows from the border invariant. At every point during the scan, j characters of the pattern are matched against the text ending at position i. When a mismatch occurs, pi[j-1] gives the longest proper prefix of the matched portion that is also a suffix. Jumping to that length preserves exactly the characters that are still matched. Any alignment between the old position and the border position would require a longer border than pi records, which contradicts the maximality of the prefix function.',
-        'The algorithm never misses a match because every skipped alignment is impossible. If an alignment were valid, the pattern would have to have a border longer than pi[j-1] at that position -- but pi already stores the longest one. No valid alignment is skipped; no invalid alignment is tried.',
+        'The invariant is that j characters of the pattern match the suffix of the text already scanned. On mismatch, the longest border is the largest prefix that could still be aligned with that suffix.',
+        'No skipped alignment can be valid. A valid skipped alignment would require a longer border than pi[j-1], which contradicts the definition of the prefix function.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Building the prefix table costs O(m) time and O(m) space, where m is the pattern length. The search pass costs O(n) time, where n is the text length. Total: O(n+m) time, O(m) space. The text pointer advances at most n times and never retreats. The pattern pointer can fall back many times on a single text character, but each fallback cancels a previous advance -- total fallbacks across the entire search are bounded by n.',
-        'Doubling the text doubles the search time. Doubling the pattern doubles the table-build time and table size but does not change how many text characters are inspected. For a 1,000-character pattern in a 1,000,000-character text, KMP performs at most about 1,001,000 comparisons. Naive search in the worst case: up to 1,000,000,000. KMP is deterministic: no hash collisions, no probabilistic false positives, no dependence on alphabet size or character distribution.',
+        'Building the table costs O(m) time and O(m) space for pattern length m. Searching costs O(n) time for text length n, so total time is O(n + m).',
+        'The text pointer advances at most n times. The pattern pointer can fall back many times locally, but each fallback cancels a previous advance, so the total number of fallbacks is linear.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Text editors and IDEs use KMP-style failure links for find and replace -- the user types a search string once, and the editor scans the buffer in a single forward pass without backtracking. Grep implementations on streams use the same principle: read once, match once, never rewind.',
-        'Intrusion detection systems scan network packets for known attack signatures. The packet stream cannot be re-read, and worst-case guarantees matter because an attacker can craft input to trigger O(nm) behavior in naive matchers. Bioinformatics searches for short DNA motifs in genomes billions of bases long -- linear time is the difference between minutes and days.',
-        'KMP also serves as a teaching bridge. The prefix table is a compact failure function for one pattern. Aho-Corasick generalizes that failure function to a trie of many patterns. Understanding KMP first makes Aho-Corasick, suffix trees, and automaton-based matchers far easier to learn.',
+        'KMP fits streaming exact search where the input should be read once. Text editors, log scanners, packet inspection tools, and DNA motif searches all benefit from deterministic linear behavior.',
+        'It is also the cleanest bridge to multi-pattern matching. Aho-Corasick generalizes KMP-style failure links from one pattern to a trie of many patterns.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'On average-case inputs -- natural language with large alphabets and low repetition -- brute force often terminates mismatches after one or two characters, making its practical speed close to KMP. The guaranteed linear bound matters mainly on adversarial or highly repetitive inputs.',
-        'Boyer-Moore compares from the end of the pattern and uses bad-character and good-suffix heuristics to skip entire sections of text. On English text it often inspects fewer than n characters total, which KMP cannot do. Most production string-search routines (glibc strstr, Python str.find) use Boyer-Moore variants or two-way search, not KMP.',
-        'Rabin-Karp uses rolling hashes and is simpler to code, with expected O(n+m) time, though hash collisions can degrade the worst case to O(nm). For searching many patterns simultaneously, Aho-Corasick is the right tool. For many queries over one fixed text, suffix arrays or suffix trees are better -- they preprocess the text once so each query costs O(m log n) or O(m). KMP does not handle approximate matching, regular expressions, edit distance, or semantic similarity.',
+        'KMP is not usually the fastest practical string search on natural language. Boyer-Moore variants and two-way search can skip more text on large alphabets and are common in standard libraries.',
+        'It also handles exact single-pattern matching only. Approximate matching, regular expressions, many arbitrary queries over one fixed text, and semantic search need different tools.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Build the failure table for ABCABD. pi[0]=0: A alone has no proper border. pi[1]=0: AB -- no prefix equals a suffix. pi[2]=0: ABC -- no prefix equals a suffix. pi[3]=1: ABCA starts and ends with A, border length 1. pi[4]=2: ABCAB starts with AB and ends with AB, extending the previous border to length 2. pi[5]=0: ABCABD -- the character after border AB is C, but we need D. Fall back: check the border of AB, which is empty (pi[1]=0). No match at length 0 either. Record pi[5]=0. Final table: [0, 0, 0, 1, 2, 0].',
-        'Search for ABCABD in text ABCABCABD. Match positions 0-4: A,B,C,A,B all match pattern[0..4]. Position 5: text has C, pattern expects D. Mismatch. Consult pi[4]=2: the suffix AB of the matched portion is also the pattern prefix AB, so jump the pattern pointer to index 2 without moving the text pointer backward. Now compare pattern[2]=C with text[5]=C: match. pattern[3]=A with text[6]=A: match. pattern[4]=B with text[7]=B: match. pattern[5]=D with text[8]=D: match. Full pattern found at text position 3. The smart shift saved re-examining the AB that was already matched -- one shift instead of sliding the pattern forward by one position four separate times.',
+        'Build pi for pattern ABCABD. The prefixes A, AB, and ABC have no non-empty border, so pi starts [0, 0, 0].',
+        'For ABCA, the border A has length 1, so pi[3] = 1. For ABCAB, the border AB has length 2, so pi[4] = 2.',
+        'At ABCABD, the next expected border character would be C, but the pattern has D. Fall back from border AB to the empty border, record pi[5] = 0, and the final table is [0, 0, 0, 1, 2, 0].',
+        'Search ABCABD in ABCABCABD. After matching ABCAB, the text has C where the pattern expects D, so KMP uses pi[4] = 2, keeps the suffix AB, compares C with pattern[2], and finds the full match starting at text position 3.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Knuth, Morris, and Pratt, "Fast Pattern Matching in Strings," SIAM Journal on Computing 6(2), 1977. The paper includes a proof that KMP is optimal in the number of text character inspections for the comparison-based model.',
-        'Study next by role. Hashing approach: Rabin-Karp rolls a hash window over the text -- simpler code, expected O(n+m) time, but worst-case O(nm) from collisions. Practical fastest: Boyer-Moore matches right to left with bad-character and good-suffix rules, often sub-linear on large alphabets. Multi-pattern generalization: Aho-Corasick builds a trie with failure links (KMP\'s idea extended to branching), searching thousands of patterns in one pass. Full-text indexing: suffix arrays sort all suffixes of the text so any later pattern query costs O(m log n), ideal when the text is fixed and queries are many. Related structures: tries for prefix lookup, suffix trees for all-occurrence queries.',
+        'Primary source: Knuth, Morris, and Pratt, Fast Pattern Matching in Strings, SIAM Journal on Computing, 1977. The paper proves linear-time exact matching by using the pattern failure function.',
+        'Study Rabin-Karp for hashing, Boyer-Moore for practical skip heuristics, and Aho-Corasick for many patterns at once. Study suffix arrays when the text is fixed and many future pattern queries must be answered.',
       ],
     },
   ],

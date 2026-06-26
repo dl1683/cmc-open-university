@@ -166,84 +166,91 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'States are nodes; transition probabilities label the edges. The highlighted node is the current state. In the weather view, the table rows show the full probability distribution after each round of matrix multiplication. Watch the numbers settle: when successive rows stop changing, the chain has found its stationary distribution.',
-        'In the absorbing-chain view, probability flows into states with no exits (churned, upgraded). The percentages answer "what fraction eventually lands here?" without simulating individual paths. Active nodes are live states; removed nodes are absorbers already holding their final mass.',
+        'A state is one possible condition of the system, such as sunny, cloudy, or rainy. An edge is a transition probability, meaning the chance of moving from one state today to another state tomorrow. Active nodes show the current state or distribution being advanced.',
+        'The tables show probability mass, not individual simulated paths. A row such as day 2 contains the probability of being in each state after two transitions. Found rows mark the stationary distribution, which is a distribution that stays unchanged after another transition.',
         {type: 'callout', text: 'A Markov chain is useful when the current state is enough memory to make the next-step distribution computable.'},
-      
         {type: 'image', src: './assets/gifs/markov-chains.gif', alt: 'Animated walkthrough of the markov chains visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'In 1906 Andrey Markov studied letter sequences in Pushkin\'s Eugene Onegin to prove the law of large numbers beyond independent trials. His key move: model the next letter as depending only on the current letter, not the full history. That deliberate amnesia -- the memoryless property -- turned a combinatorially impossible sequence model into a tractable matrix problem. Every system where the present state carries enough information for the next step is a Markov chain: weather, queues, customer funnels, web surfing, molecular diffusion, board games.',
+        'Many systems move through states over time: weather, queues, customers, board games, web pages, and molecules. Modeling the full history is often impossible because the number of histories grows too fast. A Markov chain is the useful simplification where the current state contains enough information to predict the next-step distribution.',
+        'The memoryless rule is called the Markov property. It says P(next state | full history) equals P(next state | current state). That trade loses detail, but it turns an unbounded history problem into a fixed transition matrix.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Model the full history. Tomorrow\'s weather depends on today, yesterday, the day before, and the entire streak before that: P(X_t | X_{t-1}, X_{t-2}, ..., X_0). A customer\'s next action depends on every prior touchpoint. This is the most accurate model in principle -- it throws away nothing.',
+        'The obvious model keeps the whole past. Tomorrow\'s weather could depend on today, yesterday, the current streak, and the season. A customer\'s next action could depend on every email, click, purchase, and failed payment.',
+        'That approach is attractive because it throws away no evidence. If enough data and compute existed, a full-history model could represent subtle patterns. It fails because the state space becomes too large to estimate or store.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Full-history models grow exponentially. A system with k states and a history of length T has k^T possible pasts. With 3 weather states and 30 days of history, that is 3^30 -- over 200 billion distinct histories, each needing its own transition probability. You cannot estimate that many parameters from data. You cannot store the matrix. You cannot multiply it. The history-dependent model is correct in theory and useless in practice.',
+        'With k possible states and a history length of T, there are k^T histories. Three weather states over 30 days produce 3^30 histories, which is more than 200 billion. Most of those histories will never be observed often enough to estimate a reliable transition probability.',
+        'The wall is not just computation. It is data. A model with billions of parameters for rare histories will memorize noise while still being unable to answer common next-step questions robustly.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The Markov property collapses all history into the current state: P(X_{t+1} | X_t, X_{t-1}, ..., X_0) = P(X_{t+1} | X_t). Instead of k^T histories, you need one k-by-k transition matrix P, where P[i][j] is the probability of moving from state i to state j. Each row sums to 1. The entire long-run behavior of the system -- its stationary distribution, its mixing time, its absorption probabilities -- is encoded in this single matrix.',
+        'Collapse history into the current state. Store one k-by-k transition matrix P where P[i][j] is the probability of moving from state i to state j. Each row sums to 1 because the next state must be somewhere.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Markovkate_01.svg', alt: 'Two-state Markov chain diagram with transition probabilities and self loops', caption: 'A Markov chain is a directed probabilistic graph: edges carry transition probabilities and self-loops carry probability that stays in place. Source: Wikimedia Commons, Joxemai4, CC BY-SA 3.0 or GFDL.'},
-        'The stationary distribution pi satisfies pi*P = pi: push the distribution through one more step and nothing changes. It is the eigenvector of P with eigenvalue 1. Power iteration -- multiplying any starting distribution by P repeatedly -- converges to pi geometrically. The animation shows this convergence live.',
+        'A probability distribution row vector pi advances by multiplication: pi_next = pi * P. Repeating that multiplication shows how probability mass moves. If the chain is well behaved, the distribution settles into pi where pi * P = pi.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Build the transition matrix P. Row i holds the probabilities of leaving state i; each row sums to 1. The weather chain uses P = [[0.7, 0.25, 0.05], [0.3, 0.5, 0.2], [0.2, 0.5, 0.3]]. A starting distribution like (1, 0, 0) -- certainly sunny -- becomes (0.7, 0.25, 0.05) after one multiplication. Multiply again for day 2. By day 10 the distribution reads (0.476, 0.381, 0.143) regardless of whether you started from sun or rain. The chain has forgotten its origin.',
-        'Absorbing chains have states with no exits. In the subscription funnel, trial users go active (60%) or churn (40%); active users upgrade (15%), churn (10%), or stay (75%). The eventual upgrade probability for an active user solves one self-consistent equation: u = 0.15 + 0.75*u, giving u = 0.6. Only 60% of trials reach active, so 36% of all trials eventually upgrade. The remaining 64% pool in churn. No simulation needed -- the algebra gives exact answers.',
+        'Build the transition matrix from rules or data. In the weather animation, a sunny day stays sunny with probability 0.7, becomes cloudy with 0.25, and becomes rainy with 0.05. Starting from certainly sunny means pi0 = (1, 0, 0).',
+        'One step gives pi1 = (0.7, 0.25, 0.05). Another step multiplies that distribution by the same matrix again. The arithmetic blends rows of P according to the current probability mass.',
+        'Absorbing chains add states that cannot be left. In the funnel view, churned and upgraded are absorbing states. Probability eventually pools there, and equations over the transient states give eventual absorption probabilities without simulating every user.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Convergence to a unique stationary distribution is guaranteed when the chain is irreducible (every state can reach every other state) and aperiodic (no forced cycle length). The Perron-Frobenius theorem proves that such a matrix has exactly one eigenvalue equal to 1, and all other eigenvalues have magnitude strictly less than 1. Power iteration amplifies the eigenvalue-1 component and shrinks everything else, so every starting distribution converges to the same pi. The convergence rate is geometric, governed by the spectral gap: the difference between 1 and the second-largest eigenvalue magnitude.',
-        'PageRank\'s 15% teleportation is not a hack -- it is precisely the engineering move that makes the web-link chain irreducible and aperiodic, guaranteeing a unique pi for power iteration to find.',
+        'The Markov property makes repeated matrix multiplication valid. Once you know the current distribution, earlier history has no extra role in the next step. That is why pi * P summarizes all possible one-step transitions at once.',
+        'A unique stationary distribution is guaranteed for finite chains that are irreducible and aperiodic. Irreducible means every state can eventually reach every other state. Aperiodic means the chain is not trapped in a fixed cycle length.',
+        'Under those conditions, every starting distribution converges to the same stationary distribution. The eigenvalue-1 component remains, while other components shrink during repeated multiplication. PageRank uses teleportation to force these conditions on the web graph.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Transition matrix storage: O(k^2) for k states, or O(E) when sparse (E = number of nonzero transitions). One distribution step: multiply a length-k vector by the matrix, costing O(k^2) dense or O(E) sparse. Full-distribution propagation over T steps: O(T*k^2). Finding the stationary distribution exactly requires solving the eigenvalue problem pi*P = pi, which costs O(k^3) by Gaussian elimination. Power iteration is cheaper per step but needs enough rounds to converge -- the spectral gap determines how many.',
-        'The weather chain is tiny (k = 3) and settles in about 10 steps. A web-scale PageRank chain with billions of pages uses sparse iteration because the link matrix has far fewer than k^2 nonzero entries.',
+        'A dense transition matrix costs O(k^2) space for k states, and one distribution step costs O(k^2). If the graph is sparse with E nonzero transitions, storage and one step can be O(E). Doubling the number of states can quadruple dense cost, so sparsity matters.',
+        'Power iteration for a stationary distribution costs one matrix-vector multiply per round. The number of rounds depends on the spectral gap, which measures how much slower the second-largest eigenvalue decays compared with 1. A small gap means slow mixing.',
+        'Absorbing-chain calculations can be done by solving linear equations over transient states. Exact solving costs roughly O(k^3) for dense systems, but small structured models are cheap. Large systems usually use sparse iterative methods.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'PageRank: the random surfer is a Markov chain over web pages; a page\'s rank is its stationary probability. MCMC (Metropolis-Hastings, Gibbs sampling): instead of finding a given chain\'s pi, you engineer a chain whose pi is the distribution you need to sample from, then walk it -- the workhorse of Bayesian statistics. Hidden Markov Models: the state walks a chain but you only observe noisy emissions -- used in speech recognition and gene finding. N-gram language models: state = last n-1 words, transitions = corpus counts -- autocomplete before transformers. Queueing theory: state = queue length, arrivals and departures move it. Financial models: credit rating transitions form a Markov chain for default probability. Reinforcement learning MDPs: a Markov chain plus actions and rewards.',
+        'PageRank models a random surfer as a Markov chain over web pages. Queueing systems model queue length as the state, with arrivals and service completions as transitions. Credit-rating migration models move firms among ratings and default.',
+        'MCMC methods reverse the usual question. Instead of analyzing a given chain, they design a chain whose stationary distribution is the distribution they want to sample. Hidden Markov Models add noisy observations on top of an unobserved Markov state.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The memoryless assumption is often wrong. A user who has failed three payments behaves differently from a user in the same account state with zero failures -- the history matters, but the chain ignores it. Higher-order Markov chains (condition on the last n states) exist but grow the state space to k^n, bringing back the exponential problem. Continuous state spaces (e.g., stock prices, particle positions) require different machinery: Markov processes with transition kernels instead of matrices.',
-        'Not every chain converges to one friendly answer. Reducible chains trap probability in a subset of states; periodic chains bounce in a cycle and never settle. The stationary distribution is a long-run average, not a near-term forecast: the demo\'s day-1 distribution is still (0.7, 0.25, 0.05) even though pi is different. Transition probabilities can also drift -- weather changes with the season, customer behavior shifts with product updates. A matrix estimated last quarter may not describe this quarter.',
+        'The memoryless assumption can be wrong. A user with three failed payments may behave differently from a user in the same account state with none. If history changes the future, the state definition must include that history or the model will be biased.',
+        'Some chains do not converge to one friendly distribution. Reducible chains can trap mass in separate classes. Periodic chains can oscillate forever. Estimated transition probabilities can also drift when the real system changes.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Three-state weather: Sunny, Cloudy, Rainy. Transition matrix P = [[0.7, 0.25, 0.05], [0.3, 0.5, 0.2], [0.2, 0.5, 0.3]]. Start from rain: day 0 = (0, 0, 1). Day 1 = (0, 0, 1) * P = (0.2, 0.5, 0.3). Day 2 = (0.2, 0.5, 0.3) * P = (0.29, 0.4, 0.31). Each step mixes further. By day 10, the distribution is approximately (0.476, 0.381, 0.143) -- the same result you get starting from sun or cloud.',
-        'To find the stationary distribution exactly, solve pi*P = pi with the constraint that entries sum to 1. This gives the system: 0.7*pi_s + 0.3*pi_c + 0.2*pi_r = pi_s; 0.25*pi_s + 0.5*pi_c + 0.5*pi_r = pi_c; pi_s + pi_c + pi_r = 1. The solution is pi = (10/21, 8/21, 3/21), which is approximately (0.476, 0.381, 0.143). Over a long enough run, about 48% of days are sunny, 38% cloudy, and 14% rainy -- regardless of today\'s weather.',
+        'Use the weather matrix P = [[0.7, 0.25, 0.05], [0.3, 0.5, 0.2], [0.2, 0.5, 0.3]]. Start from rain: pi0 = (0, 0, 1). One step gives pi1 = (0.2, 0.5, 0.3).',
+        'For day 2, compute the sunny probability as 0.2*0.7 + 0.5*0.3 + 0.3*0.2 = 0.35. Cloudy is 0.2*0.25 + 0.5*0.5 + 0.3*0.5 = 0.45. Rainy is 0.2*0.05 + 0.5*0.2 + 0.3*0.3 = 0.20.',
+        'Solving pi * P = pi with entries summing to 1 gives pi = (10/21, 8/21, 3/21), about (0.476, 0.381, 0.143). In the long run, the model predicts about 48 percent sunny days, 38 percent cloudy days, and 14 percent rainy days.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Markov, A.A. (1906), "Extension of the law of large numbers to dependent quantities" -- the original paper proving convergence for dependent variables. Norris, J.R. (1997), Markov Chains (Cambridge University Press) -- the standard modern textbook. Brin & Page (1998), "The anatomy of a large-scale hypertextual web search engine" -- PageRank as a Markov chain application.',
-        'Prerequisites: Eigenvalues & Eigenvectors (stationary distribution is an eigenvector), Finite State Machines (the deterministic cousin -- same graph, no probabilities). Extensions: PageRank (web-scale application), Value Iteration (Reinforcement Learning) (Markov chain + choices = MDP). Related: Gossip Protocol (probability flow through a cluster), Graph BFS (state-graph traversal intuition).',
+        'Start with Andrey Markov\'s 1906 work on dependent variables, then read a modern text such as Norris, Markov Chains. For PageRank, read Brin and Page, The Anatomy of a Large-Scale Hypertextual Web Search Engine.',
+        'Study finite state machines for the graph shape without probabilities, eigenvectors for the stationary equation, PageRank for a web-scale application, and value iteration for the version with actions and rewards. Then study MCMC to see chains used as sampling engines.',
       ],
     },
   ],

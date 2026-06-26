@@ -233,99 +233,100 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization shows two views. The adaptation-loop view draws the sampling distribution as an ellipse over a 2D fitness landscape. Each generation, new candidate points appear around the mean, the best are highlighted, and the ellipse updates its center, shape, and orientation. Watch the ellipse: it starts round and drifts toward the shape of the fitness contours.',
+        'The covariance-memory view isolates the covariance matrix itself. You see the eigenvectors as arrows and the eigenvalues as their lengths. As generations pass, the arrows rotate and stretch to align with the directions where good candidates have been found. The step-size sigma scales the whole ellipse; when progress stalls, sigma shrinks.',
         {type: 'image', src: './assets/gifs/cma-es-covariance-adaptation-primer.gif', alt: 'Animated walkthrough of the cma es covariance adaptation primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'Why CMA-ES exists',
+      heading: 'Why this exists',
       paragraphs: [
-        'CMA-ES exists for continuous black-box optimization. The objective gives you a score for a candidate vector, but it does not give a useful derivative, symbolic structure, or cheap local model. That is common in simulator tuning, controller design, robot policy search, engineering calibration, and noisy benchmark optimization.',
+        'Some optimization problems hand you a function f(x) that takes a vector of real numbers and returns a score, but nothing else. No gradient, no symbolic formula you can differentiate, no cheap local model. You can evaluate f at any point, but each evaluation might be expensive: running a physics simulator, testing a robot controller, or scoring a design in a wind tunnel. These are called black-box continuous optimization problems.',
         {type: 'callout', text: 'CMA-ES treats the sampling distribution as the data structure, so successful directions reshape future search.'},
-        'The important assumption is not that the landscape is random. The assumption is that good regions have shape. A valley may be long, narrow, rotated, or scaled differently across variables. CMA-ES, short for covariance matrix adaptation evolution strategy, learns that shape while it searches.',
+        'CMA-ES (Covariance Matrix Adaptation Evolution Strategy) is a search algorithm built for exactly this setting. Instead of following a gradient, it maintains a probability distribution over candidate solutions, samples a population each generation, ranks them by fitness, and reshapes the distribution so that future samples concentrate where good solutions have been found. The key idea is that the distribution itself, not any single candidate, is the thing being optimized.',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is random search around the current best point. Pick a mutation radius, sample a round cloud, evaluate the candidates, keep the best, and repeat. This can work on small friendly problems, but it wastes evaluations when the useful direction is not aligned with the coordinate axes.',
+        'The simplest black-box strategy is isotropic random search. Pick a center point, sample candidates from a spherical Gaussian with some fixed radius sigma, evaluate them all, move the center to the best one, and repeat. This is sometimes called (1+lambda)-ES with a fixed step size. It works on small, well-conditioned problems where the fitness landscape is roughly bowl-shaped and axis-aligned.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density curves', caption: 'CMA-ES starts from Gaussian sampling intuition, then replaces the fixed scalar spread with a learned covariance shape. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Normal_Distribution_PDF.svg.'},
-        'A fixed round cloud has no memory of direction. If the optimum lies down a diagonal valley, most samples fall into the valley walls instead of along the valley. Shrinking the radius avoids bad jumps but also slows progress. Increasing it explores faster but throws more samples away.',
+        'A spherical cloud treats all directions equally. If the real fitness contours are elliptical, meaning progress is fast along one direction and slow along another, the round cloud wastes most of its samples on directions that yield little improvement. In a 10-dimensional space with a condition number of 100 (one axis matters 100 times more than another), a round cloud needs roughly 100 times more evaluations than one aligned with the landscape.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Fixing the step size does not help. If sigma is large, samples overshoot narrow valleys. If sigma is small, the search creeps. Adapting sigma alone (the 1/5th success rule from classical ES) still leaves the shape round. In d dimensions, a round search must sample O(d) points per useful step along each axis, because it cannot distinguish directions.',
+        'The deeper problem is that real fitness landscapes are rotated and scaled in ways that do not align with the coordinate axes. A narrow diagonal valley in 2D means the useful search direction is at 45 degrees. No axis-aligned step size can capture that. You need a way to learn which directions matter and how much, from the fitness evaluations themselves.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'CMA-ES does not treat mutation as a fixed noise source. It treats the search distribution as the main data structure. The state contains a mean vector, a covariance matrix, a global step size, evolution paths, and weights for the best ranked candidates.',
+        'CMA-ES replaces the fixed round cloud with a full multivariate Gaussian parameterized by a mean vector m, a covariance matrix C, and a global step size sigma. The mean says where to search. The covariance matrix C encodes the shape: its eigenvectors define the principal axes of the search ellipse, and its eigenvalues define how far to stretch along each axis. Sigma scales everything uniformly.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d8/Concept_of_directional_optimization_in_CMA-ES_algorithm.png', alt: 'CMA-ES generations showing an adapting elliptical sampling distribution', caption: 'The orange ellipse makes covariance adaptation visible: selected samples stretch and rotate the next search distribution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Concept_of_directional_optimization_in_CMA-ES_algorithm.png.'},
-        'The mean says where the next population is centered. The covariance matrix says which directions should be sampled more or less often. The step size says how large the overall cloud should be. Together they form a moving coordinate system learned from successful samples.',
+        'After each generation, the algorithm updates C using the directions that the best-ranked candidates moved. If the top candidates all moved northeast, C stretches the ellipse along the northeast direction. Over several generations, C converges toward the inverse Hessian of the fitness landscape (or its low-rank approximation), which is exactly the shape that makes gradient-free search most efficient. The distribution becomes the data structure: it encodes everything the optimizer has learned about the local geometry.',
       ],
     },
     {
-      heading: 'One generation',
+      heading: 'How it works',
       paragraphs: [
-        'A generation starts by sampling a population from a multivariate Gaussian centered at the current mean. Each candidate is evaluated by the black-box objective. The candidates are ranked, not used through raw score magnitudes, so the method is mostly driven by ordering rather than fragile scale assumptions.',
-        'The best ranked candidates pull the mean. Their steps also update the covariance and path variables. Then the next generation samples from the new distribution. This loop is simple to state, but the state update is doing a lot of work: it converts a batch of scalar scores into a better search geometry.',
-        'Selection pressure is controlled by how many top candidates contribute and by their weights. Using several winners is less brittle than chasing the single best sample, especially when evaluations are noisy. The population is a small experiment about the local search shape.',
-      ],
-    },
-    {
-      heading: 'Covariance memory',
-      paragraphs: [
-        'Covariance is the part that makes CMA-ES more than hill climbing. A covariance matrix records variance along each dimension and correlation between dimensions. When winning steps repeatedly move along a diagonal direction, the matrix rotates and stretches the sampling cloud along that direction.',
-        'This matters because a rotated search distribution can make a hard problem look easier. Instead of spending most samples sideways against a narrow valley, the optimizer spends more samples along the valley. It is not learning the objective formula. It is learning an empirical coordinate system that makes useful moves more likely.',
-      ],
-    },
-    {
-      heading: 'Step size and paths',
-      paragraphs: [
-        'The covariance matrix handles shape, but CMA-ES also needs a global scale. If steps are consistently aligned, the optimizer can often move faster. If steps cancel each other or bounce around, it should shrink the cloud. Sigma, the global step size, controls that pressure.',
-        'Evolution paths are smoothed traces of recent successful movement. They keep the algorithm from overreacting to a single lucky sample. A one-generation accident should not reshape the whole distribution. A repeated trend should change both the covariance and the step size.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The adaptation-loop view is showing the optimizer state, not a single champion candidate. The useful thing to follow is the distribution: mean to samples, samples to rankings, rankings to paths, paths to covariance and sigma, then back to the next generation.',
-        'The early plot is deliberately broad and generic. The later plot is tilted toward the useful direction. That visual change is the lesson. CMA-ES turns repeated selected steps into a sampling shape, so the next population is not just near the previous best point. It is biased toward directions that have produced progress.',
+        'State: mean vector m (d-dimensional), covariance matrix C (d x d, symmetric positive-definite), step size sigma (scalar), evolution path p_c (for covariance), evolution path p_sigma (for step size), and selection weights w_1 >= w_2 >= ... >= w_mu for the top mu candidates out of lambda total.',
+        'Sample: generate lambda candidates x_i = m + sigma * N(0, C) for i = 1..lambda. Evaluate f(x_i) for all i. Rank them by fitness. The top mu candidates are the "selected" set.',
+        'Update mean: m_new = sum of w_i * x_(i:lambda) for i = 1..mu, where x_(i:lambda) is the i-th best candidate. This moves the center toward the weighted average of the winners.',
+        'Update evolution paths: p_c accumulates the direction m moved, normalized by C. p_sigma accumulates the same direction but normalized by the square root of C. Both paths use exponential smoothing with a decay constant around 1/sqrt(d), so they average over roughly sqrt(d) generations.',
+        'Update C: the new covariance is a weighted combination of the old C (with decay), the outer product of p_c (the "rank-one" update capturing the overall drift direction), and the sum of outer products of the selected steps (the "rank-mu" update capturing the spread of good directions). Concretely, C_new = (1 - c1 - c_mu) * C + c1 * p_c * p_c^T + c_mu * sum of w_i * (x_i - m_old)(x_i - m_old)^T / sigma^2.',
+        'Update sigma: compare the length of p_sigma to its expected length under random selection. If p_sigma is longer than expected (steps are correlated, meaning consistent progress), increase sigma. If shorter (steps are canceling, meaning overshooting), decrease sigma. The update is sigma_new = sigma * exp((||p_sigma|| / E[||N(0,I)||] - 1) * c_sigma / d_sigma).',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'CMA-ES works because it uses population-level evidence. One candidate score is weak information. A ranked batch of candidates gives a direction of improvement and a rough picture of which movements were useful. Accumulated over generations, that evidence can recover scale and correlation information even without gradients.',
-        'The method is also relatively insensitive to monotonic transformations of the objective because rankings drive selection. If one score scale is distorted but the order of candidates stays the same, the update usually sees the same winners. That is useful when objective values come from simulations, noisy measurements, or arbitrary scoring functions.',
-        'The covariance update is also a form of memory. It does not store every past sample. It compresses repeated success into a matrix that changes future sampling probabilities. That compression is why the optimizer can exploit structure without building a full surrogate model of the objective.',
+        'Ranking instead of raw fitness values makes the algorithm invariant to monotonic transformations of f. If you replace f with log(f) or f^3, the rankings stay the same and so does the update. This is critical when fitness values come from noisy simulations or arbitrary scoring functions where the scale is meaningless.',
+        'The rank-one update (from p_c) captures the direction the mean has been drifting. If the mean consistently moves northeast over several generations, p_c points northeast and the outer product p_c * p_c^T adds variance in that direction. The rank-mu update captures the spread of good candidates within a single generation: if winners are spread along a diagonal, that diagonal gets more variance. Together, they let C adapt both from multi-generation trends and single-generation evidence.',
+        'The evolution paths prevent single lucky generations from distorting C. A path is an exponentially weighted running average, so one noisy generation gets diluted by the history. This is analogous to momentum in gradient descent: it smooths the update signal. The step-size control via p_sigma is equally important. Without it, C might learn the right shape but at the wrong scale, causing the optimizer to overshoot or creep.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The main external cost is objective evaluation. CMA-ES often spends many evaluations per generation, although those evaluations can be parallelized. Internally, full covariance adaptation has memory and linear algebra costs that grow with dimension, including covariance updates and decompositions.',
-        'That makes the method strongest in moderate-dimensional continuous spaces with expensive or unreliable gradients. It is less attractive for very high-dimensional parameter vectors, cheap differentiable objectives, or problems where the useful structure is discrete rather than geometric.',
-        'Restarts are another practical tradeoff. A restart can escape a bad local basin, and larger restart populations can explore more broadly, but every restart spends budget. In serious use, the evaluation budget and restart policy are part of the algorithm, not afterthoughts.',
+        'Per generation, CMA-ES evaluates lambda candidates (the external cost, often dominant) and performs O(d^2) internal work for the covariance update plus O(d^3) for the eigendecomposition of C (needed every O(d/10) generations to sample from N(0,C)). Storage is O(d^2) for C.',
+        'The default population size is lambda = 4 + floor(3 * ln(d)). For d=10, that is about 11 candidates per generation. For d=100, about 18. A typical run to convergence uses O(d^2) to O(d^3) function evaluations, depending on the condition number of the landscape. On the 20-dimensional Rosenbrock function (condition ~1000), CMA-ES converges in roughly 10,000 evaluations.',
+        'For d > 1000, the O(d^2) storage and O(d^3) decomposition become prohibitive. Variants like sep-CMA (diagonal covariance, O(d) storage) or VD-CMA (low-rank + diagonal) trade adaptation quality for scalability. Full CMA-ES is most practical for d roughly in the range 2 to 500.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'CMA-ES is a good fit when the candidate is a real-valued vector and a black-box scorer is the only reliable feedback. Examples include PID or controller tuning, simulator calibration, morphology search, graphics and physics parameter fitting, continuous hyperparameter tuning, and benchmark functions designed to test ill-conditioned optimization.',
-        'It also wins when you can evaluate a population in parallel. A cluster can score many candidates at once, then the optimizer performs one state update. That makes CMA-ES practical for workloads where one evaluation is slow but batch evaluation is available.',
+        'Robot gait optimization: the candidate vector is a set of controller parameters (joint angles, timing, PD gains), the fitness function is distance walked in simulation. Each evaluation takes seconds to minutes. CMA-ES learns correlated parameter directions (e.g., left and right leg timing should be symmetric) that random search would take orders of magnitude longer to discover.',
+        'Neural network weight initialization and hyperparameter tuning: when the search space is continuous and moderate-dimensional (under ~100 parameters), CMA-ES outperforms grid search and random search because it exploits correlations between hyperparameters. OpenAI used it for reinforcement learning policy search in early work on Atari games.',
+        'Engineering design: airfoil shape optimization, antenna geometry, combustion engine calibration. These problems have expensive simulators (minutes to hours per evaluation), noisy outputs, and no analytic gradients. CMA-ES is the standard baseline in these domains.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'CMA-ES can fail when the search space is too large for full covariance learning, when constraints are handled carelessly, when the objective is dominated by noise, or when the variables are really categorical choices disguised as numbers. Bounds also need attention because naive clipping can distort the distribution.',
-        'Evaluation discipline matters. Do not trust one lucky run. Report random seeds, budgets, stopping rules, restarts, constraints, and baselines such as random search, gradient methods where available, Bayesian optimization, Differential Evolution, or problem-specific heuristics.',
-        'A good failure report says whether the method explored the wrong scale, learned the wrong shape, hit constraints, or simply ran out of evaluations before adaptation had enough evidence.',
+        'High dimensions (d > 1000): the covariance matrix has d^2 entries and the eigendecomposition is O(d^3). In a 10,000-dimensional space, C alone requires 800MB of memory. Use gradient-based methods, natural evolution strategies with diagonal covariance, or evolutionary strategies with learned step sizes per coordinate instead.',
+        'Cheap differentiable objectives: if you can compute the gradient of f in O(d) time (e.g., via automatic differentiation), gradient descent converges in O(d) steps while CMA-ES needs O(d^2). There is no reason to use CMA-ES on a smooth loss function with available gradients.',
+        'Discrete or combinatorial search spaces: CMA-ES samples from a continuous Gaussian. If the real variables are integers, categories, or graph structures, the continuous relaxation is lossy and rounding introduces artifacts. Use combinatorial optimizers, genetic algorithms with appropriate operators, or Bayesian optimization with categorical kernels instead.',
+        'Heavily constrained problems: naive handling of constraints (clipping candidates to feasible bounds) distorts the Gaussian shape that C is trying to learn. If half the population gets clipped to a boundary, C sees a truncated distribution and learns the wrong shape. Proper constraint handling requires penalty functions, repair operators, or augmented Lagrangian wrappers, which add complexity and tuning.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Nikolaus Hansen, The CMA Evolution Strategy tutorial at https://arxiv.org/abs/1604.00772, the CMA-ES project site at https://cma-es.github.io/, and the source-code reference page at https://cma-es.github.io/cmaes_sourcecode_page.html.',
-        'Study Evolutionary Search for the population-search family, Differential Evolution for a different way to use population differences, PCA and Eigenvectors for covariance intuition, Gaussian Process Bayesian Optimization for surrogate-based search, and Hyperparameter Search for practical budget tradeoffs.',
+        'Minimize f(x1, x2) = x1^2 + 100*x2^2 (an axis-aligned ellipse with condition number 100) starting from m = (5, 5), sigma = 1, C = I (identity). Population lambda = 6, selected mu = 3 with weights w = (0.5, 0.33, 0.17).',
+        'Generation 1: sample 6 points from N((5,5), I). Suppose the ranked winners are (4.2, 4.8), (4.5, 4.6), (4.8, 4.3). Weighted mean: m_new = 0.5*(4.2,4.8) + 0.33*(4.5,4.6) + 0.17*(4.8,4.3) = (4.40, 4.65). The mean moved mostly in the x2 direction because the fitness contours are much tighter in x2, so candidates with smaller x2 scored better.',
+        'After a few generations, the covariance matrix C develops a small eigenvalue along x2 (the steep direction) and a larger eigenvalue along x1 (the shallow direction). The sampling ellipse becomes a thin horizontal stripe. This means most candidates are spread along x1, which is where the remaining improvement lies. The step size sigma also shrinks as the mean approaches the optimum.',
+        'After roughly 200 evaluations (~33 generations), m converges to within 1e-8 of the origin. By contrast, isotropic random search with the same sigma and population size would need roughly 100 times as many evaluations because it would keep wasting samples in the x2 direction, which contributes almost nothing once x2 is already near zero.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Hansen, N. (2016). The CMA Evolution Strategy: A Tutorial. arXiv:1604.00772. This is the definitive reference: 100 pages covering the algorithm, its invariance properties, parameter settings, and convergence proofs. The CMA-ES project site at https://cma-es.github.io/ hosts reference implementations in Python (pycma), MATLAB, and C.',
+        'For mathematical background, study eigenvectors and eigenvalues (they define the axes of the sampling ellipse), multivariate Gaussian distributions (the sampling mechanism), and positive-definite matrices (the constraint on C that keeps sampling well-defined). For algorithmic relatives, study Differential Evolution (another population-based optimizer, but without covariance learning), Bayesian Optimization with Gaussian Processes (a surrogate-based approach better suited when evaluations are extremely expensive, d < 20), and Natural Evolution Strategies (NES, which uses the natural gradient of the expected fitness instead of explicit covariance updates).',
       ],
     },
   ],

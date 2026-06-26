@@ -245,79 +245,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The time-mix view shows one RWKV block. R means receptance, which is the gate; K means key, V means value, and W means learned time decay. Active nodes are the signals used for the current token, while found marks the compact state and output.',
         {type: 'image', src: './assets/gifs/rwkv-recurrent-transformer.gif', alt: 'Animated walkthrough of the rwkv recurrent transformer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The training-versus-inference view compares two executions of the same model. During training the sequence can be processed in a parallel form, and during decoding the model updates a recurrent state one token at a time. The safe inference rule is that serving memory is tied to layer state, not to storing an explicit key-value record for every past token.',
       ],
     },
     {
-      heading: 'Why RWKV Exists',
+      heading: 'Why this exists',
       paragraphs: [
-        `RWKV is a language-model architecture built around a practical tension in sequence modeling. Transformers are strong because every token can directly compare itself with every previous token through attention, and because the whole sequence can be processed in parallel during training. That design is expensive at serving time. A decoder-only Transformer stores a key and value vector for every prior token at every layer, then reads that growing KV cache on each new token. Long context, many users, and large models turn memory bandwidth and cache capacity into first-order limits.`,
+        'Transformers train well because every token can compare with every other token through attention. At decoding time, that exact lookup requires a key-value cache that grows with context length and layer count. Long prompts and many simultaneous users make memory bandwidth a hard serving limit.',
         {type: 'callout', text: 'RWKV replaces exact token lookup with learned recurrent state so decoding memory is tied to model size rather than prompt length.'},
-        `Classical recurrent neural networks have the opposite shape. They carry a fixed-size state from token to token, so serving memory does not grow with context length in the same way. The cost is that old information has to survive inside a compressed state, and old RNNs were hard to train at scale and usually lost to Transformer quality. RWKV tries to keep the attractive parts of both families: Transformer-like residual blocks and parallel training, plus RNN-like recurrent inference with compact state.`,
-        `The name is a mnemonic for the ingredients that replace explicit all-pairs attention: Receptance, Weight decay, Key, and Value. It is not just a relabeled RNN. It is an attempt to make a recurrent memory rule act like an attention alternative: write evidence into state, decay older evidence through learned channels, and gate what the current token reads out.`,
+        'RWKV exists to test a different bargain. It keeps modern residual blocks and large-scale training habits, but it replaces all-pairs token lookup with a learned recurrent memory update. The goal is Transformer-like language quality with RNN-like streaming state.',
       ],
     },
     {
-      heading: 'The Naive Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `A naive way to improve Transformer serving is to keep the exact architecture and optimize the cache harder. That leads to FlashAttention, PagedAttention, prefix caching, quantized KV cache, offload tiers, and scheduling tricks. Those systems are valuable, but the cache still represents token-level history. If the request grows from 4K tokens to 128K tokens, the server must still represent much more past state or decide what to evict.`,
+        'The obvious approach is to keep the Transformer and optimize the cache. Systems can use FlashAttention, paged KV caches, prefix sharing, quantization, and offload. These techniques are useful, but they still preserve explicit token history.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Scaled dot-product attention computation block with query key value mask softmax and output', caption: 'The Transformer baseline keeps explicit query-key-value comparisons; RWKV asks which parts of that behavior can be carried in recurrent state. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_attention_block_diagram.png.'},
-        `The opposite naive answer is to return to a vanilla RNN. That removes the KV cache wall, but it creates an expressiveness and optimization wall. A single recurrent vector has to carry everything. Gradients must cross many steps. Parallel accelerators are underused if training is strictly sequential. Modern language models are too large and data-hungry for that old execution style to be enough by itself.`,
-        `RWKV's wall is therefore not only asymptotic complexity. It is the question of what kind of memory a model can learn. Exact attention gives the current token a direct lookup table over history. RWKV gives it a learned summary whose channels decay at different rates. The architecture is useful only if that summary preserves the information language modeling needs often enough to pay for the serving savings.`,
+        'The other obvious approach is to return to a plain recurrent neural network, which carries one state through time. That removes the growing cache but usually loses the training parallelism and quality that made Transformers dominant. RWKV tries to avoid both walls at once.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        `The central insight is that some attention-like behavior can be expressed as a recurrence. Instead of materializing a square attention matrix, RWKV updates running numerator and denominator-like state with decayed contributions from past keys and values. Recent tokens can dominate some channels, while other channels decay slowly and preserve longer traces. The learned time decay is the model's memory policy.`,
-        `Receptance is the read gate. Keys and values write evidence. Weight decay controls how old evidence fades. The current token does not ask every previous token a fresh question; it receives a gated mixture from the recurrent state. This makes the memory model closer to a bank of learned exponential traces than to a table of exact token records.`,
-        `The second insight is execution duality. The same block can be trained in a parallel sequence form, using scan-like computation over positions, and served in a recurrent form, updating state one token at a time. That distinction matters because training throughput and inference latency stress different parts of the machine. RWKV is designed so training can still fill accelerators while decoding avoids an ever-growing cache.`,
+        'Exact attention makes long-context serving expensive because the live state grows with tokens. A 32-layer model that stores keys and values for 128,000 tokens carries much more memory than the same model decoding a short prompt. The server must read, manage, and schedule that cache on every new token.',
+        'Plain recurrence compresses history too aggressively. If a fact from token 2 must be copied exactly at token 10,000, the recurrent state must have preserved it through every update. The wall is deciding what can be summarized and what needs exact access.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        `A useful mental model is to split the block into time mixing and channel mixing. Time mixing is the sequence-memory component. It combines the current token representation with a shifted copy from the previous token, produces R, K, and V signals, applies learned decay, updates recurrent state, and gates the result. Channel mixing is closer to a Transformer feed-forward sublayer: it mixes features within a token after the time component has supplied context.`,
+        'RWKV treats sequence memory as learned decayed state. Keys and values write evidence, W controls how older evidence fades, and receptance gates what reaches the output. Different channels can learn different decay rates, so memory is not one crude scalar trace.',
+        'The second insight is execution duality. A recurrence can be expressed in a parallel scan-like form for training and as a one-token update for inference. That separation lets the same weights serve two hardware needs: throughput while learning and compact state while decoding.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A time-mix block combines the current token with a shifted version of the previous token. Linear projections produce R, K, and V signals, while learned decay parameters decide how old state contributes. The block then gates the state-derived value before passing it into the residual stream.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'RWKV keeps the modern deep-network stack shape, but changes how temporal information moves between tokens. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
-        `The token shift is small but important. It lets the block form features from both the present token and immediate past without asking attention to discover that local dependency from scratch. The decay channels then decide how much older information still matters. Fast-decay channels behave like short-term memory. Slow-decay channels behave like long traces. A stack of layers gives the model many such policies at different feature levels.`,
-        `At inference, each layer carries state forward. The server feeds token t, updates the layer states, emits logits, samples or selects token t plus 1, and repeats. The memory footprint is tied to layers and hidden size, not to the full number of previous tokens in the same direct way as Transformer KV cache. At training time, equivalent recurrence formulas allow the sequence to be processed in parallel enough for GPUs to be useful.`,
+        'A channel-mix block then mixes features inside the token representation, similar in role to a Transformer feed-forward layer. Stacking many layers gives the model many memory traces and feature transformations. During inference each layer updates its own recurrent state and emits the next representation.',
       ],
     },
     {
-      heading: 'What The Visual Proves',
+      heading: 'Why it works',
       paragraphs: [
-        `The recipe table separates the four letters into jobs rather than treating the name as branding. R is the gate that decides what reaches the output. K and V are the evidence being written. W is the learned time-decay behavior that shapes memory. The block graph then shows the important invariant: the output is produced from the current token plus state, not from a freshly constructed all-pairs attention matrix.`,
-        `The decay plot explains why one recurrent state is not necessarily one crude memory. Different channels can learn different forgetting speeds. A channel with steep decay handles local syntax or recency-sensitive information. A slower channel can preserve broader topic or entity traces. The point is not that exponential traces solve every long-range task; the point is that memory duration becomes a learned per-channel resource.`,
-        `The training-versus-inference view proves the architectural bargain. During training, RWKV wants the parallelism that made Transformers practical. During serving, it wants constant-state token updates. The memory plot contrasts that with a Transformer KV cache whose decode memory grows with context length. The visual is therefore not a speed benchmark. It is a structural claim about what must be carried forward.`,
+        'The correctness argument is an equivalence of execution forms. If the parallel training formula and recurrent decoding formula compute the same state transition, then serving one token at a time produces the same block outputs as scanning the sequence in order. The invariant is that the state after token t summarizes exactly what the recurrence says should be carried from tokens 1 through t.',
+        'The modeling argument is weaker and must be tested. RWKV works when language dependencies can be carried by learned summaries: recent syntax, topic state, style, and gradually updated entity information. It fails when the task needs exact random access to a buried token that the state did not keep.',
       ],
     },
     {
-      heading: 'Why It Can Work',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `RWKV can work because many language-model dependencies do not require exact random access to every token. Recency, topic continuity, style, local syntax, and gradual discourse state can often be represented by learned summaries. Attention is a very general mechanism, but generality is not free. If a compact recurrent state preserves enough task-relevant information, the server can avoid paying for exact token memory on every decode step.`,
-        `It also fits hardware incentives. Decode is often memory-bandwidth limited because each new token performs a small amount of compute while reading substantial cached state. Reducing the live memory that must be read per step can improve batch capacity and latency. On the other hand, the benefit only materializes with efficient kernels and numerically stable recurrence. A theoretically lighter architecture can lose in practice if its implementation is less mature than highly optimized attention kernels.`,
+        'Transformer attention over a full sequence has O(n^2) training attention work per layer and a decode cache that grows O(n) with context length. RWKV decoding uses O(1) recurrent state per layer with respect to sequence length, so doubling context length does not double stored token records. It still performs O(d) or O(d^2) layer computation depending on hidden-size operations.',
+        'The cost moves into compressed memory and specialized kernels. A smaller live state can improve serving capacity, but quality may drop on exact retrieval tasks. If kernels are immature, a theoretically lighter recurrence can run slower than highly optimized attention in practice.',
       ],
     },
     {
-      heading: 'Costs And Tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `The main cost is compressed history. A Transformer can attend directly to a token from 20,000 positions ago if it remains in the context window. RWKV must have stored the relevant fact in state and kept it alive through decay and transformations. That can fail on exact copying, needle-in-a-haystack retrieval, long code dependencies, or tasks where the answer depends on a small detail that looked unimportant when first read.`,
-        `The second cost is ecosystem maturity. Transformer tooling has years of optimization behind it: FlashAttention, tensor parallelism, KV-cache managers, quantization paths, speculative decoding, and deployment stacks. RWKV needs its own kernels, training recipes, scaling laws, evaluation practice, and serving integration. It should be compared on quality, latency, throughput, memory, and operational simplicity, not on the slogan that it has constant state.`,
-        `There is also a modeling tradeoff. Learned decay is powerful but biased. It encourages information to be represented through smooth memory traces. That bias can be helpful for streaming and harmful for precise archival recall. This is the same family of tradeoff explored by RetNet, Mamba, linear attention, and hybrid attention-state models.`,
+        'RWKV is useful for streaming generation, edge inference, always-on agents, and serving environments where per-request memory is the bottleneck. A server handling many long conversations may care more about predictable state size than about exact attention over every prior token.',
+        'It is also useful as a research comparison point for RetNet, Mamba, linear attention, and hybrid attention-state models. All of these architectures ask which parts of context need exact lookup and which parts can live in state.',
       ],
     },
     {
-      heading: 'Uses And Failure Modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `RWKV is most attractive for streaming language modeling, edge inference, memory-constrained serving, long-running agents, and research systems that want an alternative to quadratic attention without abandoning large-scale training. A device that cannot afford a growing KV cache may still afford fixed recurrent state. A server that handles many concurrent streams may care more about predictable per-request memory than about exact attention over every old token.`,
-        `Failure modes should be tested directly. If a workload requires exact retrieval from long prompts, compare against a Transformer with the same context and a strong KV-cache implementation. If the workload is chat or streaming continuation, measure quality over long sessions, not only short perplexity. If the selling point is serving, benchmark real decode loops with batching, kernel overhead, and memory pressure included. RWKV is a design point in the sequence-model space, not a universal replacement for attention.`,
+        'RWKV can fail on needle-in-a-haystack retrieval, exact copying, long code dependencies, and tasks where a small old detail becomes important much later. A Transformer with a retained KV cache can still attend to the old token directly if it is inside the window. RWKV must have compressed that detail into state.',
+        'It also faces tooling risk. Transformer serving stacks have mature kernels, quantization paths, schedulers, and monitoring. RWKV needs equally careful evaluation on quality, latency, memory, batching, and operational simplicity before it replaces attention in a production workload.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Attention Mechanism first to understand the exact lookup RWKV avoids. Then read KV Cache, Transformer Inference Roofline, LLM Serving: PagedAttention, RetNet Retention State Case Study, Selective State Space Models: Mamba, Linear Attention, Transformer Block, and Gradient Flow. The useful comparison question is always the same: what information is stored exactly, what is compressed into state, how does the hardware execute the update, and what tasks break the approximation?`,
+        'Assume a Transformer layer stores key and value vectors of 4096 floats each for every token. In float16, that is 4096 * 2 bytes * 2 = 16 KB per token per layer. For 32 layers and 4,096 tokens, the cache is about 16 KB * 32 * 4,096 = 2 GB for one sequence.',
+        'Now compare a recurrent state that stores two 4096-float vectors per layer. That is 16 KB per layer, or about 512 KB for 32 layers, independent of whether the stream has 4,096 or 128,000 tokens. The numbers are simplified, but they show the behavior: cache memory grows with context, recurrent state grows with model shape.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: the RWKV papers and implementation notes by Peng et al. Study Attention Mechanism and KV Cache first, then compare RetNet, Mamba, linear attention, and Transformer inference roofline analysis.',
+        'The useful study path is to separate model math from serving behavior. Ask what state is stored, how it changes per token, what hardware reads during decode, and what long-context tasks break the compression.',
       ],
     },
   ],

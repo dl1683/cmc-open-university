@@ -173,102 +173,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/io-uring-submission-completion-rings.gif', alt: 'Animated walkthrough of the io uring submission completion rings visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'What problem io_uring solves',
-      paragraphs: [
-        'A busy server spends much of its life waiting on the kernel. It accepts sockets, reads files, writes responses, arms timeouts, cancels work, and cleans up after clients that disappear. The CPU may be free, but each operation still crosses the user-kernel boundary. If every request blocks a thread, memory and scheduler overhead grow with the number of outstanding operations. If the server uses readiness APIs, it avoids most blocked threads, but it still has to ask the kernel which descriptors are ready, issue the operation, and handle partial progress.',
-        {type: 'callout', text: 'io_uring turns coordination into head and tail ownership: user space publishes requests, kernel publishes completions.'},
-        'io_uring exists to make high-concurrency I/O look like two shared queues. User space writes requests into a submission side. The kernel writes results into a completion side. The application can publish many operations, ring the kernel once, and later drain many completions. The data-structure lesson is simple: when both sides already agree on a bounded ring buffer layout, the hot path can become head/tail movement plus batched work instead of one syscall per small step.',
-      ],
-    },
-    {
-      heading: 'The older models',
-      paragraphs: [
-        'The first model is blocking I/O. A thread calls read(), write(), accept(), send(), or fsync(), then sleeps until the operation can finish or fail. It is easy to write and easy to debug. It also scales poorly when most operations are waiting. A thread has a stack, scheduler state, wakeup costs, and cache footprint even when it is asleep.',
-        'The second model is readiness notification. select, poll, and epoll tell the program that an operation on a descriptor should make progress. This is a major improvement for network servers, but readiness is not completion. The app still has to perform the read or write, handle short reads, retry when it would block, and manage a state machine for every live request. For files, readiness is also a poor fit because regular files are usually reported ready even when the real work may still block on storage.',
-      ],
-    },
-    {
-      heading: 'The core data structure',
-      paragraphs: [
-        'An io_uring instance has a submission queue, a completion queue, and a separate array of submission queue entries. The application fills an SQE with an operation code, file descriptor or registered file slot, buffer address or registered buffer slot, length, offset, flags, and a user_data value. It then publishes the SQE index into the submission ring and advances the submission tail. The kernel consumes those indexes, reads the SQEs, executes the operations, and writes CQEs into the completion ring.',
-        {type: 'image', src: 'https://developers.redhat.com/sites/default/files/uring_0.png', alt: 'io_uring submission and completion queues shared between application and kernel', caption: 'The two shared rings show the ownership contract: app writes SQ tail, kernel writes CQ tail. Source: Red Hat Developer, Donald Hunter.'},
-        'The completion queue entry is the receipt. It carries the original user_data field, a result value, and flags. The result is often a byte count or a negative errno. user_data is the stable join key because completions do not have to arrive in submission order. A server might submit accept, read, timeout, and send operations in one batch. The CQE tells the server exactly which request state to resume.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine a static file server handling 10,000 slow clients. In a blocking design, it may need many worker threads or a complex handoff between an event loop and a file I/O pool. With epoll, the network readiness side is efficient, but file reads and sends still require careful state transitions. With io_uring, the main loop can keep a bounded number of outstanding operations: accept new sockets, issue file reads, issue sends, and arm timeouts.',
-        'For one request, the server submits a read SQE with user_data pointing to request 42. It also submits a timeout SQE with user_data pointing to request 42 and a different tag. The kernel may complete the read first with res=4096, or the timeout first with res=-ETIME. The application drains CQEs, looks up request 42, and takes the next step. If the read won, it submits a send. If the timeout won, it cancels or closes the request. The queue does not make the policy for the app; it gives the app a precise, batched completion boundary.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The shared-rings view separates the pieces that beginners often merge together. SQE storage is not the same as the submission ring. The SQ ring publishes indexes into SQE storage. The CQ ring stores completed results. That split lets the application prepare rich request records while the hot submission path only moves small indexes and tail pointers.',
-        'The file-server view shows the real payoff: batching and completion correlation. A server does not win just because a diagram contains rings. It wins when the loop can submit several operations with one kernel entry, keep enough work in flight to hide device latency, and drain completions in groups. It also shows the new obligations. Full rings are backpressure signals, CQ overflow is a correctness and performance risk, and every completion must be matched to application state through user_data.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Setup starts with io_uring_setup, which creates ring metadata and returns a file descriptor. The application maps the submission ring, completion ring, and SQE array into its address space. From then on, the common path is shared memory. User space writes SQEs, publishes indexes, advances tails, and uses io_uring_enter when it needs to notify the kernel or wait for completions. Some configurations, such as submission queue polling, change the notification shape, but the ring contract remains the center.',
-        'A submission has two phases. First the application writes the SQE fields. Then it makes that SQE visible by placing its index in the submission ring and advancing the tail with the required memory ordering. That ordering matters. The kernel must not see a tail update before the SQE contents are ready. The completion side has the opposite ownership. The kernel writes a CQE and advances the CQ tail. The application reads CQEs and advances the CQ head after it has consumed them.',
-        'io_uring also includes features that reduce repeated per-operation overhead. Registered files can avoid repeated descriptor table lookups. Registered buffers can avoid repeated pinning work. Linked operations can express simple dependencies, such as a timeout attached to another operation. Cancellation lets the application remove work that is no longer useful. These features are not required to understand the ring, but they explain why io_uring became a full I/O interface rather than only a queue primitive.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The design works because ownership is narrow. User space is the producer for submissions and the consumer for completions. The kernel is the consumer for submissions and the producer for completions. A ring buffer is a good fit for that contract because each side can tell which entries are available by comparing head and tail positions. The ring capacity gives a natural upper bound on outstanding queue metadata.',
-        'The design also works because it prices the expensive boundary correctly. A syscall is not only the CPU instructions in the syscall handler. It is a privilege transition, argument validation, possible wakeups, and often a break in batching. If the application can publish 32 operations and notify the kernel once, or reap 32 completions after one wakeup, the cost per operation falls. The kernel still does the I/O. io_uring reduces the coordination tax around that I/O.',
-        'The completion model removes a common ambiguity in readiness systems. Readiness says an operation may make progress. Completion says an operation finished and gives the result. That is why io_uring can be cleaner for applications whose real state machine is operation-based: "the file read finished", "the send finished", "the timeout fired", "the accept produced a socket".',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The ring operations are O(1), but that does not mean the system has zero overhead. The application must allocate ring capacity, keep request state alive until completion, drain the CQ promptly, and apply backpressure before the SQ fills. Registered buffers and files can improve the hot path, but they add setup cost, memory pinning concerns, and lifecycle rules. A program that registers too much memory or keeps too much work in flight can harm the rest of the system.',
-        'The largest tradeoff is complexity. Blocking code is linear. io_uring code is a state machine driven by completions. Every request needs an identity, a current phase, cancellation behavior, timeout behavior, and cleanup rules. Error handling is also more explicit. A CQE with a negative result is not an exception from the call site; it is a later event that must be routed to the right request. That is powerful, but it punishes sloppy bookkeeping.',
-        'Kernel support is another cost. io_uring has evolved quickly, and not every operation, flag, or optimization is available on every deployment target. Production programs need feature probing and fallback paths. Security policy can also matter because some environments restrict io_uring. A portable library has to know when ordinary epoll, blocking I/O, or a thread pool is the better answer.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'io_uring is strongest when there are many outstanding operations, enough batching to amortize kernel entry, and a real benefit from completion-based control. Static file servers, proxies, storage engines, log systems, databases, and high-throughput network services can all fit that profile. It is especially useful when one event loop wants to coordinate files, sockets, timeouts, cancellation, and sometimes zero-copy paths without handing half the work to a separate thread pool.',
-        'It also wins when tail latency depends on keeping the device and kernel busy without flooding them. A storage engine can keep a controlled queue depth. A server can submit more work while older operations wait on disk or network. A proxy can cancel stale work when the client disconnects. These are not only speed tricks. They are control-plane improvements because the application has a single ledger of outstanding operations and completions.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'io_uring is often the wrong first tool for small programs. A command-line program that reads one file, writes one response, or handles a few sockets will usually be simpler and fast enough with blocking calls. An evented network server that already uses epoll well and rarely touches files may not gain much. If there is little batching, the ring mostly adds setup and cognitive load.',
-        'It also does not make slow I/O fast. Disk latency, network congestion, page-cache misses, memory pressure, and device queue limits still exist. If downstream is slow, the application must stop submitting unlimited work. If completions are not drained, the completion side becomes the bottleneck. If a request is canceled, the app must handle the race where the operation completes at the same time. The queue interface is sharper, but the system still needs flow control.',
-        'A final misconception is that io_uring means "zero copy". It can combine with registered buffers and some zero-copy operations, but the core abstraction is asynchronous submission and completion through shared rings. Data movement depends on the specific operation and kernel path. The ring reduces coordination overhead; it does not automatically remove every copy in the data path.',
-      ],
-    },
-    {
-      heading: 'Misconceptions',
-      paragraphs: [
-        'Do not think of io_uring as just "faster epoll". epoll reports descriptor readiness. io_uring submits operations and reports completions. They overlap in server design, but they expose different facts. Do not think of it as a way to avoid all threads either. The kernel may still use worker paths for operations that need them, and the application may still use threads for CPU work.',
-        'Do not treat the rings as unbounded mailboxes. Their bounded size is part of the correctness story. When the SQ is full, the application has reached its chosen queue depth. When the CQ is near full, the application is falling behind on completions. Those are control signals, not annoyances to hide behind a larger buffer.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: io_uring man page at https://man7.org/linux/man-pages/man7/io_uring.7.html, io_uring_setup man page at https://man7.org/linux/man-pages/man2/io_uring_setup.2.html, LWN introduction at https://lwn.net/Articles/776703/, and Oracle Linux io_uring overview at https://blogs.oracle.com/linux/an-introduction-to-the-io-uring-asynchronous-io-framework.',
-        'Study Ring Buffer for the head/tail layout, eBPF Ring Buffer Telemetry Case Study for another kernel/user ring, The Event Loop and epoll Interest & Ready Lists for the readiness contrast, Futex Wait Queue Case Study for sleep and wake mechanics, Backpressure & Flow Control for capacity limits, Message Queues for producer-consumer design, TCP Listen Backlog & Accept Queue Case Study for admission pressure, and Linux Fair Scheduler Run Queue for the scheduler cost that blocked-thread designs create.',
-      ],
-    },
+    {heading: 'How to read the animation', paragraphs: ['The animation shows two shared ring buffers between user space and the Linux kernel. User space publishes submissions, the kernel publishes completions, and head and tail pointers mark ownership.', {type: 'image', src: './assets/gifs/io-uring-submission-completion-rings.gif', alt: 'Animated walkthrough of the io uring submission completion rings visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    {heading: 'Why this exists', paragraphs: ['High-concurrency I/O spends a lot of time crossing the user-kernel boundary. io_uring exists so a program can submit many operations and later drain many results through shared queues.', {type: 'callout', text: 'io_uring turns coordination into head and tail ownership: user space publishes requests, kernel publishes completions.'}]},
+    {heading: 'The obvious approach', paragraphs: ['The obvious approach is blocking I/O: call read, write, accept, or fsync and wait. It is simple, but thousands of slow clients can mean thousands of sleeping threads and scheduler work.']},
+    {heading: 'The wall', paragraphs: ['Readiness APIs such as epoll report that an operation may make progress, not that it finished. File I/O and partial network progress still force the application to manage many state machines.']},
+    {heading: 'The core insight', paragraphs: ['Represent I/O coordination as producer-consumer rings. The app owns the submission tail, the kernel owns the completion tail, and user_data joins an out-of-order completion back to request state.', {type: 'image', src: 'https://developers.redhat.com/sites/default/files/uring_0.png', alt: 'io_uring submission and completion queues shared between application and kernel', caption: 'The two shared rings show the ownership contract: app writes SQ tail, kernel writes CQ tail. Source: Red Hat Developer, Donald Hunter.'}]},
+    {heading: 'How it works', paragraphs: ['Setup maps submission metadata, completion metadata, and SQE storage into the process. The app fills an SQE, publishes its index, enters the kernel when needed, and later consumes CQEs containing user_data and result.']},
+    {heading: 'Why it works', paragraphs: ['A ring works because producer and consumer agree on head, tail, and capacity. Batching works because one kernel entry or wakeup can cover many operations, reducing coordination cost per operation.']},
+    {heading: 'Cost and complexity', paragraphs: ['Ring operations are O(1), but the program must manage request lifetimes, full rings, completion draining, cancellation races, and backpressure. Registered buffers and files reduce repeated overhead but add setup and lifecycle rules.']},
+    {heading: 'Real-world uses', paragraphs: ['Static file servers, proxies, storage engines, databases, log systems, and high-throughput network services use io_uring when many operations must stay in flight. It is strongest when batching and queue depth hide device or network latency.']},
+    {heading: 'Where it fails', paragraphs: ['It is often the wrong first tool for small programs or servers already served well by epoll. It also does not make slow devices fast; page-cache misses, network congestion, and downstream backpressure remain.']},
+    {heading: 'Worked example', paragraphs: ['A server with ring capacity 256 submits 64 read SQEs and later receives 40 CQEs. If one kernel entry publishes 64 reads instead of 64 read calls, boundary cost per submitted operation falls sharply, but storage latency still dominates slow reads.']},
+    {heading: 'Sources and study next', paragraphs: ['Read the Linux io_uring man page, io_uring_setup man page, LWN introduction, and liburing examples. Then study Ring Buffer, epoll Interest and Ready Lists, Futex Wait Queue, Backpressure and Flow Control, and TCP Listen Backlog.']},
   ],
 };

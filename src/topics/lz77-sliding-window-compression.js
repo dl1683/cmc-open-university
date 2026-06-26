@@ -212,144 +212,92 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The "sliding matches" view shows the encoder scanning input left to right. Active cells mark the current lookahead position being matched against history. Found cells mark back-references the encoder has committed to. Compare cells contrast the entropy coder stage against the match stage so you can see where each layer does its work.',
-        'The "tokens and decode" view shows the output token stream and how the decoder reconstructs the original bytes. Active cells mark the current token being processed. Found cells mark the growing output buffer. Watch the output column grow: each literal appends one byte, each back-reference copies a span.',
-        {
-          type: 'note',
-          text: 'When a back-reference has distance smaller than length, the copy overlaps with bytes being written. The decoder handles this by copying one byte at a time, so newly written bytes become available for the rest of the copy. This is not a bug -- it is how LZ77 compresses long runs from a single seed.',
-        },
+        'The sliding-matches view shows an encoder moving left to right through bytes. Active cells mark the current lookahead, which means the bytes the encoder is trying to replace with a pointer. Found cells mark committed tokens, either literals or back-references.',
+        'The tokens-and-decode view shows the decoder rebuilding output from the token stream. A literal appends one byte. A back-reference copies length bytes from distance bytes behind the current output cursor, so the output buffer is also the dictionary.',
         {type: 'callout', text: 'LZ77 works because the decoder output is also the dictionary: every back-reference points backward into bytes already reconstructed.'},
-      
         {type: 'image', src: './assets/gifs/lz77-sliding-window-compression.gif', alt: 'Animated walkthrough of the lz77 sliding window compression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Data repeats itself. Source code reuses variable names. HTML repeats tags. Log files echo the same timestamp prefix thousands of times. Sending every byte verbatim wastes space proportional to the repetition. LZ77 replaces repeated spans with short pointers back to where those bytes already appeared, compressing the stream without knowing anything about its meaning.',
-        {
-          type: 'quote',
-          text: 'We consider the problem of coding a sequence of symbols from a finite alphabet, using a universal algorithm that does not require knowledge of the statistics of the source.',
-          attribution: 'Jacob Ziv and Abraham Lempel, "A Universal Algorithm for Sequential Data Compression," IEEE Transactions on Information Theory, 1977',
-        },
-        'The word "universal" is the key. Earlier compressors like Huffman coding need a frequency table built from the data or assumed in advance. LZ77 needs nothing. It builds its dictionary implicitly from the bytes it has already processed. The encoder and decoder share the same view of history at every point, so the dictionary never needs to be transmitted, agreed upon, or stored.',
-        'Ziv and Lempel published the algorithm in 1977, and its descendants now run inside gzip, PNG, ZIP, HTTP content encoding, PDF streams, and every browser on earth. Whenever you see DEFLATE, you are looking at LZ77 tokens fed into a Huffman coder.',
+        'Compression exists because real data repeats. Source files repeat names, markup repeats tags, logs repeat prefixes, and binaries repeat instruction patterns. Sending every repeated byte literally wastes storage and bandwidth.',
+        'LZ77 is a dictionary compressor without a transmitted dictionary. The encoder uses recent output history as the dictionary, and the decoder rebuilds the same history as it goes. That shared history lets the stream say, in effect, copy the next bytes from over there.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest compression idea is a static dictionary. Survey the data domain, pick common phrases ("the", "<div>", "ERROR"), assign each a short code, and replace every occurrence. This works for narrow domains: Morse code assigns short patterns to frequent letters, HTTP/2 uses HPACK with a preset header table, and old modem protocols used fixed dictionaries for English text.',
-        'A slightly more general idea is run-length encoding (RLE). If a byte repeats N times, emit the byte once and the count. RLE handles runs like "aaaaaa" well and costs almost nothing to implement. Image formats like BMP and PCX used it for large single-color regions.',
-        'Both approaches feel reasonable. Static dictionaries exploit known structure. RLE exploits simple repetition. Teams reach for them because they are easy to build, easy to debug, and fast to decode.',
+        'A reasonable first compressor uses a fixed dictionary. Give common words or byte strings short codes, then replace occurrences in the input. This can work when the domain is narrow and both sides already know the dictionary.',
+        'Run-length encoding is another reasonable first attempt. It stores a repeated byte once with a count, so six a bytes can become one a plus the number six. It is simple and fast, but it only sees consecutive copies of the same symbol.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Static dictionaries break on coordination and coverage. The decoder must have the same dictionary. The dictionary must be transmitted or standardized. A dictionary built for English is useless for JSON. One built for JSON is useless for x86 binaries. Every new data type needs a new dictionary, and a dictionary that tries to cover everything compresses nothing well.',
-        'RLE breaks on structure. Real data rarely repeats one byte at a time. The string "abcabcabc" has no single-byte runs, but it is highly compressible -- the six-byte substring "abcabc" is an exact copy of the three bytes starting at position 0. RLE cannot see multi-byte repetition. It also cannot handle repetition at a distance: if "error" appears on line 1 and again on line 400, RLE has no mechanism to reference it.',
-        'The wall is the same in both cases: the compressor cannot learn from its own output. A static dictionary is frozen before compression starts. RLE has no memory at all. What is needed is a method that builds a dictionary on the fly, from the bytes it has already seen, and uses it immediately for the bytes coming next.',
+        'Fixed dictionaries have a coordination problem. The decoder must know the same dictionary as the encoder, and a dictionary built for English text does not fit JSON, machine code, or image filters. A universal compressor needs to adapt to the actual stream.',
+        'Run-length encoding has a pattern problem. The string abcabcabc has no single-byte run, but it is highly repetitive. A compressor needs to recognize repeated substrings, not only repeated characters.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to treat already emitted bytes as a sliding dictionary. If the next lookahead bytes occurred recently, the encoder emits a distance-length pair instead of the bytes themselves. Distance says how far back to start copying, and length says how many bytes to copy.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/Image1_lz77.svg', alt: 'LZ77 sliding-window diagram showing search buffer and lookahead buffer over a byte stream', caption: 'The sliding window is the implicit dictionary: recent history is searched for a prefix of the lookahead. Source: Wikimedia Commons, cisseR, CC BY-SA 4.0.'},
+        'The dictionary does not have to be sent because both sides maintain it. Every literal the decoder writes becomes available for later references. Every reference the decoder expands also becomes available for later references.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The encoder maintains two regions over the input: a search buffer (history) of W bytes already encoded, and a lookahead buffer of L bytes not yet encoded. Together they form the sliding window.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/Image1_lz77.svg', alt: 'LZ77 sliding-window diagram showing search buffer and lookahead buffer over a byte stream', caption: 'The sliding window is the implicit dictionary: recent history is searched for a prefix of the lookahead. Source: Wikimedia Commons, cisseR, CC BY-SA 4.0.'},
-        {
-          type: 'diagram',
-          text: '  already encoded          next to encode\n  <-- search buffer -->    <-- lookahead -->\n  |  a  b  c  a  b  c  |  a  b  c  x  |  ...\n  |_____ W bytes _______|___ L bytes ___|',
-          label: 'Sliding window: the search buffer is the implicit dictionary, the lookahead is the next input to compress',
-        },
-        'At each step the encoder searches the history buffer for the longest prefix of the lookahead. If it finds a match of length >= minimum match length (usually 3), it emits a back-reference token: (distance, length). Distance says how far back the match starts. Length says how many bytes to copy. If no useful match exists, it emits the next byte as a literal. Then the window slides forward by the number of bytes consumed.',
-        'Match finding is the expensive part. A naive encoder compares the lookahead against every position in the history -- O(W * L) per step. Real encoders use hash tables keyed on 3-byte or 4-byte prefixes, with hash chains linking older positions that share the same prefix. DEFLATE uses this approach with a 32 KB window. Faster encoders like LZ4 use a single-probe hash table and accept shorter matches for speed.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Simplified match finder: hash 3-byte prefixes\nfunction findMatch(input, pos, hashTable, windowSize) {\n  if (pos + 2 >= input.length) return null;\n  const key = (input[pos] << 16) | (input[pos+1] << 8) | input[pos+2];\n  const candidate = hashTable.get(key);\n  hashTable.set(key, pos);\n  if (candidate === undefined || pos - candidate > windowSize) return null;\n  // extend match as far as possible\n  let len = 0;\n  while (pos + len < input.length &&\n         input[candidate + len] === input[pos + len]) len++;\n  return len >= 3 ? { distance: pos - candidate, length: len } : null;\n}',
-        },
-        'The Storer-Szymanski modification (1982) simplified the original LZ77 triple format. Ziv and Lempel emitted (offset, length, next-character) triples, always including the character after the match. Storer and Szymanski showed that separating literals from length-distance pairs and dropping the trailing character produces shorter output. DEFLATE and most modern formats use this separated design.',
+        'The encoder keeps a search buffer, which is recent history, and a lookahead buffer, which is the next input. At each position it searches history for the longest prefix of lookahead. If the match is useful, it emits a back-reference; otherwise it emits the next byte as a literal.',
+        'Real encoders spend most of their effort finding matches. A naive search compares the lookahead against every history position, which is too expensive for large windows. Practical encoders use hash tables, hash chains, rolling hashes, lazy matching, and compression-level knobs to trade CPU time for better ratio.',
+        'The decoder is simpler than the encoder. It reads one token at a time, appends literals directly, and expands references by copying from the output it has already produced. Many deployed formats pair LZ77-style tokens with an entropy coder such as Huffman coding or ANS so frequent token values get shorter bit codes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness rests on one invariant: every back-reference points into bytes the decoder has already reconstructed. The encoder knows this is true because it built those bytes. The decoder knows it is true because it has been writing the same output. Both sides maintain identical history at every token boundary, so references are always resolvable.',
-        'Overlapping copies are legal and useful. When distance < length, the decoder copies byte-by-byte from the reference start, and each newly written byte extends the available source. A literal "a" followed by (distance=1, length=99) produces 100 copies of "a". This is not a special case -- it falls out of the copy-one-byte-at-a-time rule. It is why LZ77 handles long runs without any run-length encoding machinery.',
-        {
-          type: 'note',
-          text: 'The decoder never needs random access to the entire file. It needs only the most recent W bytes of output (the window size). This makes LZ77 streaming-friendly: decompression can begin before the file is fully received, and memory usage is bounded by the window size regardless of file length.',
-        },
-        'Optimality is a separate question. LZ77 does not guarantee the shortest possible encoding. Greedy longest-match can miss cases where a shorter match now enables a longer match next. Lazy matching (checking whether skipping the current match yields a better one at the next position) and optimal parsing (dynamic programming over all possible tokenizations) improve ratio at the cost of encoder complexity. The decoder is identical regardless of how the encoder chose its tokens.',
+        'Correctness rests on one invariant: every reference points backward into bytes the decoder has already reconstructed. The encoder only emits such references because it found the match in prior history. The decoder has the same prior history at the same token boundary, so the pointer resolves to the same bytes.',
+        'Overlapping copies are safe under byte-at-a-time decoding. If the output is a and the token says distance 1, length 5, the decoder copies from the byte it just wrote, then from the new byte, and so on. One literal a becomes aaaaaa without a special run-length mode.',
+        'Optimal compression is not guaranteed. A greedy longest match can choose a token that blocks a better later token. That affects ratio, not correctness, because any valid token stream with backward references decodes deterministically.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Decode one token: O(length) for a copy and O(1) for a literal, with O(W) window space. Memory-copy speed dominates.',
-            'Decode the full stream: O(N) in output size and O(W) memory. The decoder is a linear scan with no match search.',
-            'Encode with hash chains: roughly O(N * chain_depth) after the chain-depth cap, plus O(W) window and hash-table storage.',
-            'Encode with optimal parsing: O(N * W) in the worst case plus parser state. It can improve ratio, but the CPU bill is usually too high for default settings.',
-          ],
-        },
-        'Decoding is always fast. It is a single left-to-right pass that copies bytes. No hash tables, no search, no decisions. This asymmetry -- expensive encoding, cheap decoding -- is why LZ77 formats dominate web content delivery. A server compresses once; millions of clients decompress.',
-        'Window size controls both memory and reach. DEFLATE uses 32 KB. Zstandard supports up to 8 MB (or 2 GB with long-range mode). Doubling the window doubles the memory and lets the encoder find matches twice as far back, but each additional doubling has diminishing returns because most repetition is local. In practice, 32 KB catches the majority of matches in text and source code; larger windows help most with binary files and structured data where identical blocks repeat at larger intervals.',
+        'Decoding is linear in output size, O(N), with O(W) memory for a window of W bytes. If output doubles, decode work doubles because each byte is written once. The dominant operation is memory copy, not search.',
+        'Encoding cost depends on match finding. A naive encoder can spend O(W * L) per position for window size W and lookahead length L. Hash-chain encoders cap the number of candidates, so behavior is closer to O(N * chain_depth) in practice, with better ratios at higher compression levels.',
+        'Window size is the main memory knob. A larger window can find older matches, but it also costs memory, wider distance codes, and more search work. DEFLATE uses a 32 KB window; newer formats can use much larger windows when the workload benefits.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'LZ77 wins wherever byte-level repetition is common and local. Text, source code, logs, markup, serialized data, and executable binaries all contain repeated substrings within practical window distances. The combination of LZ77 with an entropy coder is the backbone of the most widely deployed compression formats on earth.',
-        {
-          type: 'bullets',
-          items: [
-            'LZ77: sliding-window dictionary, implicit output history, raw length-distance tokens. It is the foundation, not usually the full format.',
-            'LZ78 and LZW: explicit phrase dictionaries built during the parse. They explain historic formats such as compress and GIF.',
-            'Huffman and arithmetic coding: statistical coders that shorten frequent symbols after LZ has exposed the token stream.',
-            'DEFLATE: LZ77-style matches plus dynamic Huffman trees, used by gzip, ZIP, PNG, HTTP content encoding, and many archives.',
-            'Zstandard: LZ matching plus FSE and Huffman coding, with optional dictionaries and modern speed-ratio tradeoffs.',
-            'LZ4 and Snappy: LZ77-family formats tuned for low-latency systems where decompression speed matters more than maximum ratio.',
-          ],
-        },
-        'DEFLATE is LZ77 plus Huffman, and it is everywhere: gzip compresses HTTP responses, ZIP archives use it, PNG images use it on filtered pixel rows. Zstandard uses LZ77-style matching with FSE (finite state entropy) and achieves better ratios and faster decompression than DEFLATE. LZ4 and Snappy trade ratio for speed, targeting real-time applications like database page compression and RPC payloads where decompression latency matters more than size.',
-        'Preprocessing makes LZ77 stronger. PNG applies per-row pixel filters (delta, sub, average, Paeth) that turn smooth gradients into runs of small residuals. Columnar database encoders group similar values before compression. Burrows-Wheeler transforms rearrange bytes so that repeated contexts cluster together. These transformations do not replace LZ77; they reshape the data so that repetition falls within the window.',
+        'LZ77-family compression appears in DEFLATE, gzip, ZIP, PNG, Brotli, Zstandard, LZ4, and Snappy. The exact formats differ in match search, token encoding, block framing, dictionaries, and entropy coding. The shared idea is still recent history plus length-distance references.',
+        'It is strong for text, source code, logs, markup, serialized data, and binaries because repeated substrings are common and often local. Web compression works well because servers can spend CPU once while clients decode cheaply many times.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'LZ77 cannot compress what does not repeat. Encrypted data, compressed data, cryptographic hashes, and high-entropy random bytes have no usable matches. The token overhead for failed match attempts can make the output larger than the input. Most formats include a "stored block" mode that passes data through uncompressed when matching yields no savings.',
-        'Locality is a hard limit. If a repeated phrase falls outside the window, the encoder cannot reference it. A 32 KB window cannot catch a function signature that appeared 100 KB ago. Larger windows help but cost memory and wider distance codes. Zstandard addresses this with optional preset dictionaries for small files (where the window never fills) and long-range matching modes for large archives.',
-        {
-          type: 'bullets',
-          items: [
-            'Already-compressed input (JPEG inside ZIP): no matches found, output grows by token overhead.',
-            'Small files with large alphabets: not enough history to build useful references.',
-            'Adversarial inputs: crafted data can maximize encoder search time with minimal matches (hash chain worst case).',
-            'Block boundaries: if the format splits input into independent blocks, references cannot cross block edges.',
-            'Decompression bombs: a small compressed stream can decode to gigabytes if distance-length pairs create massive overlapping copies.',
-          ],
-        },
-        'Engineering traps exist too. Greedy matching is fast but leaves ratio on the table. Lazy matching helps but doubles comparison work. Optimal parsing finds the best tokenization but costs O(N * W) and gains only 1-3% over lazy matching. In production, the right compression level is the one that balances CPU cost against the value of smaller output for the specific workload.',
+        'LZ77 cannot compress data with no useful repetition. Encrypted data, random bytes, hashes, and already-compressed media often become larger because token overhead remains while matches disappear. Good formats detect this and store such blocks uncompressed.',
+        'Locality is also a hard limit. If the repeated phrase lies outside the window, a reference cannot reach it. Larger windows help some archives but cost memory and may slow encoding.',
+        'The security failure mode is decompression expansion. A small stream can describe a huge output through repeated references, so decoders need output limits when handling untrusted data. The algorithm is simple; the resource policy around it is not optional.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Encode abcabcabcx. The first a, b, and c are new, so the encoder emits three literals. At position 3, the lookahead begins abcabc, which matches bytes starting three positions back.',
+        'The encoder can emit a back-reference with distance 3 and length 6. The token stream is literal a, literal b, literal c, reference d=3 len=6, literal x. The decoder writes abc, copies six bytes from three bytes back to get abcabcabc, then appends x.',
+        'The saving is concrete. Ten input bytes become three literal bytes, one length-distance token, and one final literal before entropy coding. If the reference token costs fewer bits than six literals, the stream shrinks.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Ziv, J. and Lempel, A. "A Universal Algorithm for Sequential Data Compression." IEEE Transactions on Information Theory, vol. 23, no. 3, 1977. The original paper defining the sliding-window method.',
-            'Storer, J. and Szymanski, T. "Data Compression via Textual Substitution." Journal of the ACM, vol. 29, no. 4, 1982. The modification that separated literals from length-distance pairs, used by DEFLATE and descendants.',
-            'RFC 1951: DEFLATE Compressed Data Format Specification. The format used by gzip, ZIP, and PNG -- the most widely deployed LZ77 derivative.',
-            'Collet, Y. "Zstandard Compression." RFC 8878, 2021. Modern LZ77 + FSE design that supersedes DEFLATE in many applications.',
-            'Collet, Y. "LZ4 -- Extremely Fast Compression." 2011. Design point optimizing decompression speed over ratio.',
-          ],
-        },
-        'Study hash tables first -- they are the data structure that makes match finding fast enough for large windows. Then study Huffman coding, because it is the entropy coder that DEFLATE pairs with LZ77 tokens. Arithmetic coding and ANS (asymmetric numeral systems) explain the newer entropy backends used by Zstandard and other modern formats. After that, compare DEFLATE, Zstandard, LZ4, and Brotli as design points: each makes different tradeoffs in search depth, token format, entropy model, dictionary support, and speed.',
+        'Start with Ziv and Lempel, A Universal Algorithm for Sequential Data Compression, 1977. Then read Storer and Szymanski on textual substitution, RFC 1951 for DEFLATE, RFC 8878 for Zstandard, and LZ4 design notes for the fast-decoder design point.',
+        'Study hash tables for match finding, Huffman coding for DEFLATE token coding, arithmetic coding and ANS for newer entropy coders, and suffix arrays if you want the deeper string-search view. Compare gzip, Zstandard, Brotli, LZ4, and Snappy by speed, ratio, window policy, and decoder complexity.',
       ],
     },
   ],

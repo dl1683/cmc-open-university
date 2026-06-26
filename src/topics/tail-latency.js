@@ -221,136 +221,97 @@ const legacyArticle = {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Tail latency exists because users do not experience averages. They experience one concrete request path. A service can average 60 ms while one request in a hundred takes a full second. For the slow user, the average is irrelevant.',
-        'The problem becomes larger when one user action depends on many requests. A page load can require browser work, network calls, cache lookups, database reads, service fan-out, and retries. If each component has a small slow tail, the user-facing path sees the maximum of many draws.',
-        'Tail-latency thinking is the discipline of measuring the slow edge of the distribution and designing systems so rare slow paths do not dominate common user journeys.',
-        {type: 'callout', text: 'The tail is where architecture leaks into user experience: one slow branch can dominate the whole request even when the average stays calm.'},
+        'Read the distribution by its right edge, not by its center. The mean marker shows what an average reports; the p99 marker shows what the slowest one percent of requests experience.',
+        'The session and fan-out frames apply the same formula to different systems. If a user waits for many calls, one slow call can set the visible latency for the whole action.',
+        {
+          type: 'callout',
+          text: 'The tail is where architecture leaks into user experience: one slow branch can dominate the whole request even when the average stays calm.',
+        },
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to track average latency. That fails because latency distributions are usually skewed. A small number of very slow requests can hurt users while barely moving the mean.',
-        'Another shortcut is to watch p99 for one service and assume the product is fine. That also fails because users experience composed latency. If a page waits on 20 services or a query waits on 100 shards, the probability of at least one slow dependency rises quickly.',
-        'A third shortcut is to retry every timeout. Retries can help transient failures, but naive retries add traffic exactly when the system is overloaded, creating more queueing and a worse tail.',
+        'Tail latency is the slow end of a latency distribution. p95, p99, and p999 are percentiles, meaning rank positions after all request times are ordered.',
+        'This exists because users experience one concrete request path, not the average of all requests. A service can average 60 ms while one request in 100 takes 1,000 ms.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Log-normal-pdfs.png',
+          alt: 'Log-normal distributions with long right tails',
+          caption: 'Skewed latency distributions make rare slow observations visible instead of smoothing them into the mean. Source: Wikimedia Commons, public domain: https://commons.wikimedia.org/wiki/File:Log-normal-pdfs.png.',
+        },
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to watch average latency. It is easy to compute, easy to graph, and useful when distributions are tight.',
+        'Latency distributions in real systems are often skewed. A few slow requests can barely move the mean while still hurting real users.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is max-of-many composition. A page load, search query, or checkout often waits for several independent pieces of work.',
+        'If any required branch is slow, the whole user action is slow. A one-percent tail per component is no longer rare when a user action depends on many components.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is max-of-many composition. If a user request waits for all dependencies, the slowest dependency sets the visible latency. The more dependencies there are, the more likely the user sees a tail event.',
-        'For independent one-percent tail events, the chance of seeing at least one slow request across N calls is 1 - 0.99^N. With 20 calls, that is about 18 percent. With 100 calls, it is about 63 percent. Rare per request becomes routine per session.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Log-normal-pdfs.png', alt: 'Log-normal distributions with long right tails', caption: 'Skewed latency distributions make rare slow observations visible instead of smoothing them into the mean. Source: Wikimedia Commons, public domain: https://commons.wikimedia.org/wiki/File:Log-normal-pdfs.png.'},
-        'Tail latency is therefore both a measurement problem and an architecture problem. Percentiles tell you where the pain is. Architecture decides whether one straggler blocks everything.',
+        'Use rank statistics and composition math. The chance of at least one slow request across N independent calls is 1 - (1 - p)^N, where p is the per-call tail probability.',
+        'With p = 0.01 and N = 20, the chance is 1 - 0.99^20 = 18.2 percent. Rare per request becomes common per user action.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A percentile is a rank statistic. p50 is the median request. p95 is slower than 95 percent of requests. p99 is slower than 99 percent. Deep percentiles need enough samples to mean anything, so request volume should be shown beside them.',
-        'Fan-out amplifies the tail. A search request that queries 100 shards and waits for all of them is slow when any shard is slow. Even if each shard looks healthy alone, the user-facing request inherits the worst shard latency.',
-        'Mitigations either shrink slow paths or avoid waiting on them. Hedged requests send a duplicate after a delay and use the first result. Timeouts and partial responses stop one dependency from holding the whole page. Load shedding rejects doomed work before queues explode. Retry budgets and jitter prevent retries from becoming overload multipliers.',
-        'Measurement needs histograms or quantile sketches, not just averages. Fleet p99 must be computed from the combined distribution, not by averaging server p99s.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The distribution plot proves that the mean can look healthy while p99 is terrible. The slow edge is small by count but large by user pain.',
-        'The session table proves the multiplication effect. A user who performs many dependent actions is much more likely to hit at least one slow request than a single request percentile suggests.',
-        'The fan-out table proves the architecture version of the same math. Wait-for-all systems inherit the maximum latency of their branches. Server p99 can become a much lower user percentile once many branches are composed.',
-        'The mitigation view proves that cures are tradeoffs. Hedging buys lower tail with extra load. Retry discipline protects overload. Load shedding preserves SLOs by refusing some work quickly instead of letting all work wait too long.',
-        'The source table proves that tails are usually ordinary. Garbage collection, compaction, cold caches, queues, retries, and noisy neighbors are not exotic failures. Tail work is the practice of making those rare paths visible and limiting how far they propagate.',
+        'Measurement starts with histograms or quantile sketches, not averages. Fleet p99 must come from the combined distribution, not from averaging host p99 values.',
+        'Mitigation changes either the distribution or the waiting rule. Hedging duplicates only slow requests, timeouts stop unbounded waiting, partial responses avoid wait-for-all behavior, and load shedding rejects excess work before queues grow.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Percentiles work because they preserve distribution shape. They make the slow population visible instead of smoothing it into an average.',
-        'Hedging works when slow replicas are not perfectly correlated. If one copy is delayed by a local queue, another replica may answer quickly. The user waits only if both copies are slow, while the system pays duplicate work only on requests that pass the hedge delay.',
-        'Load shedding works because queues create latency nonlinearly. Once arrival rate exceeds service capacity, waiting time grows rapidly. Rejecting some work early can keep accepted work inside its deadline.',
+        'Percentiles work because they keep the slow population visible. A p99 target says 99 percent of requests must finish below a threshold, which directly names the protected user group.',
+        'Hedging works when slow replicas are not perfectly correlated. If each replica has a one-percent slow tail, the chance that two independent copies are both slow is 0.01 * 0.01 = 0.0001, or 0.01 percent.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Tail reduction usually costs extra work, less completeness, or stricter admission. Hedging adds duplicate traffic. Timeouts and partial responses may return less data. Load shedding rejects some callers so others finish on time. Instrumentation costs storage and query complexity.',
-        'The hard part is setting boundaries. Hedging needs independent replicas and idempotent or read-only operations. Retries need deadlines and idempotency keys. Scatter-gather needs a timeout and a policy for missing shards. SLO windows need enough sample volume without hiding short incidents.',
-        'There is also a product tradeoff. Returning a partial but fast search result may be better than a complete slow one. For payments, the same tradeoff may be unacceptable. Tail policy belongs to the product, not only the infrastructure team.',
-        'Measurement has a cost too. Deep percentiles need enough observations, correct aggregation, and retention of distribution data. If the system keeps only averages, the evidence needed to debug the tail has already been thrown away.',
+        'Tail reduction spends resources. Hedging adds duplicate traffic, tracing adds storage and analysis cost, and load shedding rejects some work to protect the rest.',
+        'The cost also changes product behavior. A partial search result may be acceptable after 200 ms, while a partial payment result is usually not acceptable at all.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Tail thinking matters in search, social feeds, ad serving, recommendation systems, distributed databases, checkout flows, video startup, mobile APIs, and any system that fans out to many dependencies.',
-        'It also matters inside one service. Garbage collection, compaction, cold caches, queue spikes, noisy neighbors, database locks, and retry storms can all create a tail without microservices.',
-        'The practical workflow is simple: measure user-visible percentiles, trace slow paths, identify fan-out and queues, then choose whether to hedge, shed, cache, split work, reduce fan-out, or change the product fallback.',
-        'It is especially useful for SLO design. A promise like "99 percent of checkouts finish under 300 ms" is clearer than an average latency target because it names the user population being protected and gives the team an error budget when the tail grows.',
+        'Search, ads, databases, microservice APIs, CDNs, payments, and mobile apps all care about tail latency because user actions fan out across many dependencies. The technique is strongest when the product has a clear latency promise.',
+        'SLOs often use tail targets such as 99 percent under 300 ms. That turns latency into an error budget and makes incidents measurable.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Do not average percentiles across hosts. A fleet p99 must be computed from merged histograms or a sketch designed for quantiles. Do not show p99 without sample count. Do not measure only server handler time if the user waits on network, browser work, redirects, or retries.',
-        'Do not use hedging or retries without budgets. Hedging every request can overload replicas. Retrying non-idempotent writes can duplicate work. Retrying during overload can turn a slow system into a failing one.',
-        'Do not optimize p99 in one service while ignoring the composed user path. The user sees the end-to-end distribution, not the nicest internal chart.',
-        'Do not make p99 the only product truth either. A tiny but severe p999 population, a regional slice, or a single high-value workflow can matter more than a global percentile that looks acceptable.',
+        'It fails when percentiles are computed incorrectly. Averaging server p99 values, hiding sample count, or measuring only server handler time can make the dashboard lie.',
+        'It also fails when cures are applied blindly. Retrying non-idempotent writes can duplicate work, and hedging every request can overload replicas.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Sharding & Partitioning for scatter-gather fan-out, Hot Rows & Append-and-Aggregate for queue-driven tails, Distributed Tracing for finding which hop spent the budget, Retries, Backoff & Jitter for disciplined retry policy, and Load Shedding & Graceful Degradation for overload behavior. For measurement, study DDSketch, t-digest, KLL Quantile Sketch, Greenwald-Khanna Quantile Summary, and SLO Error Budget Burn Rate Alert.',
+        'Suppose a backend request has p99 = 1,000 ms and the other 99 percent finish near 50 ms. A page that waits on 20 such calls has a chance of at least one tail event equal to 1 - 0.99^20 = 18.2 percent.',
+        'For a 100-shard scatter-gather query, the chance is 1 - 0.99^100 = 63.4 percent. If hedging sends a duplicate only after a delay and the two replicas are independent, the chance both copies are slow is 0.01 percent, but the system pays extra traffic on hedged calls.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Study Dean and Barroso, The Tail at Scale, plus service-level objective guidance from Google SRE. Next study distributed tracing, t-digest, DDSketch, load shedding, retries with jitter, and sharding fan-out.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Tail Latency & p99 Thinking moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    }
   ],
 };

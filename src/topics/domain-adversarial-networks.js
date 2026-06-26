@@ -224,79 +224,100 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Switch between two views using the dropdown. The gradient reversal view draws the DANN architecture as a directed graph: source and target data flow through a shared feature extractor, then split into a label head and a domain head connected through the gradient reversal layer. Active highlights trace whichever signal path the current step describes. The matrix step shows the two gradient directions side by side -- label loss flows normally, domain loss flows reversed.',
+        'The domain adaptation view opens with a setting matrix that lays out what is labeled and what is not, then shows two scatter plots. The first scatters points by domain (source cluster far from target cluster). The second shows the same points after adaptation, now grouped by class instead of domain. Found highlights mark successfully aligned points. The final matrix lists four types of distribution shift and rates DANN\'s fitness for each.',
         {type: 'image', src: './assets/gifs/domain-adversarial-networks.gif', alt: 'Animated walkthrough of the domain adversarial networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Domain-Adversarial Neural Networks solve a common deployment problem: the labels live in one distribution, but the model will be used in another. A classifier trained on product photos may be deployed on phone photos. A sentiment model trained on movie reviews may be used on support tickets. A medical model trained at one hospital may face a different scanner, protocol, or patient mix. The source task is known, but the target domain is only partly visible.',
+        'Machine learning models break when the data they deploy on looks different from the data they trained on. A classifier trained on product photos with white backgrounds gets shipped to users who take phone photos with cluttered backgrounds. A sentiment model trained on movie reviews gets pointed at customer support tickets. The features that made training easy -- background color, review vocabulary -- become traps in the new setting.',
+        'The fix seems obvious: collect labeled data from the target domain and retrain. But target labels are often expensive, slow, or impossible to get. A hospital might have thousands of unlabeled scans from a new machine but no radiologist time to annotate them. The labeled source data and the unlabeled target data both exist, but no supervised bridge connects them.',
         {type: 'callout', text: 'DANN works by keeping label evidence while making domain evidence hard to recover from the learned representation.'},
-        'The hard setting is unsupervised domain adaptation. Source examples have labels. Target examples exist, but target labels are unavailable or too expensive to collect at training time. The learner must use target inputs without using target answers. That constraint rules out ordinary supervised fine-tuning and makes evaluation fragile: source validation can look strong while target accuracy collapses.',
+        'This is unsupervised domain adaptation: learn from labeled source examples and unlabeled target examples simultaneously, producing a model that works on the target distribution without ever seeing target labels during training.',
       ],
     },
     {
-      heading: 'The naive baseline and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive baseline is simple and reasonable: train a model on the labeled source data, choose the checkpoint with the best source validation score, and hope the learned features transfer. This can work when the source and target differ only in harmless ways, or when the source data is broad enough that the model learns the underlying task instead of the collection pipeline.',
-        'The wall appears when the easiest source features are domain shortcuts. Background texture, camera angle, vocabulary, geography, scanner noise, compression artifacts, or website template can become predictive in the source set. Those features may vanish, reverse, or change scale in the target domain. The model did not learn the task badly; it learned a representation that solved the source task too specifically.',
-        'A second naive move is to mix source and target inputs during training without target labels. That exposes the model to target examples, but it does not say which features should be shared. The network can still carry a domain bit through the representation and let the label head depend on source-only structure. Exposure alone is not alignment.',
+        'Train on labeled source data, validate on a held-out source split, and deploy the best checkpoint. This baseline works when the shift between source and target is small or when the source dataset is diverse enough that the model latches onto the real task rather than collection artifacts. Many production systems run exactly this way and perform acceptably.',
+        'A modest improvement feeds unlabeled target examples into the training loop alongside source data, hoping the network will learn features that describe both distributions. But the network has no incentive to do so. It can route source examples through one feature pathway and ignore target examples entirely, because only source labels generate loss.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The problem is not that the model learned poorly -- it learned the source task too well. Features like white backgrounds, specific font renderings, studio lighting, or formal vocabulary are genuinely predictive in the source domain. They correlate with the labels because of how the source data was collected, not because of the task itself. In the target domain those correlations vanish or reverse.',
+        'Simply exposing the model to target examples does not break these shortcuts. The representation can carry a silent domain bit -- a feature dimension that encodes "this came from source" -- and the label head can lean on it. The network sees target data but has no reason to align with it. Exposure is not the same as alignment pressure.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to train one representation against two judges. The label head asks whether the features still solve the source task. The domain head asks whether the same features reveal where an example came from. The feature extractor is rewarded for label usefulness and penalized for domain recognizability.',
+        'Pit the feature extractor against two competing judges. The first judge is a label head that classifies source examples using the extracted features -- standard supervised learning. The second judge is a domain head that tries to tell whether each feature vector came from source or target data. Between the feature extractor and the domain head sits a gradient reversal layer (GRL): on the forward pass it acts as identity, but on the backward pass it multiplies the gradient by negative lambda.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input, hidden, and output nodes', caption: 'DANN inserts a domain head beside the task head, so the shared hidden representation must satisfy two objectives. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
-        'This is adversarial pressure used as a training tool. The adversary is not trying to steal the model or fool it at inference time. It is a small classifier inside the training loop. If the domain classifier can easily separate source from target features, the representation still contains domain-specific information. If the label head remains accurate while the domain classifier becomes confused, the features are closer to what DANN wants: task-discriminative and domain-indiscriminate.',
+        'The domain head trains normally to get better at detecting domain origin. But the feature extractor receives the flipped gradient, so it is pushed to produce features that make domain detection harder. The label head simultaneously pulls the features toward task-useful structure. The extractor is trapped between two pressures: keep what helps classification, discard what reveals domain identity.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        'A DANN has three learned parts. The feature extractor maps source and target examples into a shared feature space. The label predictor reads source features and learns the supervised task from source labels. The domain classifier reads both source and target features and predicts a binary domain label such as source versus target.',
-        'The gradient reversal layer sits between the feature extractor and the domain classifier. On the forward pass, it behaves like the identity function, so the domain classifier sees the same features it would normally see. On the backward pass, it multiplies the gradient by a negative coefficient. The domain classifier updates normally to improve domain prediction. The feature extractor receives the opposite gradient, so it updates toward features that make domain prediction harder.',
-        'Training alternates inside ordinary backpropagation rather than through a separate game loop. The total objective combines source label loss with reversed domain loss, usually controlled by a schedule that increases adversarial pressure after the label signal has started to form. Too little pressure leaves domain shortcuts. Too much pressure too early can erase useful class information before the label head has a stable boundary.',
+        'Three components train jointly. The feature extractor (often a CNN or transformer trunk) maps raw inputs from both domains into a shared feature vector. The label predictor is a small classifier head that reads source-domain features and outputs class probabilities -- it trains with standard cross-entropy on labeled source data. The domain classifier is another small head that reads features from both domains and outputs a binary prediction: source or target.',
+        'The GRL connects the feature extractor to the domain classifier. During the forward pass, features flow through unchanged. During backpropagation, the GRL multiplies every gradient component by -lambda before passing it to the extractor. The domain classifier\'s weights update normally (they see the true gradient), so it keeps improving at domain detection. The extractor\'s weights get the negated signal, so wherever the domain classifier found a domain cue, the extractor learns to suppress it.',
+        'Lambda follows a schedule. It starts near zero so the label head can form meaningful class features before domain pressure kicks in. Over training it ramps toward 1.0, gradually increasing the invariance pressure. Starting lambda too high erases class structure before the label head stabilizes. Leaving it too low lets domain shortcuts survive into the final model.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'Why it works',
       paragraphs: [
-        'The graph view shows the causal structure. Source data flows through the feature extractor to the label head, so the representation cannot ignore the task. Source and target data also flow through the feature extractor to the domain head, so the representation is tested for domain leakage. The gradient reversal edge is the only strange part: it says that the domain head and feature extractor want opposite things.',
-        'The scatter view shows the desired geometry. Before adaptation, points separate mostly by domain. A boundary learned on the source cloud may not transfer because the target cloud sits elsewhere. After adaptation, source and target examples mix inside each class cluster. The visual does not prove target accuracy by itself; it proves the intended invariant: domain should stop being the first separator while class structure remains visible.',
-        'The failure table matters as much as the success view. Domain confusion is useful only when there is a shared labeling rule underneath the shift. If the target domain changes class priors, adds missing classes, or changes what labels mean, forcing the distributions together can hide the very structure the task needs.',
-      ],
-    },
-    {
-      heading: 'Why it can work',
-      paragraphs: [
-        'The correctness argument is a representation argument, not a guarantee that every dataset will adapt. If source and target share a labeling function, and if there exists a feature space where examples with the same label align across domains, then a good feature extractor should keep label evidence and discard domain evidence. The label loss preserves the first property. The reversed domain loss pressures the second.',
+        'The argument rests on a geometric condition: if source and target share a labeling function and a feature space exists where same-class examples from both domains overlap, then the label loss preserves that class structure while the reversed domain loss collapses the domain gap. At convergence the domain classifier approaches 50% accuracy (chance for binary classification), meaning the features no longer encode domain identity. The label head, still trained on source labels, generalizes to target because the features it reads are now domain-agnostic.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Several normal distribution curves with different means and variances', caption: 'Distribution shift is the geometric target: adaptation tries to remove domain separation while preserving task structure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Normal_Distribution_PDF.svg.'},
-        'The domain classifier gives the feature extractor a moving test. A weak domain classifier cannot expose much leakage, so the feature extractor receives little useful pressure. A strong domain classifier finds domain cues, and the reversed gradient points the extractor away from them. At equilibrium, the domain classifier should be close to guessing from the shared features, while the label head still predicts source labels well.',
-        'This argument depends on the right kind of shift. Covariate shift is the friendly case: input style changes, but the task relation is stable. Conditional shift is harder: the relationship between input and label changes. Label shift changes class priors. In those cases, matching feature distributions can make the model more confident and less correct.',
+        'The adversarial dynamic is self-correcting. A weak domain classifier cannot find subtle domain cues, so the extractor gets little pressure and retains shortcuts. A strong domain classifier exposes those cues, producing a large reversed gradient that pushes the extractor away from them. As the extractor improves, the classifier must find increasingly subtle signals or settle near chance. This feedback loop drives the representation toward the invariance boundary.',
+        'The entire argument assumes covariate shift: the input distribution changes across domains but the relationship between inputs and labels stays the same. When class proportions shift, or when the same input means different things in different domains, forcing feature distributions together can actively hurt. The model becomes more confident on target data while being less correct.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The training cost is modest compared with a whole new model, but it is not free. DANN adds a domain head, a second loss, a reversal coefficient, more hyperparameters, and extra batches containing target examples. Each update must balance task performance against domain confusion. When input size doubles, the feature extractor and label head cost scale like ordinary neural training, while the domain branch adds another classifier pass over source and target features.',
-        'The evaluation cost is often larger than the compute cost. The target labels are missing by definition, so the team can easily tune against source accuracy and domain confusion while fooling itself about the real deployment metric. A serious workflow needs small target-label audits, proxy tests with known limits, monitoring after deployment, and strict data-leakage discipline so target evaluation examples do not become training hints.',
-        'The main tax is negative transfer. If domain and class are entangled, removing domain information can remove class information. A medical scanner might correlate with a disease prevalence because of referral patterns. A writing domain might correlate with sentiment because the product category changed. DANN can erase those signals without knowing whether they are spurious or necessary.',
+        'Compute overhead is modest. The domain head is a small classifier (often one or two linear layers), and the GRL is a zero-parameter operation. Each training step processes a batch of source examples through both heads and a batch of target examples through the domain head only. Total per-step cost runs about 1.3 to 1.5 times a standard supervised model of the same backbone.',
+        'The real cost is evaluation discipline. Target labels are missing by design, so the only training-time signals are source accuracy and domain confusion. Both can look excellent while target task accuracy is poor. Reliable development requires a small held-out set of target labels used solely for evaluation, never for training or model selection. Without that, lambda tuning becomes guesswork.',
+        'Lambda scheduling adds a hyperparameter dimension that interacts with learning rate, batch size, and backbone depth. Grid search over lambda schedules using source validation is unreliable because the schedule that maximizes source accuracy often differs from the one that maximizes target accuracy. The practical overhead is experimental rigor, not GPU hours.',
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
-        'DANN-style adaptation fits image classification across camera styles, OCR across rendering conditions, speech across microphones, sentiment across domains, sensor models across devices, robotics policies across simulators and hardware, and medical imaging across acquisition pipelines. The common pattern is labeled source data, unlabeled target data, and a belief that the same task survives the shift.',
-        'It is the wrong tool when the product can afford direct target labels and the deployment risk is high enough that indirect alignment is not acceptable. It is also weak when target classes are missing from source, when new target-only classes appear, when labels mean different things, or when the deployment distribution will keep drifting after the alignment set is collected.',
-        'Do not read domain-invariant as task-correct. A representation can hide domain identity and still put target examples on the wrong side of the label boundary. Do not read unlabeled target data as validation. It can shape the representation, but it cannot certify target task accuracy without labels or a trusted downstream signal.',
+        'Visual recognition across camera conditions. Product photos to user-uploaded images, satellite imagery across seasons, histopathology slides across staining protocols or scanner manufacturers. The task-relevant features (shape, spatial structure, texture patterns) survive the shift; the domain artifacts (color calibration, background clutter, contrast curves) are exactly what DANN suppresses.',
+        'Document OCR across rendering pipelines. Models trained on clean synthetic text transfer to degraded scans with different fonts, resolutions, and noise profiles. DANN aligns the feature spaces so character-shape features dominate over rendering-specific artifacts.',
+        'Sentiment analysis across product categories. A model trained on electronics reviews adapts to restaurant reviews. Valence words and negation patterns carry across domains; category-specific jargon is the artifact to suppress. The same approach extends to cross-lingual transfer when paired with multilingual encoders.',
+        'Sim-to-real robotics. A control policy trained in simulation faces real-world physics, textures, and sensor noise. DANN-style adaptation aligns simulated and real observation embeddings so the policy transfers without collecting labeled trajectories on the physical robot.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Primary sources: Domain-Adversarial Training of Neural Networks in JMLR at https://jmlr.org/papers/v17/15-239.html and the arXiv version at https://arxiv.org/abs/1505.07818. Study Backpropagation first, because gradient reversal is only a special backward-pass rule. Study Embeddings & Similarity to understand the feature-space geometry. Study Cross-Validation & Honest Evaluation and Data Leakage before using target-domain probes. Then compare DANN with fine-tuning, self-training, domain-specific batch normalization, invariant risk minimization, and adversarial examples so the word adversarial does not collapse several different ideas into one bucket.',
+        'Negative transfer is the primary risk. When domain identity and class identity are entangled, suppressing domain signal destroys class signal. A medical scanner that correlates with disease prevalence (because referral patterns differ by hospital) carries information DANN cannot distinguish from a shortcut. Removing it lowers target accuracy below the unadapted baseline.',
+        'DANN assumes identical label sets across domains. If the target contains classes absent from the source, or if some source classes never appear in the target, forced alignment merges unrelated categories. Partial domain adaptation and open-set recognition are separate techniques designed for this mismatch.',
+        'Continuous distribution drift defeats DANN because the alignment is fixed at training time. If the target distribution keeps evolving after deployment -- new scanner firmware, seasonal content changes, shifting user demographics -- the adapted model degrades like any static model. DANN solves one-time adaptation, not ongoing tracking.',
+        'Domain invariance does not guarantee task correctness. A representation can hide domain identity perfectly yet still place target examples on the wrong side of the decision boundary. Without target labels, there is no direct measurement of target task accuracy during training, only the proxy hope that alignment implies transferability.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Setup: 10,000 product photos of cats and dogs with labels (source), 5,000 phone photos of cats and dogs without labels (target). A ResNet-18 trained only on source achieves 95% source validation accuracy but 72% on a held-out target test set. Investigation reveals the model relies on white-background detection -- product photos always have white backgrounds, phone photos do not.',
+        'Architecture: ResNet-18 backbone outputs a 512-dimensional feature vector. A linear label head maps 512 dims to 2 classes (cat, dog). A linear domain head maps 512 dims to 2 classes (source, target). The GRL sits between the backbone output and the domain head input.',
+        'Training: lambda ramps linearly from 0 to 1.0 over 50 epochs. At epoch 0, domain accuracy is 98% -- features clearly encode which dataset each image came from. By epoch 25, domain accuracy drops to 74% as the extractor starts suppressing background-color features. By epoch 50, domain accuracy settles at 55%, near binary chance. Source label accuracy dips from 95% to 93%, a small cost of losing the background shortcut.',
+        'Result: target test accuracy rises from 72% to 86%, a 14-point gain from suppressing the white-background shortcut. The remaining 7-point gap versus source reflects genuine difficulty (phone-photo blur, partial occlusion, cluttered scenes) that domain confusion alone cannot resolve. Adding data augmentation or a stronger backbone would address those residual errors through a different mechanism.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The foundational paper is Ganin et al., "Domain-Adversarial Training of Neural Networks," JMLR 2016 (https://jmlr.org/papers/v17/15-239.html). The gradient reversal layer, the lambda schedule, and the theoretical framework for domain-adversarial adaptation originate here. The earlier workshop version appeared at ICML 2015 (arXiv: https://arxiv.org/abs/1505.07818).',
+        'Study backpropagation first -- gradient reversal is a backward-pass modification, so understanding the chain rule is a prerequisite. Study embeddings and similarity to build intuition for the feature-space geometry DANN operates in. Review cross-validation and data leakage before designing target-domain evaluation protocols, since target label contamination is the most common experimental mistake in domain adaptation.',
+        'After DANN, compare with fine-tuning (when some target labels exist), self-training with pseudo-labels on target data, domain-specific batch normalization (AdaBN), and invariant risk minimization (IRM). Note that "adversarial" in DANN refers to the domain classifier competing with the feature extractor, not to adversarial examples -- those are a separate concept involving input perturbations.',
       ],
     },
   ],

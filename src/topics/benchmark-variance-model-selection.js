@@ -245,95 +245,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The variance-sources view lays out a matrix where a single method is trained across different random seeds and data splits. Watch the scores shift even though the code never changes. The spread you see is benchmark variance -- the gap between what the algorithm is and what one run measures.',
+        'The estimator-discipline view walks up a cost ladder from a single run to nested cross-validated search. Each rung samples more sources of variation and costs more compute. The final frame connects variance control to the rest of the evaluation stack: cross-validation, confidence intervals, leakage audits, and A/B tests.',
         {type: 'image', src: './assets/gifs/benchmark-variance-model-selection.gif', alt: 'Animated walkthrough of the benchmark variance model selection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'The problem',
+      heading: 'Why this exists',
       paragraphs: [
-        'Benchmark variance is the reason model comparison is harder than reading one score from one table. A training run is not a pure measurement of an algorithm. It is the result of data sampling, train/test split, initialization, minibatch order, augmentation, nondeterministic kernels, early stopping, hyperparameter search, metric implementation, and sometimes evaluator or judge noise. The same method can score differently across those choices even when the code is correct.',
-        'The practical problem is decision risk. A team wants to know whether model A is better than model B, whether a new training recipe deserves more compute, or whether an offline benchmark justifies a production rollout. A single lucky run can make an ordinary method look strong. A single unlucky run can make a strong method look weak. Benchmark variance turns model selection into an estimation problem, not a screenshot problem.',
+        'Benchmark variance is the reason model comparison is harder than reading one number off a leaderboard. A training run is not a pure measurement of an algorithm\'s quality. It is the output of a process that includes data sampling, train/test splitting, weight initialization, minibatch ordering, data augmentation, nondeterministic GPU kernels, early stopping, hyperparameter search scope, metric implementation, and sometimes evaluator or judge noise. The same method can produce materially different scores across those choices, even when the code is identical.',
+        'The practical consequence is decision risk. A team wants to know whether model A beats model B, whether a new recipe justifies more compute, or whether an offline benchmark supports a production rollout. One lucky seed can make an average method look strong; one unlucky seed can bury a strong method. Benchmark variance turns model selection from a lookup problem into an estimation problem, and estimation demands statistical discipline.',
         {type: 'callout', text: 'A benchmark result is a sampled measurement process, so model selection must estimate the distribution that produced the score.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Bias_and_variance_contributing_to_total_error.svg', alt: 'Diagram showing bias and variance contributing to total error, with the U-shaped tradeoff curve', caption: 'Bias-variance decomposition of total error. Benchmark variance is one component; ignoring it can make a biased estimator look artificially precise. (Source: Wikimedia Commons)'},
       ],
     },
     {
-      heading: 'Naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive approach is to train each candidate once, sort by the reported metric, and declare the higher score the winner. That is sometimes acceptable for a smoke test, but it is a weak basis for a paper claim, a procurement decision, or a production migration. The observed gap might be smaller than ordinary seed-to-seed variation. It might depend on one train/test split. It might come from giving one model a larger hyperparameter search budget.',
-        'A slightly less naive approach is to run several seeds and report a mean and standard deviation. That helps, but only for the randomness that the seed controls. It does not fix data leakage. It does not fix unfair tuning. It does not estimate the effect of choosing a different data split. It does not answer whether the model would still win after both methods are retuned fairly under the same budget. Repetition is useful only when it samples the right uncertainty.',
+        'The obvious approach is to train each candidate once, sort by the reported metric, and declare the top scorer the winner. This is fine for a quick smoke test, but it is a weak foundation for a paper claim, a procurement decision, or a production migration. The observed gap might be smaller than ordinary seed-to-seed variation. It might depend on a single lucky train/test split. It might reflect the fact that one model got a larger hyperparameter search budget than the other.',
+        'A slightly better version runs several seeds and reports mean plus standard deviation. That helps, but it only covers the randomness the seed controls: weight initialization and minibatch order. It does not sample the effect of different data splits. It does not account for unfair tuning budgets. It does not detect data leakage. Repetition is only useful when it targets the right source of uncertainty.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that "model quality" is not directly observed. We observe scores produced by a benchmarking process. That process includes random variables and human choices. If the process changes, the score can change. If the process is biased, the score can be confidently wrong. If the process is too narrow, the score can be precise about an unrealistic setting and unhelpful for the real decision.',
+        '"Model quality" is not directly observable. We observe scores produced by a benchmarking process, and that process contains random variables and human choices. If the process changes -- different split, different search budget, different stopping criterion -- the score changes. If the process is biased, the score can be confidently wrong. If the process is too narrow, the score can be precise about an unrealistic setting and useless for the real decision.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/9a/Big-O_Computational_Complexity.svg', alt: 'Chart of common algorithmic complexity classes showing how cost grows with input size', caption: 'Complexity of exhaustive model comparison grows fast. With k seeds, s splits, and h hyperparameter trials, the budget is k * s * h * T per candidate. (Source: Wikimedia Commons)'},
-        'This is why benchmark variance is not only a statistics topic. It is a systems topic. The measurement pipeline has state, budgets, caches, data boundaries, selection rules, and reporting incentives. A benchmark can fail because the model is unstable, because the estimator ignores a source of variation, because the hyperparameter search is asymmetric, or because the final metric is computed on a contaminated test set. The wall is not noise alone. It is unmodeled process.',
+        'This is why benchmark variance is a systems problem, not only a statistics problem. The measurement pipeline has state, budgets, caches, data boundaries, selection rules, and reporting incentives. A benchmark can fail because the model\'s training is unstable, because the estimator ignores a source of variation, because the hyperparameter search was asymmetric, or because the test set was contaminated. The wall is not noise alone. It is unmodeled process hiding inside the number.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'The core insight is that a model comparison is a distribution before it becomes a headline number. The score of model A and the score of model B each vary. The difference between them varies too. Good benchmark discipline asks what random process generated the observed difference and whether the evidence is strong enough for the claim being made.',
-        'The paper "Accounting for Variance in Machine Learning Benchmarks" frames the benchmark as a full procedure rather than one run. That matters because model selection usually includes hyperparameter optimization. A method is not just an architecture; it is architecture plus training recipe plus search budget plus selection rule. The practical target is an estimator that approximates the question a competent practitioner actually cares about: if we adopted this method under a fair protocol, how well would it perform?',
+        'A model comparison is a distribution before it becomes a headline number. The score of model A varies. The score of model B varies. The difference between them varies too. Sound benchmark discipline asks: what random process generated the observed difference, and is the evidence strong enough for the claim being made?',
+        'Bouthillier et al.\'s "Accounting for Variance in Machine Learning Benchmarks" (MLSys 2021) formalize this by framing the benchmark as a full procedure, not a single run. A method is not just an architecture; it is architecture plus training recipe plus search budget plus selection rule. The target estimator answers the question a competent practitioner actually cares about: if we adopted this method under a fair protocol, how well would it perform on average?',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A disciplined benchmark starts by naming variance sources. Data variance comes from which examples or folds are used. Initialization variance comes from random starting weights. Training variance comes from minibatch order, augmentation, dropout, nondeterministic kernels, and early stopping. Search variance comes from which hyperparameters were tried and how the best run was selected. Evaluation variance comes from finite test sets, metric noise, and in LLM settings, sometimes judge or task-sampling noise.',
-        'The estimator then chooses which of those sources to sample. Multi-seed evaluation samples initialization and training randomness. Cross-validation samples data splits. Bootstrapping estimates uncertainty from finite evaluation sets. Paired comparisons reduce noise by evaluating methods on the same examples or tasks. Nested hyperparameter optimization tries to account for the fact that a real practitioner would retune a method instead of using one fixed configuration forever. Each estimator costs compute, so the protocol should match the strength of the claim.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose model A scores 85.0 on one run and model B scores 84.4. A naive report says A wins by 0.6 points. Now run five seeds and three data splits. A produces scores from 82.0 to 85.4. B produces scores from 82.6 to 86.1. The distributions overlap. On some paired splits B wins. The original 0.6 point gap is no longer a stable fact about the algorithms. It is one draw from a noisy process.',
-        'Now add hyperparameter search. Model A received 50 trials because it was the new method. Model B received the old default configuration. That comparison is unfair even if it has many seeds. A fairer protocol either gives both methods comparable search budgets or explicitly reports that the result includes more tuning effort for A. The conclusion might change from "A is better" to "A can be made better under a larger search budget." That is a different claim.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The variance-sources view shows a matrix where the same method moves across seeds and splits. The point is not the exact numbers. The point is that the benchmark output has a spread. The plot view shows two score distributions that overlap, with a lucky sample from one model and an unlucky sample from another. That is the visual form of a misleading leaderboard row.',
-        'The estimator-discipline view shows the cost and risk ladder. A single run is cheap and noisy. Multi-seed runs reduce one kind of noise. Fixed hyperparameter protocols can be useful but can hide tuning bias. Nested or repeated search is closer to the real model-selection process, but it is expensive. The final graph connects this topic to cross-validation, confidence intervals, leakage audits, and A/B testing because a defensible claim needs more than one metric cell.',
+        'Step one: enumerate variance sources. Data variance comes from which examples or folds are used for training and evaluation. Initialization variance (sometimes called seed variance) comes from random starting weights. Training variance comes from minibatch order, dropout masks, data augmentation, nondeterministic GPU kernels, and early stopping. Search variance comes from which hyperparameter configurations were tried and how the best run was selected. Evaluation variance comes from finite test sets, metric noise, and in LLM settings, judge or task-sampling noise.',
+        'Step two: choose an estimator that samples the sources that matter for the claim. Multi-seed evaluation (same split, different seeds) captures initialization and training randomness. k-fold cross-validation captures data-split variance. Bootstrapping the test set estimates uncertainty from a finite evaluation sample. Paired comparisons -- evaluating both methods on exactly the same folds or examples -- cancel shared noise and sharpen the contrast. Nested hyperparameter optimization accounts for the fact that a real practitioner would retune a method, not freeze one configuration forever.',
+        'Step three: match the protocol to the decision\'s stakes. An early exploration can tolerate cheap, noisy estimates. A final claim that justifies a production migration or a publication should spend enough compute to cover every variance source that could reverse the conclusion.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Variance-aware benchmarking works because it aligns the evidence with the decision. If the decision is a quick engineering smoke test, a single run may be enough. If the decision is a publication claim, the evidence should show uncertainty. If the decision is a production rollout, the offline result should be paired with online validation, drift monitoring, and rollback criteria. The estimator becomes part of the claim.',
-        'It also prevents a common kind of self-deception. Without uncertainty, a small gain looks crisp. With uncertainty, the same gain may be tentative, task-specific, or not worth the added cost. That does not make benchmarking weaker. It makes benchmark claims more honest. A result with error bars, budget accounting, and known limitations is more useful than a clean number that hides the process that produced it.',
+        'Variance-aware benchmarking works because it aligns the strength of evidence with the weight of the decision. A smoke test needs one run. A publication needs uncertainty estimates. A production rollout needs offline results paired with online A/B validation, drift monitoring, and rollback criteria. The estimator\'s rigor becomes part of the claim itself.',
+        'It also defeats a common form of self-deception. Without uncertainty, a 0.3-point improvement looks crisp and decisive. With uncertainty, the same 0.3 points may sit inside a confidence interval that spans zero, may hold only on one task subset, or may not justify the added complexity. That does not make benchmarking weaker -- it makes benchmark claims defensible. A result with error bars, paired win rates, budget accounting, and known limitations carries more information than a clean leaderboard number that hides the process that produced it.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The obvious cost is compute. If one training run costs T, then k seeds, s splits, and h hyperparameter trials can cost k * s * h * T. A fully nested comparison may be too expensive for early exploration. That is why teams use evidence ladders. Early experiments can be cheap and noisy. Final claims should spend more budget to sample the sources of variation that could reverse the conclusion.',
-        'The second cost is reporting complexity. A full report may need means, intervals, paired win rates, search budgets, failed runs, task coverage, and cost per task. That can look less tidy than one leaderboard number, but it carries more information. The third cost is organizational: variance-aware work can slow down premature declarations of victory. That friction is useful when the consequence of being wrong is large.',
+        'The obvious cost is compute. If one training run costs T GPU-hours, then k seeds across s data splits with h hyperparameter trials costs k * s * h * T per candidate model. A concrete example: T = 4 GPU-hours, k = 5 seeds, s = 3 splits, h = 20 search trials gives 5 * 3 * 20 * 4 = 1,200 GPU-hours per candidate. With two candidates, that is 2,400 GPU-hours just to compare them fairly. A fully nested comparison may be prohibitive for early exploration, which is why teams use evidence ladders: cheap and noisy early, expensive and precise for final claims.',
+        'The second cost is reporting complexity. A full report needs means, confidence intervals, paired win rates, search budgets, counts of failed runs, task coverage, and cost per evaluation. That is less tidy than one leaderboard number, but it is more honest. The third cost is organizational friction: variance-aware work slows down premature declarations of victory. That friction is a feature when the consequence of a wrong decision is a wasted quarter of engineering or a retracted paper.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Benchmark variance discipline wins in paper reviews, model cards, internal platform decisions, recommender launches, forecasting upgrades, medical or legal ML studies, LLM evals, agent benchmarks, and expensive production migrations. It is most valuable when the measured gains are small, the evaluation set is limited, or the benchmark is used to justify cost, risk, or public claims.',
-        'It also wins when teams compare model families with different tuning sensitivity. Some methods are robust across seeds and hyperparameters. Others have high upside but unstable training. Mean score alone can hide that difference. A method with slightly lower average performance but much lower variance may be better for an operational system. A method with high variance may still be useful if the deployment can afford search and selection.',
+        'Variance discipline is most valuable when measured gains are small, evaluation sets are limited, or the benchmark is used to justify cost, risk, or public claims. That covers paper submissions and reviews, model cards, internal platform selection, recommender system launches, forecasting pipeline upgrades, medical or legal ML evaluations, LLM evals with judge noise, agent benchmarks with stochastic environments, and expensive production migrations.',
+        'It also matters when comparing model families with different tuning sensitivity. Some methods are robust across seeds and hyperparameters; others have high upside but unstable training. Mean score alone hides that difference. A method with slightly lower average performance but much tighter variance may be the right choice for an operational system that needs predictable behavior. Conversely, a high-variance method may still win if the deployment can afford search and selection -- but the report should say so explicitly.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Variance accounting does not rescue a broken benchmark. If the test set leaks into training, repeated runs only estimate the wrong process more precisely. If the task distribution is unrepresentative, confidence intervals around that distribution do not prove the model will work elsewhere. If a judge systematically favors one style of answer, more sampled tasks may preserve the bias. Benchmark discipline must include data and metric audits, not only statistics.',
-        'Common failure modes include reporting only the best seed, deleting failed runs, changing the search budget after seeing results, using unpaired tests when paired comparisons are available, ignoring multiple comparisons across many models, and treating statistical significance as product significance. A tiny reliable gain may still be too expensive, too slow, or too complex. The result should answer both "is it real?" and "does it matter?"',
+        'Variance accounting does not rescue a broken benchmark. If the test set leaks into training, repeated runs only estimate the wrong quantity more precisely. If the task distribution is unrepresentative, tight confidence intervals around that distribution do not prove the model will generalize. If a judge systematically favors one answer style, sampling more tasks preserves the bias. Variance discipline must include data and metric audits, not only statistics.',
+        'Common failure modes: reporting only the best seed out of many (selection bias), deleting diverged runs without disclosing them (survivorship bias), adjusting the search budget after peeking at results (adaptive bias), using unpaired statistical tests when paired comparisons are available (power loss), ignoring the multiple-comparisons problem when ranking many models (inflated false discovery), and treating statistical significance as product significance. A tiny reliable gain may still be too expensive, too slow, or too fragile to ship.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Accounting for Variance in Machine Learning Benchmarks at https://arxiv.org/abs/2103.03098 and the MLSys proceedings page at https://proceedings.mlsys.org/paper_files/paper/2021/hash/0184b0cd3cfb185989f858a1d9f5c1eb-Abstract.html.',
-        'Study Cross-Validation for data-split discipline, Bootstrap Confidence Intervals for finite-sample uncertainty, Hyperparameter Search for tuning-budget bias, Data Leakage and Contamination for invalid measurements, A/B Testing for online validation, Power Analysis for sample sizing, Permutation Tests for distribution-free comparison, RL Experiment Reproducibility Ledger for unstable training loops, and LLM evaluation topics where judge variance and task sampling become first-class parts of the benchmark.',
+        'Suppose model A scores 85.0 on a single run and model B scores 84.4. A naive report says A wins by 0.6 points. Now run 5 seeds across 3 data splits (15 runs per model). A produces scores ranging from 82.0 to 85.4 with mean 83.8 and standard deviation 1.1. B produces scores from 82.6 to 86.1 with mean 84.0 and standard deviation 0.9. The distributions overlap substantially. On 6 of the 15 paired comparisons, B wins. A paired t-test on the 15 differences yields p = 0.41 -- nowhere near conventional significance. The original 0.6-point gap was one draw from a noisy process, not a stable fact about the algorithms.',
+        'Now layer in hyperparameter search. Model A received 50 random search trials because it was the exciting new method. Model B used its published default configuration. That comparison is unfair even with 15 seeds each, because A had 50 chances to find a good configuration while B had one. A fairer protocol gives both methods the same search budget -- say 20 trials each inside each fold -- and reports the nested cross-validated score. The conclusion might shift from "A is better" to "A can be made slightly better if you spend 20x the tuning budget." Those are different claims with different operational implications.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Bouthillier et al., "Accounting for Variance in Machine Learning Benchmarks," MLSys 2021 (https://arxiv.org/abs/2103.03098, proceedings at https://proceedings.mlsys.org/paper_files/paper/2021/hash/0184b0cd3cfb185989f858a1d9f5c1eb-Abstract.html). Also valuable: Dodge et al., "Show Your Work: Improved Reporting of Experimental Results" (EMNLP 2019), and Lucic et al., "Are GANs Created Equal?" (NeurIPS 2018) for a case study in how variance hides real differences.',
+        'Study Cross-Validation next for data-split discipline, then Bootstrap Confidence Intervals for finite-sample uncertainty estimation. Hyperparameter Search covers tuning-budget bias. Data Leakage and Contamination explains how variance reduction is worthless when the measurement itself is invalid. A/B Testing bridges offline benchmarks to online decisions. Power Analysis tells you how many runs you need before you start. Permutation Tests provide distribution-free comparison when normality assumptions fail. For domains with especially unstable training, see RL Experiment Reproducibility Ledger.',
       ],
     },
   ],

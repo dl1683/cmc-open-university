@@ -228,40 +228,39 @@ export const article = {
           label: 'Color semantics across both views',
           text: 'Active (blue)   -- the element or bit currently being processed\nFound (green)    -- a recovered or matched value\nCompare (orange) -- structures being contrasted (low array vs. high bitvector)',
         },
-        'In the encode view, watch each sorted value split into its bottom l bits (stored directly in the low array) and its upper bits (placed as a 1-marker in the high bitvector). The zeros before each marker encode how far the high part advanced since the last element.',
-        'In the query view, the key operation is select1(i): find the i-th 1-bit in the high bitvector, subtract i to recover the high part, read lows[i], and combine. Search frames show why this is an index, not just a compressed byte string -- high bits narrow a region, lows finish the comparison, and sorted order remains usable.',
+        'In the encode view, watch each sorted value split into its bottom l bits (stored in the low array) and its upper bits (placed as a 1-marker in the high bitvector). The zeros before each marker encode how far the high part advanced since the last element.',
+        'In the query view, the key operation is select1(i): find the i-th 1-bit in the high bitvector, subtract i to recover the high part, read lows[i], and combine. The search frames show why this is an index, not just a compressed byte string -- high bits narrow a region, lows finish the comparison, and sorted order stays usable.',
         {
           type: 'note',
           text: 'The example uses l = 2 so arithmetic stays visible. Real systems pick l from the universe-to-count ratio, often per partition. The same layout scales to millions of document ids because access touches one select structure and one packed low value.',
         },
-      
-        {type: 'image', src: './assets/gifs/elias-fano-encoding.gif', alt: 'Animated walkthrough of the elias fano encoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/elias-fano-encoding.gif', alt: 'Animated walkthrough of the elias fano encoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Sorted integer lists appear everywhere: inverted-index postings, graph adjacency lists, column-store row ids, sparse bitmap positions, timestamp offsets, file block pointers. These lists can hold millions of entries. Storing every value as a full 32-bit or 64-bit word wastes memory and cache.',
-        'The lists are rarely write-once-read-sequential. A search engine needs access(i), nextGEQ(x), predecessor, successor, and fast intersection. A graph engine needs neighbor scans and membership tests. An analytics engine needs to skip to a specific row id. Compression that destroys navigation is not useful here.',
+        'Sorted integer lists appear everywhere: inverted-index postings, graph adjacency lists, column-store row ids, sparse bitmap positions, timestamp offsets, file block pointers. These lists hold millions of entries. Storing every value as a full 32-bit or 64-bit word wastes memory and cache.',
+        'These lists are not write-once-read-sequential. A search engine needs access(i), nextGEQ(x), predecessor, successor, and fast intersection. A graph engine needs neighbor scans and membership tests. An analytics engine needs to skip to a specific row id. Compression that destroys navigation is useless here.',
         {
           type: 'quote',
           text: 'Quasi-succinct indices use roughly the information-theoretic minimum number of bits while supporting constant-time access.',
           attribution: 'Sebastiano Vigna, "Quasi-Succinct Indices" (WSDM 2013)',
         },
-        'Elias-Fano solves the tension between compression (fewer bits) and indexing (fast operations). It keeps enough structure exposed that the system can jump around inside the compressed representation without a full prefix decode.',
+        'Elias-Fano resolves the tension between compression (fewer bits) and indexing (fast operations). It keeps enough structure exposed that the system can jump around inside the compressed representation without a full prefix decode.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first thing any engineer tries is a plain sorted array. It gives O(1) random access, binary search in O(log n), simple sequential scans, and trivial implementation. For small lists this is hard to beat.',
-        'When space matters, the next move is delta coding: store the gap between consecutive values instead of the values themselves, then compress each gap with variable-byte or bit-packed encoding. Gap coding is strong for sequential scans and can shrink postings lists dramatically.',
+        'The first thing any engineer tries is a plain sorted array. It gives O(1) random access, O(log n) binary search, simple sequential scans, and trivial implementation. For small lists this is hard to beat.',
+        'When space matters, the next move is delta coding: store the gap between consecutive values instead of the values themselves, then compress each gap with variable-byte or bit-packed encoding. Gap coding is strong for sequential scans and shrinks postings lists substantially.',
         {
-          type: 'table',
-          headers: ['Approach', 'Space', 'Random access', 'Skip/search', 'Strength'],
-          rows: [
-            ['Plain sorted array', 'n * w bits (w = word width)', 'O(1)', 'O(log n) binary search', 'Simple, cache-friendly reads'],
-            ['Delta / varint coding', 'n * avg_gap_bits', 'O(i) -- decode from start', 'O(i) without skip table', 'Excellent compression ratio on dense lists'],
-            ['Bitmap', 'U bits (universe size)', 'O(1) with rank', 'O(1) with rank/select', 'Fast for dense sets, wastes space when sparse'],
+          type: 'bullets',
+          items: [
+            'Plain sorted array: n * w bits (w = word width). O(1) random access, O(log n) binary search. Simple and cache-friendly, but space-hungry.',
+            'Delta / varint coding: n * avg_gap_bits. Excellent compression, but access(i) requires decoding all i preceding gaps. No random access without skip tables.',
+            'Bitmap: U bits (universe size). O(1) rank/select when augmented, but space is proportional to the universe, not the list. Wastes memory on sparse sets.',
           ],
         },
         'Each approach works well in its regime. The trouble starts when you need both compression and navigation on the same list.',
@@ -277,11 +276,23 @@ export const article = {
           label: 'Gap coding forces sequential prefix decode',
           text: 'Sorted list:   [3,  5,  8, 13, 21, 34]\nGaps:           [3,  2,  3,  5,  8, 13]\n\naccess(4) = gap[0]+gap[1]+gap[2]+gap[3]+gap[4]\n          = 3 + 2 + 3 + 5 + 8 = 21\n\n--> Must decode 5 gaps to reach element 4.\n    With 10M elements, access(5M) decodes 5M gaps.',
         },
-        'Bitmaps flip the problem: fast rank/select but space proportional to the universe, not the list. For sparse sets (n much less than U), a bitmap wastes orders of magnitude more than necessary. Roaring Bitmaps handle mixed density with containers, but they are a different data structure with different operation costs.',
+        'Bitmaps flip the problem: fast rank/select but space proportional to the universe, not the list. For sparse sets (n much less than U), a bitmap wastes orders of magnitude more than necessary.',
         {
           type: 'note',
           text: 'The wall is not "it does not scale." The wall is specific: gap codes lose O(1) positional access, plain arrays lose compression, and bitmaps lose space efficiency on sparse sets. Elias-Fano keeps all three.',
         },
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Every sorted integer has two parts: a slowly-growing upper portion and a noisy lower portion. Elias-Fano splits each value at a chosen bit boundary l. The upper bits form a nondecreasing sequence that compresses into a short unary bitvector. The lower bits are small enough to store directly in a packed array.',
+        {
+          type: 'callout',
+          text: 'Split each sorted value into upper bits (compressed via unary coding because they are monotone) and lower bits (stored raw because they are small). The split turns one hard problem into two easy ones.',
+        },
+        'The key choice is l = floor(log2(U/n)), where U is the universe size and n is the element count. This balances the two components: the low array costs n * l bits, and the high bitvector costs roughly n + U/2^l bits. With l = floor(log2(U/n)), both terms are approximately n * log2(U/n), so neither dominates.',
+        'The result is a representation that uses about n * log2(U/n) + 2n bits -- within 2n bits of the information-theoretic lower bound for encoding an n-element subset of {0, ..., U-1}. No other representation with O(1) access comes closer.',
       ],
     },
     {
@@ -299,15 +310,15 @@ export const article = {
           language: 'text',
           text: 'Given: sorted list x[0] <= x[1] <= ... <= x[n-1], universe U\nChoose: l = floor(log2(U / n))  (balances low array and high bitvector)\n\nFor each x[i]:\n  low[i]  = x[i] mod 2^l          -- bottom l bits, stored in packed array\n  high[i] = floor(x[i] / 2^l)     -- upper bits, encoded in unary bitvector',
         },
-        'The low array is straightforward: n entries of l bits each, stored in a packed fixed-width array. Reading lows[i] is a direct bit offset calculation.',
+        'The low array is straightforward: n entries of l bits each, packed contiguously. Reading lows[i] is a direct bit-offset calculation -- jump to bit position i * l and extract l bits.',
         'The high parts are nondecreasing (because the values are sorted). Encode them as a unary bitvector: place a 1-bit at position high(i) + i for each element i. Between consecutive 1-bits, zeros represent empty high buckets. The bitvector length is roughly n + U/2^l.',
         {
           type: 'diagram',
-          label: 'Worked encoding: list [3, 5, 8, 13, 21, 34] with l = 2',
+          label: 'High bitvector construction for [3, 5, 8, 13, 21, 34] with l = 2',
           text: 'Value:    3    5    8   13   21   34\nlow:      3    1    0    1    1    2     (bottom 2 bits)\nhigh:     0    1    2    3    5    8     (floor(value / 4))\n\nMarker position = high(i) + i:\n  i=0: 0+0=0    i=1: 1+1=2    i=2: 2+2=4\n  i=3: 3+3=6    i=4: 5+4=9    i=5: 8+5=13\n\nHigh bitvector (1 at marker positions, 0 elsewhere):\n  pos: 0  1  2  3  4  5  6  7  8  9 10 11 12 13\n  bit: 1  0  1  0  1  0  1  0  0  1  0  0  0  1',
         },
-        'To access value i: compute p = select1(i), then high = p - i, read low = lows[i], and reconstruct value = (high << l) | low. No prefix decode required.',
-        'To search for the first value >= x: split x into targetHigh and targetLow. Use the high bitvector to find the range of elements whose high part matches targetHigh. Check lows in that narrow range. Implementations add sampling and partitioning to speed nextGEQ and predecessor.',
+        'To access value i: compute p = select1(i) (the position of the i-th 1-bit), then high = p - i, read low = lows[i], and reconstruct value = (high << l) | low. No prefix decode required.',
+        'To search for the first value >= x: split x into targetHigh and targetLow. Use select0 on the high bitvector to find the bucket boundary for targetHigh. Scan lows within that bucket. Implementations add sampling and partitioning to speed nextGEQ and predecessor.',
         {
           type: 'code',
           language: 'javascript',
@@ -318,14 +329,14 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness rests on one invariant: sorted input makes the high stream monotone.',
+        'Correctness rests on one invariant: sorted input makes the high stream nondecreasing, which makes marker positions strictly increasing.',
         {
           type: 'note',
           text: 'Invariant: value(i) = high(i) * 2^l + low(i), and marker positions high(i) + i are strictly increasing.',
         },
-        'If two adjacent values share the same high part, adding the element index still pushes the second marker to a later position. If the high part increases, the marker moves even further right. The result is a strictly increasing marker sequence that can be represented as 1-bits in a bitvector.',
-        'Select turns an element index into its marker position. Rank counts how many markers appear up to a given high bucket. Together they let the compressed high stream behave like a searchable ordered structure rather than an opaque bitstring.',
-        'The low bits do not need monotonicity-based compression because they are only l bits each. Storing them directly is what preserves O(1) access. The high bits are where sorted order pays off. Elias-Fano compresses the ordered part and leaves the small unordered part directly addressable.',
+        'If two adjacent values share the same high part, adding the element index still pushes the second marker to a later position: marker(i+1) = high(i) + (i+1) = marker(i) + 1. If the high part increases, the marker jumps even further right. Either way, every element gets a unique bitvector position.',
+        'Select1 turns an element index into its marker position. Rank1 counts how many markers appear up to a given position. Together they let the compressed high stream behave like a searchable ordered structure rather than an opaque bitstring.',
+        'The low bits need no monotonicity-based compression because they are only l bits each. Storing them directly preserves O(1) access. The high bits are where sorted order pays off: nondecreasing values compress into a bitvector with n ones and roughly n zeros, navigable via rank/select.',
         {
           type: 'diagram',
           label: 'Why marker positions are strictly increasing',
@@ -337,27 +348,26 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Measure', 'Cost', 'Detail'],
-          rows: [
-            ['Low array', 'n * l bits', 'Packed fixed-width; l = floor(log2(U/n))'],
-            ['High bitvector', 'n + U/2^l bits', 'One 1-bit per element, zeros for empty buckets'],
-            ['Total space', 'n * log2(U/n) + 2n + o(n) bits', 'Plus rank/select metadata'],
-            ['access(i)', 'O(1)', 'With constant-time select1'],
-            ['nextGEQ(x)', 'O(1) amortized or O(log(U/n))', 'Depends on select/rank implementation'],
-            ['Build', 'O(n)', 'Single pass over sorted input'],
+          type: 'bullets',
+          items: [
+            'Low array: n * l bits, where l = floor(log2(U/n)). Packed fixed-width entries.',
+            'High bitvector: n + U/2^l bits. One 1-bit per element, zeros for empty buckets.',
+            'Total space: n * log2(U/n) + 2n + o(n) bits. The o(n) term covers rank/select metadata.',
+            'access(i): O(1) with constant-time select1.',
+            'nextGEQ(x): O(1) amortized or O(log(U/n)), depending on select/rank implementation.',
+            'Build: O(n). Single pass over sorted input.',
           ],
         },
         'The space bound n * log2(U/n) + 2n bits is within 2n bits of the information-theoretic minimum for representing an n-element subset of a universe of size U. The 2n additive term comes from the high bitvector carrying n 1-bits plus roughly n zeros.',
         {
           type: 'note',
-          text: 'When n doubles, space roughly doubles (linear in n). When U doubles with n fixed, each value needs one more low bit, so total space grows by n bits. The encoding adapts naturally to density: dense lists (n close to U) get small high bitvectors; sparse lists (n much less than U) get longer low arrays.',
+          text: 'When n doubles, space roughly doubles (linear in n). When U doubles with n fixed, each value needs one more low bit, so total space grows by n bits. Dense lists (n close to U) get small high bitvectors; sparse lists (n much less than U) get longer low arrays.',
         },
-        'Access is constant time when select is constant time, which requires an o(n)-bit auxiliary structure over the high bitvector. Search costs depend on bucket sizes and sampling. Dense buckets may require scanning several lows. Sparse buckets are easy to skip. Real performance depends on cache locality, branch behavior, and the ratio of access to sequential scan in the workload.',
+        'Access is constant time when select is constant time, which requires an o(n)-bit auxiliary structure over the high bitvector. Search costs depend on bucket sizes and sampling. Dense buckets may require scanning several lows. Sparse buckets skip easily. Real performance depends on cache locality, branch prediction, and the workload mix of access versus sequential scan.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Elias-Fano wins on large, immutable, sorted integer sequences where both compression and navigation matter.',
         {
@@ -369,8 +379,8 @@ export const article = {
         {
           type: 'bullets',
           items: [
-            'Search-engine postings lists: millions of sorted document ids per term, queried via nextGEQ and intersection. Elias-Fano compresses each list while preserving skip-ahead without full decompression.',
-            'Graph adjacency lists: sorted neighbor ids for each vertex. Compressed storage with iteration, successor search, and membership-like checks. Rebuilt in batch segments.',
+            'Search-engine postings lists: millions of sorted document ids per term, queried via nextGEQ and intersection. Elias-Fano compresses each list while preserving skip-ahead without full decompression. Lucene adopted partitioned Elias-Fano for postings in 2015.',
+            'Graph adjacency lists: sorted neighbor ids for each vertex. Compressed storage with iteration, successor search, and membership-like checks. WebGraph uses Elias-Fano for billion-edge web graphs.',
             'Column-store row positions: sparse columns store the row ids where a value appears. Elias-Fano provides bitmap-like scans at compressed size.',
             'Log and file offsets: monotone byte offsets into a log or archive. Random access to the i-th record without a separate index table.',
             'Inverted index intersection: two compressed postings lists can be intersected by alternating nextGEQ calls, never materializing the full lists.',
@@ -390,43 +400,78 @@ export const article = {
         {
           type: 'bullets',
           items: [
-            'Unsorted integers: the high-bit encoding requires monotonicity. Sorting may change semantics, and without it the bitvector layout breaks.',
-            'Frequent inserts and deletes: inserting in the middle shifts all subsequent marker positions. Deleting leaves holes. Mutable trees, skip lists, or log-structured merge designs are better outer structures.',
-            'Very dense sets (n close to U): a plain bitmap uses U bits with O(1) rank/select and no split overhead. Elias-Fano adds complexity for little compression gain.',
-            'Tiny lists (n < 100): the overhead of the bitvector, select structure, and packed low array exceeds a plain array. Measure before compressing.',
-            'Scan-only workloads: SIMD-optimized delta or bit-packed gap codecs can decompress sequentially faster because they avoid the select indirection.',
+            'Unsorted integers: the high-bit encoding requires monotonicity. Without sorted order the bitvector layout breaks. Sorting may change semantics.',
+            'Frequent inserts and deletes: inserting in the middle shifts all subsequent marker positions. Deleting leaves holes. Mutable trees, skip lists, or LSM designs are better outer structures.',
+            'Very dense sets (n close to U): a plain bitmap uses U bits with O(1) rank/select and no split overhead. Elias-Fano adds complexity for negligible compression gain.',
+            'Tiny lists (n < 100): the overhead of the bitvector, select structure, and packed low array exceeds a plain sorted array. Measure before compressing.',
+            'Scan-only workloads: SIMD-optimized delta or bit-packed gap codecs decompress sequentially faster because they avoid the select indirection.',
           ],
         },
         {
-          type: 'table',
-          headers: ['Scenario', 'Better alternative', 'Why'],
-          rows: [
-            ['n close to U', 'Plain bitmap + rank/select', 'Bitmap is already near-optimal; split adds overhead'],
-            ['n < 100', 'Sorted array', 'Array fits in a cache line; no metadata cost'],
-            ['Sequential scan only', 'SIMD varint / bit-packing', 'Branchless decode is faster than select for streaming'],
-            ['Frequent mutation', 'B-tree, skip list, LSM', 'Mutable index with amortized insert/delete'],
-            ['Unsorted data', 'Hash set, sorted container', 'Monotonicity prerequisite is absent'],
+          type: 'bullets',
+          items: [
+            'n close to U: use a plain bitmap + rank/select. The bitmap is already near-optimal; the split adds overhead.',
+            'n < 100: use a sorted array. It fits in a cache line with no metadata cost.',
+            'Sequential scan only: use SIMD varint or bit-packing. Branchless decode is faster than select for streaming.',
+            'Frequent mutation: use a B-tree, skip list, or LSM. These provide amortized insert/delete.',
+            'Unsorted data: use a hash set or sorted container. The monotonicity prerequisite is absent.',
           ],
         },
         {
           type: 'note',
-          text: 'A common misconception is that Elias-Fano is just another gap codec. Gap codecs optimize for sequential decode speed. Elias-Fano optimizes for navigability: the high bitvector and select structure make it an index representation, not just a compression format.',
+          text: 'A common misconception is that Elias-Fano is just another gap codec. Gap codecs optimize for sequential decode speed. Elias-Fano optimizes for navigability: the high bitvector and select structure make it an index, not just a compression format.',
         },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Encode the sorted list [2, 3, 5, 7, 11, 13, 24] into Elias-Fano form. The universe is U = 25 (values range from 0 to 24). There are n = 7 elements.',
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 1: Choose l\n  l = floor(log2(U / n)) = floor(log2(25 / 7)) = floor(log2(3.57)) = floor(1.84) = 1\n  Each value splits at bit position 1: low = bottom 1 bit, high = remaining upper bits.',
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 2: Split each value\n  Value   Binary   high (value >> 1)   low (value & 1)\n    2      010            1                 0\n    3      011            1                 1\n    5      101            2                 1\n    7      111            3                 1\n   11     1011            5                 1\n   13     1101            6                 1\n   24    11000           12                 0\n\nLow array (1 bit each): [0, 1, 1, 1, 1, 1, 0]  -->  7 bits total',
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 3: Build the high bitvector\n  Marker position for element i = high(i) + i:\n    i=0: 1+0= 1     i=1: 1+1= 2     i=2: 2+2= 4\n    i=3: 3+3= 6     i=4: 5+4= 9     i=5: 6+5=11\n    i=6: 12+6=18\n\n  Place 1-bits at positions {1, 2, 4, 6, 9, 11, 18}, zeros elsewhere:\n  pos: 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18\n  bit: 0  1  1  0  1  0  1  0  0  1  0  1  0  0  0  0  0  0  1\n\n  High bitvector length: 19 bits',
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 4: Space accounting\n  Low array:       7 * 1 = 7 bits\n  High bitvector:  19 bits\n  Total:           26 bits\n\n  Plain 5-bit array: 7 * 5 = 35 bits\n  Savings:           35 - 26 = 9 bits (26% smaller)\n  Info-theoretic lower bound: floor(log2(C(25,7))) = floor(log2(480700)) ~ 19 bits\n  Elias-Fano overhead above lower bound: 26 - 19 = 7 bits = 2n = 2*7 - 7 = 7   (matches the 2n bound)',
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 5: Access element 4 (should recover value 11)\n  select1(4) finds the 4th 1-bit (0-indexed) in the high bitvector.\n  The 1-bits are at positions: 1, 2, 4, 6, 9, ...\n  The 4th (0-indexed) is at position 9.\n\n  high = 9 - 4 = 5\n  low  = lows[4] = 1\n  value = (5 << 1) | 1 = 10 | 1 = 11   ✓',
+        },
+        {
+          type: 'code',
+          language: 'text',
+          text: 'Step 6: nextGEQ(6) -- find first value >= 6\n  targetHigh = floor(6 / 2) = 3\n  targetLow  = 6 mod 2 = 0\n\n  Find the first element with high >= 3.\n  Use select0(3) to find the start of bucket 3 in the high bitvector.\n  select0(3) = position 5 (the 3rd 0-bit, 0-indexed).\n  The next 1-bit after position 5 is at position 6 --> element index = 6 - 3 = 3.\n  Element 3: high = 3, low = lows[3] = 1, value = (3 << 1) | 1 = 7.\n  7 >= 6, so nextGEQ(6) = 7.   ✓',
+        },
+        'This example shows the full round trip: split, encode, access, and search. With l = 1 the savings are modest (26 vs. 35 bits), but the same structure on a list of 10 million document ids from a 100-million universe uses l = floor(log2(10)) = 3, saving roughly 60% over a 27-bit plain array while keeping O(1) access.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Role', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'Rank/Select Bitvector', 'Elias-Fano depends on select1 for access and rank for bucket navigation; understand these primitives first'],
-            ['Extension', 'Partitioned Elias-Fano', 'Ottaviano and Venturini split lists into chunks with local universes, improving locality and cache behavior'],
-            ['Alternative', 'Roaring Bitmaps', 'Compressed bitmap with containers for mixed-density integer sets; different tradeoff surface'],
-            ['Alternative', 'Delta Bit Packing', 'SIMD-friendly gap encoding optimized for sequential scan throughput'],
-            ['Application', 'Inverted Index', 'The primary consumer of Elias-Fano in production search systems'],
-            ['Deeper theory', 'Wavelet Tree / FM-Index', 'Succinct data structures that use rank/select for richer queries over sequences'],
+          type: 'bullets',
+          items: [
+            'Prerequisite -- Rank/Select Bitvector: Elias-Fano depends on select1 for access and rank for bucket navigation. Understand these primitives first.',
+            'Extension -- Partitioned Elias-Fano: Ottaviano and Venturini (SIGIR 2014) split lists into chunks with local universes, improving cache locality. Used in Lucene and PISA.',
+            'Alternative -- Roaring Bitmaps: compressed bitmap with containers for mixed-density integer sets. Different tradeoff surface: faster set operations, but no ordered-access guarantee.',
+            'Alternative -- Delta Bit Packing: SIMD-friendly gap encoding optimized for sequential scan throughput. Faster streaming but no random access.',
+            'Application -- Inverted Index: the primary consumer of Elias-Fano in production search engines.',
+            'Deeper theory -- Wavelet Tree / FM-Index: succinct structures that use rank/select for richer queries over general sequences, not just monotone integers.',
           ],
         },
         {

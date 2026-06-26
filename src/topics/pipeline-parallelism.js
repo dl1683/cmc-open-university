@@ -243,80 +243,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the grid as an execution schedule, not as a picture of layers. A stage is a consecutive slice of the model on one device, and a micro-batch is a smaller piece of the batch that still passes through every stage in order.',
         {type: 'image', src: './assets/gifs/pipeline-parallelism.gif', alt: 'Animated walkthrough of the pipeline parallelism visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'A filled cell means that stage is doing useful forward or backward work for one micro-batch. A blank cell is a bubble: the device is waiting because dependencies have not arrived or the pipeline is draining. The safe inference is that overlap is legal only across different micro-batches, never by reordering layers inside one micro-batch.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Pipeline parallelism exists because a deep model has two different scaling problems. The parameters and activations may not fit on one accelerator, and a single accelerator may not provide enough throughput even when the model fits. Data parallelism copies the whole model to every worker, so it helps batch throughput but does not solve model depth. Tensor parallelism splits individual layers, which helps very wide matrix operations, but it adds collectives inside almost every block. Pipeline parallelism makes a different cut: it assigns consecutive layer ranges to stages and streams micro-batches through those stages.`,
+        'Pipeline parallelism exists because one accelerator may not hold or efficiently train a deep model. Data parallelism copies the whole model to each worker, which helps throughput only after the model already fits. Tensor parallelism splits individual matrix operations, but it adds communication inside layers.',
         {type: `callout`, text: `Pipeline parallelism treats model depth as an assembly line: correctness preserves layer order, while throughput comes from keeping different stages busy on different micro-batches.`},
-        `PyTorch's pipeline runtime describes the same contract: split model execution into stages, split batches into micro-batches, and schedule those micro-batches so different devices execute different stages at the same time. GPipe made that idea practical for large sequential networks by treating the model like an assembly line and using batch splitting to reduce idle devices. The article below focuses on the data-structure view of that assembly line: a schedule matrix whose blank cells are lost work and whose filled cells are useful stage execution.`,
+        'Pipeline runtimes split model execution into stages, split batches into micro-batches, and schedule those micro-batches so different devices can work at the same time. The data structure to watch is the schedule matrix: blank cells are lost device time, and filled cells are useful stage execution.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The first reasonable attempt is plain model parallelism: put layers 1 through 8 on GPU 0, layers 9 through 16 on GPU 1, and pass a full batch from stage to stage. That can make a model fit, but it barely improves utilization. While GPU 0 runs the first slice, GPUs 1 through 3 are idle. When GPU 1 starts, GPU 0 becomes idle. The batch walks down the model like one item on a conveyor belt with nobody allowed to place the next item behind it.`,
-        `The second reasonable attempt is to cut the model by equal layer count. That is simple to explain and often good enough for a toy transformer with identical blocks. Real systems are less tidy. Embeddings, attention shapes, MoE experts, output heads, sequence length, activation checkpointing, and communication links can make two equally sized layer ranges have very different compute and memory behavior. Equal depth is only a starting guess, not a balancing proof.`,
-        `The failure is dependency order. Stage 2 cannot run a micro-batch until stage 1 has produced its activations, and backward has the reverse dependency. A single full batch creates long idle gaps. The first and last ticks also create bubbles while the pipeline fills and drains, so throughput depends on enough micro-batches and balanced stages, not just on splitting the model.`,
+        'The direct approach is to put layer ranges on different GPUs and send one full batch through them. GPU 0 runs the early layers, then GPU 1 runs the next layers, then GPU 2 continues. The model fits, but only one stage is busy at a time.',
+        'Equal layer-count partitioning is the next reasonable attempt. It works for a toy stack of identical blocks, but real models have embeddings, attention shapes, experts, output heads, and checkpointing choices that make equal depth unequal in time and memory.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight is that a training batch can be split into micro-batches without changing the model graph. Each micro-batch still runs through every layer in order, but different micro-batches can occupy different stages at the same time. The model becomes an assembly line: stage 0 processes micro-batch 4 while stage 1 processes micro-batch 3, stage 2 processes micro-batch 2, and stage 3 processes micro-batch 1.`,
+        'The wall is dependency order. Stage 1 cannot process a micro-batch until stage 0 has produced its activations, and backward work has the reverse dependency. A single full batch creates long gaps where every other device waits.',
+        'The first ticks fill the pipeline and the last ticks drain it. Those bubbles are not implementation mistakes; they are the cost of starting and ending a dependency chain. If stages are imbalanced, the slowest stage becomes the clock for the whole system.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Split the batch, not the layer order. Each micro-batch still runs through stage 0, then stage 1, then every later stage, but different micro-batches can occupy different stages at the same time. The schedule turns model depth into an assembly line.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg`, alt: `Layered neural network diagram with multiple colored layers`, caption: `Pipeline splits follow consecutive layer ranges in a network like this, then schedule micro-batches through those ranges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.`},
-        `That insight separates correctness from scheduling. Correctness comes from preserving the forward and backward dependencies for every micro-batch and applying the optimizer step only after the intended gradients are accumulated. Performance comes from choosing a schedule that keeps the stage matrix dense. The algorithm does not make a layer faster; it hides stage latency by keeping other layers busy on other micro-batches.`,
+        'This separates correctness from throughput. Correctness comes from preserving the per-micro-batch computation graph and accumulating the intended gradients before the optimizer step. Throughput comes from making the schedule matrix dense enough that waiting devices become rare.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A pipeline has three objects: stages, micro-batches, and a schedule. A stage owns a consecutive slice of the network. A micro-batch is a smaller slice of the batch dimension. A schedule is a table that says which stage runs which forward or backward task at each tick. Boundary activations move forward between neighboring stages. Gradients move backward across the same boundaries.`,
-        `A GPipe-style schedule fills the pipeline with forward passes, computes the loss after the last stage sees each micro-batch, and then drains backward passes. A one-forward-one-backward schedule warms up, then alternates forward and backward work to reduce live activation memory. Interleaved schedules split one physical device into multiple virtual stages, which can reduce bubbles when stage count and micro-batch count create too much idle space. Every schedule is trading utilization, activation memory, communication, and implementation complexity.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The schedule matrix makes the hidden cost visible. Rows are time ticks, columns are stages, and blank cells are bubbles. The naive frame proves why merely splitting the model is not enough: one active cell per row means most accelerators are waiting. The filled steady-state row proves the payoff: all stages can do useful work at once when enough micro-batches are in flight.`,
-        `The partitioning graph proves the other half of the problem. A stage boundary is also a communication boundary. If a split crosses a huge activation tensor or an awkward dependency, the schedule may look dense while the system stalls on transfers. A valid pipeline cut respects the model graph and tries to equalize compute, parameter memory, activation memory, and boundary traffic.`,
+        'A stage owns parameters for one consecutive layer range. During forward pass, it receives activations from the previous stage, computes its slice, and sends boundary activations onward. During backward pass, gradients move in the opposite direction.',
+        'A GPipe-style schedule runs all forward micro-batches first, then all backward passes. A one-forward-one-backward schedule warms up, then alternates forward and backward work to reduce live activation memory. Interleaving can split a physical device into virtual stages, trading scheduler complexity for fewer bubbles.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Pipeline parallelism is safe because it preserves the serial order inside each micro-batch. Micro-batch 7 still visits stage 0 before stage 1 and stage 1 before stage 2. Its backward pass still returns in the reverse order. The schedule only overlaps independent work from different micro-batches. Two stages working at the same tick are not racing on the same activation; they are processing different pieces of the batch.`,
-        `For synchronous training, gradients from all micro-batches represent the intended larger batch before the optimizer updates the weights. That is why GPipe-style accumulation can match the mathematical shape of ordinary mini-batch training, aside from effects such as batch normalization, randomness, and numerical order. More aggressive asynchronous or stale-weight pipeline schemes need extra care because they may change the optimization behavior, not only the runtime.`,
+        'The invariant is serial equivalence inside each micro-batch. Micro-batch 7 never reaches stage 2 before stage 1, and its backward pass never updates an earlier stage before downstream gradients exist. The schedule only overlaps work that belongs to different micro-batches.',
+        'For synchronous training, gradients from all micro-batches are accumulated before the optimizer changes weights. That makes the update match ordinary mini-batch training apart from numerical order, randomness, and layers whose behavior depends on batch composition.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The main time cost is the slowest stage plus communication across stage boundaries. The main space cost is parameters for each stage, optimizer state if the stage is training, and live activations waiting for backward computation. More micro-batches usually reduce bubble fraction, but smaller micro-batches can lower arithmetic efficiency and increase per-micro-batch overhead. Activation checkpointing saves memory by recomputing forward work during backward, which can make the schedule fit but increase total compute.`,
-        `Pipeline parallelism also introduces operational cost. Debugging a numerical problem now means tracing tensors across devices and time ticks. Profiling must separate stage imbalance from communication stalls. Checkpointing must know which rank owns which layers. Failure recovery is harder when one rank holds only part of the model and a queue of in-flight micro-batches.`,
+        'The time cost is governed by the slowest stage plus communication across boundaries. If four stages take 8, 9, 7, and 18 milliseconds, the pipeline eventually runs near the 18 millisecond stage rate no matter how fast the others are. Doubling micro-batches reduces bubble fraction, but smaller micro-batches can hurt GPU efficiency.',
+        'The memory cost is parameters, optimizer state, and live activations waiting for backward computation. One-forward-one-backward schedules reduce activation buildup, while checkpointing saves memory by recomputing forward work during backward. The operational cost includes profiling, checkpointing, failure recovery, and numerical debugging across devices.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Pipeline parallelism wins when model depth is the binding constraint and the network can be cut into reasonably balanced consecutive stages. Large transformer training often combines pipeline parallelism with tensor parallelism for wide matrix operations and data parallelism for global batch throughput. ZeRO or FSDP can shard optimizer and parameter state inside or across those groups. The useful mental model is not one technique replacing the others; it is a parallelism grid where depth, width, batch, and state are split on different axes.`,
-        `It can also appear in inference for very large models, especially when a single request must traverse model partitions that cannot fit on one device. Inference has different pressure because there is no training backward pass, but latency and batch scheduling become more visible. Pipeline stages can improve throughput for batches of requests, while interactive single-request latency may suffer if every request must cross many devices.`,
+        'Large transformer training often combines pipeline parallelism with tensor parallelism and data parallelism. Pipeline parallelism splits depth, tensor parallelism splits wide layer operations, and data parallelism splits batches across replicas. Fully sharded optimizers can then reduce optimizer-state memory inside that grid.',
+        'Inference can also use pipeline stages when a model is too large for one device. The fit is better for throughput-oriented batches than for single interactive requests, because every request must cross multiple devices. Serving systems therefore weigh pipeline utilization against latency and routing complexity.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `The most common failure is an imbalanced stage. One slow stage turns the rest of the pipeline into a waiting room. Another failure is a bad boundary: a split after a large activation or across a nonlocal dependency can make communication dominate. Too few micro-batches leave bubbles. Too many micro-batches can hurt kernel efficiency, increase scheduling overhead, or exceed activation memory.`,
-        `There are also correctness traps. Tied weights, cross-layer skip connections, shared caches, random layers, batch-dependent normalization, and optimizer timing can break assumptions that were harmless in a single-process model. A pipeline schedule should be validated with numerical checks against a smaller non-pipelined run before the team trusts the throughput graph.`,
+        'Pipeline parallelism fails when stage times are uneven, boundary tensors are too large, or there are too few micro-batches to hide fill and drain bubbles. It also performs poorly when micro-batches become so small that kernels lose arithmetic efficiency. A dense-looking schedule can still stall on communication.',
+        'Correctness failures come from hidden cross-stage assumptions. Tied weights, skip connections, shared caches, random layers, batch normalization, and optimizer timing can behave differently after partitioning. A serious implementation checks a small pipelined run against an equivalent non-pipelined run before trusting speed results.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Tensor Parallelism for splitting work inside layers, ZeRO Optimizer for sharding optimizer and parameter state, Activation Checkpointing for the memory-compute trade, GPU All-Reduce for the collective communication layer, Batch Size Scaling for optimization behavior, and Transformer Block for the model structure being partitioned. Then compare pipeline scheduling with Exchange Operator Parallel Query and Stream Processing Backpressure; both teach the same lesson from different systems: throughput comes from keeping stages busy without hiding the bottleneck.`,
+        'Suppose a model is split into four stages and each micro-batch takes 10 ms per stage. Four micro-batches without overlap take 4 micro-batches times 4 stages times 10 ms, or 160 ms. Most devices are idle during most ticks.',
+        'With pipeline scheduling, tick 1 runs micro-batch 1 on stage 0. Tick 2 runs micro-batch 2 on stage 0 while micro-batch 1 runs on stage 1. By tick 4, all four stages are busy; after fill and drain, the four forward micro-batches finish in 7 ticks, or 70 ms.',
+        'The improvement is not fourfold because the pipeline must fill and drain. More micro-batches make the fixed bubble cost smaller relative to useful work. If the same four stages process 32 micro-batches, the forward schedule takes 35 ticks rather than 128 serial ticks.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources include GPipe by Huang et al. (2019), PipeDream by Narayanan et al. (2019), and the PyTorch pipeline parallelism documentation. Study them for scheduling choices, bubble cost, and the memory behavior hidden behind the compact animation.',
+        'Study next: Tensor Parallelism for splitting work inside layers, Fully Sharded Data Parallel for parameter and optimizer-state sharding, Activation Checkpointing for memory-compute exchange, GPU All-Reduce for communication costs, and Batch Size Scaling for the optimization side of micro-batch choices.',
       ],
     },
   ],

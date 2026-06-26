@@ -230,105 +230,46 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The queue-handoff view shows a lock as a linked list of waiting nodes. The tail pointer is the newest arrival, each next pointer links a successor, and each waiter spins on its own locked flag. The contention view shows why local spinning avoids a shared cache-line storm.',
         {type: 'image', src: './assets/gifs/mcs-queue-lock-scalable-spinlock.gif', alt: 'Animated walkthrough of the mcs queue lock scalable spinlock visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why This Exists',
-      paragraphs: [
-        'A spin lock is the smallest synchronization tool that can protect a short critical section: keep trying to acquire a word, run the protected code, then release the word. For one or two contenders, that directness is hard to beat. There is no scheduler handoff, no sleeping path, and no heavy queue in the uncontended case.',
-        'MCS exists for the moment when that one lock word becomes the busiest object in the machine. On a many-core system, every waiter repeatedly reading or writing the same cache line can generate more coherence traffic than useful work. The algorithm keeps the spin-lock style, but changes what each thread spins on.',
+      ], },
+    { heading: 'Why this exists', paragraphs: [
+        'A spin lock is attractive for very short critical sections because it avoids scheduler handoff. Under contention, a simple spin lock can make every core hammer one shared word. MCS exists to keep the spin-lock style while moving wait traffic into per-thread nodes.',
         {type: 'callout', text: 'MCS scales by moving waiting from one shared cache line into per-thread queue nodes with one-successor handoff.'},
-      ],
-    },
-    {
-      heading: 'Naive Baseline and Wall',
-      paragraphs: [
-        'The naive baseline is a test-and-set lock. Everyone tries to flip the same shared bit, and losers loop until the bit changes. A test-test-and-set variant reduces some writes by reading first, and ticket locks improve fairness by giving each thread a number. These are useful tools, but waiters still orbit shared lock state.',
-        'The wall is the memory system. A release can wake many observers of one shared cache line, and each failed attempt can invalidate or reload that line. As contention rises, a lock that looks O(1) in pseudocode can become a coherence storm. The CPU cores spend time moving ownership of a lock word instead of doing useful work.',
-      ],
-    },
-    {
-      heading: 'Core Insight and Invariant',
-      paragraphs: [
-        'MCS turns contention into an explicit FIFO queue. A contender atomically appends its queue node to the shared tail, learns its predecessor, links itself after that predecessor, and then spins on a flag in its own node. The shared lock object is mostly a tail pointer, not the hot polling location for every core.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious lock is test-and-set: every contender tries to flip one shared bit. Ticket locks improve fairness by giving each thread a number. Both approaches still make waiters observe shared state during contention.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'The wall is cache coherence. A lock word is stored in a cache line, and ownership of that line moves among cores. With many waiters, the machine can spend more time moving the line than running the protected code.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Turn contenders into a FIFO linked queue. Each thread provides a queue node with a next pointer and a locked flag. The shared lock stores a tail pointer, while each waiter spins on its own node.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list diagram with nodes connected by next pointers', caption: 'An MCS lock is a linked queue at heart: each node points to the successor that will be woken next. Source: Wikimedia Commons, Lasindi, public domain.'},
-        'The key invariant is local waiting: every non-owner waits for exactly one predecessor, and every predecessor wakes exactly one successor. The shared tail orders arrivals, but the waiting loop reads a per-waiter flag instead of the global lock word. That is the data-structure move that makes the lock scalable.',
-      ],
-    },
-    {
-      heading: 'How the Visual Model Teaches It',
-      paragraphs: [
-        'The queue-handoff view teaches the shape of ownership. The tail pointer identifies the most recent arrival. The next pointers link waiters in order. The locked flags are the local waiting points. The important transition is not repeated retry against one word; it is the predecessor discovering a precise successor to wake.',
-        'The contention-scalability view teaches cache behavior. Test-and-set and ticket-style locks keep many waiters interested in shared state. The MCS curve stays flat because a release normally writes one successor flag. The comparison matrix separates three ideas that are easy to blur: fairness, spin location, and workload fit.',
-      ],
-    },
-    {
-      heading: 'Mechanics',
-      paragraphs: [
-        'Acquire starts with caller-owned qnode storage. The thread clears qnode.next, prepares qnode.locked, and atomically swaps the lock tail with its node. The old tail is the predecessor. If the old tail was null, the thread owns the lock immediately because no one was ahead of it.',
-        'If there is a predecessor, the thread stores itself into predecessor.next and waits until its own locked flag becomes false. Release checks the owner node next pointer. If a successor is present, release stores false to successor.locked. If no successor is visible, release tries to compare-and-swap the tail back to null; if that fails, a successor is in the middle of linking and the owner waits for next to appear before handing off.',
-      ],
-    },
-    {
-      heading: 'Correctness',
-      paragraphs: [
-        'Mutual exclusion follows from the queue order. A thread either observes no predecessor and becomes the sole owner, or it cannot enter until its predecessor clears its local flag. No unrelated thread clears that flag. The unlock operation grants the critical section to the exact successor in the linked queue.',
-        'FIFO fairness comes from the atomic tail swap: each arriving node is placed after the previous tail. The subtle correctness case is the acquire-release race. A new waiter may have swapped the tail but not yet written predecessor.next. The releasing owner must not declare the lock free unless the tail compare-and-swap proves no such successor exists.',
-      ],
-    },
-    {
-      heading: 'Memory Ordering',
-      paragraphs: [
-        'A real MCS implementation depends on memory ordering. The entering thread must not run critical-section loads and stores before the acquire is complete. The releasing thread must publish critical-section writes before it clears the successor flag. That is why implementations use acquire and release barriers or the equivalent atomic operations for the target language and CPU.',
-        'The queue links also need ordering. A waiter must initialize its node before publishing it, and a predecessor must see a valid successor before writing the handoff flag. These details are easy to skip in high-level pseudocode, but they are part of the algorithm, not an optimization afterthought.',
-      ],
-    },
-    {
-      heading: 'Worked Example',
-      paragraphs: [
-        'Suppose A owns the lock, B is already waiting, and C arrives. C swaps the tail and receives B as predecessor. C sets C.locked to true, writes B.next = C, and spins on C.locked. It does not poll the lock tail, and it does not ask A directly for the lock.',
-        'When A releases, it sees A.next = B and clears B.locked. B enters the critical section. Later B releases and clears C.locked. The handoff path is A to B to C, matching arrival order, and each release wakes one waiter. The rest of the queue stays quiet.',
-      ],
-    },
-    {
-      heading: 'Cost and Tradeoffs',
-      paragraphs: [
-        'The contended path uses O(1) remote synchronization steps per acquire and release, and the waiting loop is local. The shared tail is touched when a thread joins and sometimes when the owner releases with no visible successor. Waiting itself happens on the caller node. That is why MCS scales on SMP and NUMA machines better than locks whose waiters share one polling word.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Acquire initializes the caller node and atomically swaps it into the tail. The old tail is the predecessor. If there is no predecessor, the caller owns the lock; otherwise it links itself after the predecessor and waits on its own flag.',
+        'Release checks the owner node next pointer. If a successor is present, it clears successor.locked. If no successor is visible, it uses a compare-and-swap on the tail or waits for a linking successor so no arrival is lost.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'Mutual exclusion follows because only the predecessor clears a waiter flag. FIFO order follows from the atomic tail swap, which appends each arrival after the previous tail. Acquire and release memory ordering are required so protected writes become visible before the successor enters.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Under contention, each release normally wakes one successor and waiting is local polling. If waiters double, the release still touches one successor flag instead of waking every core on one shared word. The cost is a caller-owned node, pointer chasing, race handling, and careful memory ordering.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel processor die photograph showing compute regions and cache structures', caption: 'Spin-lock scalability is a hardware story: cache-line ownership moves across cores on real silicon, not in abstract pseudocode. Source: Wikimedia Commons, KL and Intel, public domain.'},
-        'The tradeoff is machinery. Every acquisition needs a qnode with stable lifetime, the release code has a race to handle, and correct implementations require careful memory ordering. There is also pointer chasing and extra state compared with a tiny test-and-set lock. Under light contention, that extra work can lose.',
-      ],
-    },
-    {
-      heading: 'Where It Wins',
-      paragraphs: [
-        'MCS wins when the critical section is short, contention is real, and the platform makes shared cache-line traffic expensive. Kernels, runtimes, memory allocators, and low-level synchronization libraries use queue locks for exactly that shape. It is especially attractive on large SMP and NUMA systems where remote cache-line movement is costly.',
-        'It is also a useful mental model. Scalability can come from moving waiters away from a shared object, not from making the critical section disappear. The linked queue is the data-structure move that creates that separation. The lock remains a lock, but the waiting pattern no longer punishes every core for every release.',
-      ],
-    },
-    {
-      heading: 'Where It Fails',
-      paragraphs: [
-        'Under light contention, a simple test-and-set lock, test-test-and-set lock, or ticket lock may be faster because it avoids qnode setup and pointer chasing. If the protected operation blocks, performs I/O, waits on another service, or can sleep for a long time, spinning burns CPU while making no progress.',
-        'For long waits, a futex-backed mutex, semaphore, condition variable, or parking lock is usually the better primitive. If the owner is preempted, the MCS queue still waits in order. MCS is fair and scalable under contention, but it does not provide lock-free progress and it does not make a sleeping owner run.',
-      ],
-    },
-    {
-      heading: 'Operational Guidance',
-      paragraphs: [
-        'Use MCS when profiling shows a hot short-held lock and coherence traffic is part of the cost. Do not choose it only because it is more sophisticated. Measure uncontended latency, contended throughput, fairness, CPU burn, cache misses, and behavior when the owner is preempted. The right primitive depends on the wait length and scheduling environment.',
-        'Make qnode lifetime explicit. Many APIs require caller-provided node storage or per-thread lock context because a waiter spins on its own node and a predecessor writes that node during handoff. Reusing or freeing the node too early is a correctness bug. Pair the lock with clear ownership rules and memory-ordering tests.',
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        'Study Lock-Free Queue for a nonblocking contrast, Futex Wait Queue for park-and-wake synchronization, Sequence Locks for reader-heavy shared state, Hazard Pointers & Epoch Reclamation for safe node lifetime, Linked List for the queue shape, Compare-and-Swap, Memory Barriers, and Cache Coherence concepts before implementing this in a systems language.',
-      ],
-    },
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'MCS locks fit kernels, runtimes, allocators, and synchronization libraries on many-core or NUMA systems. The critical section should be short and hot enough that coherence traffic appears in profiles. The lesson generalizes: scalable waiting often means moving observers away from one shared object.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'MCS is wrong for long waits, blocking I/O, or owners that may sleep. Spinning wastes CPU when the owner is not running. Under low contention, simpler locks can be faster because they avoid queue-node setup.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Suppose A owns the lock, B waits, and C arrives. C swaps the tail and gets B as predecessor, sets C.locked, writes B.next = C, and spins on C.locked. A releases to B by clearing B.locked, then B later releases to C by clearing C.locked.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Start with Mellor-Crummey and Scott, Algorithms for Scalable Synchronization on Shared-Memory Multiprocessors, 1991. Study compare-and-swap, cache coherence, memory barriers, ticket locks, futexes, lock-free queues, and hazard pointers next.',
+      ], },
   ],
 };

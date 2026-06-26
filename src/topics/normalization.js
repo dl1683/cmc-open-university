@@ -183,91 +183,91 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The drift view plots activation scale (standard deviation) across eight layers. Two curves show what happens when per-layer weight magnitude is slightly too large (1.75x) or slightly small (0.55x): the scale explodes or collapses within a few layers. The green marker at layer 8 marks the healthy corridor near scale 1. The fix view shows the three-step normalization operation -- measure, standardize, re-dress -- applied at every layer to hold activations in that corridor.',
-        'The axis-war view lays out a 3-sample, 4-feature activation grid. Vertical highlights (blue) show BatchNorm: statistics computed down a column, one feature across the batch. Horizontal highlights (orange) show LayerNorm: statistics computed along a row, one sample across its features. Watch each cell\'s normalized value change depending on which axis is chosen, and notice that LayerNorm\'s output for a given sample never changes when you swap its batchmates.',
+        'The drift view plots activation scale, meaning standard deviation of layer outputs, across eight layers. The growing curve shows weights that multiply signal size by 1.75 per layer; the shrinking curve shows weights that multiply by 0.55 per layer. The green marker is the healthy scale near 1, where later layers receive numbers large enough to use and small enough not to saturate.',
+        'The axis-war view shows a batch as a grid: rows are samples and columns are features. BatchNorm measures down a column, so one sample depends on its batchmates; LayerNorm measures across a row, so one sample depends only on its own features. A safe inference from the visual is that changing other rows can change BatchNorm output but cannot change LayerNorm output for the same row.',
         {type: 'callout', text: 'Normalization is a scale-control layer: it measures activations, standardizes them, then lets learned gamma and beta choose the useful scale again.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution marked by standard deviation bands', caption: 'Standard deviation is the spread number the animation keeps forcing back into a usable corridor. Source: Wikimedia Commons, M. W. Toews, public domain.'},
-      
-        {type: 'image', src: './assets/gifs/normalization.gif', alt: 'Animated walkthrough of the normalization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/normalization.gif', alt: 'Animated walkthrough of the normalization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored hidden units', caption: 'Deep networks compound activation scale layer by layer, so a small scale drift early can reach every downstream unit. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
-        'Deep networks compound layer by layer. Each layer multiplies activations by a weight matrix, and the product\'s scale compounds: a per-layer factor of 1.75 reaches 50x by layer 8, saturating every nonlinearity. A factor of 0.55 shrinks to 0.01x, burying the signal in floating-point noise. The forward pass has the same compounding disease as the backward pass -- Vanishing & Exploding Gradients showed the gradient version; here is the activation version.',
-        'Ioffe and Szegedy (2015) proposed Batch Normalization to fix this: at every layer, re-standardize the activations to mean 0, variance 1, then apply a learned scale and shift so the network can recover whatever distribution it needs. The paper framed the problem as "internal covariate shift" -- each layer\'s input distribution keeps changing as the layers before it update, forcing every layer to chase a moving target. BN became an overnight standard in CNNs and made training deep convolutional networks dramatically faster.',
+        'A neural network layer transforms numbers with weights, bias, and a nonlinearity. If each layer makes the signal slightly larger, the growth compounds; if each layer makes it slightly smaller, the signal fades. Normalization exists because deep training needs the scale of activations to stay in a usable corridor after every update, not only at initialization.',
+        'For a zero-background reader, activation means the numeric output of a layer, mean means average, variance means average squared distance from the mean, and standard deviation is the square root of variance. BatchNorm and LayerNorm are layers that measure those statistics, rescale the activations, and then let learned parameters choose the final scale and shift.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Before BN, the standard fix was careful initialization. Xavier initialization (2010) sets each layer\'s weights so the variance of the output matches the variance of the input, assuming linear activations. He initialization (2015) adjusts for ReLU\'s half-zeroing. Both keep activation scale near 1 at step zero.',
-        'Paired with a small learning rate, careful init works for shallow networks. The first few layers stay near their calibrated scale for many epochs, and the learning rate is small enough that weight updates do not push the scale far from the corridor. This was sufficient for AlexNet-era architectures (5-8 convolutional layers).',
+        'The first reasonable fix is careful initialization. Xavier initialization and He initialization choose initial weight sizes so a layer starts with output variance close to input variance. With shallow networks and cautious learning rates, that can keep signals near scale 1 long enough to train.',
+        'A second reasonable fix is to lower the learning rate. Smaller parameter updates cause less scale drift, so activations move more slowly away from their initial calibration. This is often the first stabilizer tried when a model diverges.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Initialization is a one-time calibration. Training moves the weights, and by epoch 10 the careful tuning is history. Each gradient step shifts every layer\'s weights slightly, which shifts the output distribution of that layer, which shifts the input distribution of the next layer. In a 50-layer network, a small weight change in layer 3 cascades into a large distribution change at layer 40.',
-        'A small learning rate slows the drift but also slows convergence. Practitioners were stuck: use a large learning rate and watch training explode as activation scales compound, or use a small learning rate and wait days for the model to converge. Deeper networks made the tradeoff worse -- more layers means more compounding, which means a smaller safe learning rate, which means slower training. The field needed a way to enforce scale discipline continuously, not just at initialization.',
+        'Initialization is a one-time promise, but training changes weights thousands of times. A layer that was calibrated at step 0 can produce very different activation statistics by step 5000. In a 50-layer model, small scale errors accumulate across many transformations.',
+        'A tiny example shows the wall. If each of 8 layers multiplies standard deviation by 1.75, the final scale is 1.75^7 = 50.3, so nonlinearities can saturate. If each layer multiplies by 0.55, the final scale is 0.55^7 = 0.015, so the signal nearly vanishes.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to make scale control part of the forward pass. Instead of hoping that training preserves a good distribution, the layer measures the current activations and standardizes them immediately. Then learned gamma and beta restore expressiveness by choosing whatever scale and center the model needs.',
+        'BatchNorm and LayerNorm mainly disagree about the axis of measurement. BatchNorm asks whether one feature is unusual compared with the same feature in other samples. LayerNorm asks whether one sample has unusually scaled features compared with itself.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a mini-batch of N samples with D features, BatchNorm processes each feature independently. Take feature j: collect its N values across the batch, compute their mean and variance, normalize each value to zero mean and unit variance, then apply learned parameters gamma_j and beta_j.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions', caption: 'The target shape is not magic; the layer estimates a center and spread, then rescales activations relative to those statistics. Source: Wikimedia Commons, Inductiveload, public domain.'},
-        'Concretely: mu_j = (1/N) * sum of x_{i,j} for i = 1..N. sigma_j^2 = (1/N) * sum of (x_{i,j} - mu_j)^2. The normalized value is x_hat_{i,j} = (x_{i,j} - mu_j) / sqrt(sigma_j^2 + epsilon), where epsilon (typically 1e-5) prevents division by zero. The final output is y_{i,j} = gamma_j * x_hat_{i,j} + beta_j.',
-        'The learnable gamma and beta are essential. Without them, normalization would force every layer\'s output to have exactly mean 0 and variance 1, stripping away information the network needs. With gamma and beta, the network can learn to undo the normalization entirely (set gamma = sigma, beta = mu) or settle on any other scale and shift. Normalization does not restrict what the network can represent -- it changes the geometry of the optimization, giving the optimizer coordinates where every layer\'s input is predictably scaled.',
-        'Training uses live batch statistics. Inference uses running averages: an exponential moving average of mu and sigma^2 accumulated during training, typically with momentum 0.1 (new_running = 0.9 * old_running + 0.1 * batch_stat). This creates two modes -- train and eval -- and the model must be switched between them. Forgetting model.eval() at inference time is one of the most common bugs in deep learning: the model computes statistics from a single sample instead of the population averages, producing silent garbage.',
+        'For BatchNorm, take one feature column in a mini-batch of N samples. Compute mean mu, compute variance sigma squared, normalize each value as x_hat = (x - mu) / sqrt(sigma squared + epsilon), then output y = gamma * x_hat + beta. Epsilon is a tiny constant such as 1e-5 that prevents division by zero.',
+        'LayerNorm uses the same formula on a different slice. It computes statistics across the features of one sample, so the result does not depend on other samples in the batch. That is why transformers can use LayerNorm during generation with batch size 1.',
+        'BatchNorm has separate training and inference behavior. During training it uses live batch statistics; during inference it uses running averages collected during training. Forgetting to switch a model to evaluation mode can make inference depend on one accidental batch.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The original explanation -- curing internal covariate shift -- held for three years. Santurkar, Tsipras, Ilyas, and Madry tested it directly in "How Does Batch Normalization Help Optimization?" (2018). They deliberately re-injected distribution shift after every BN layer by adding random noise to the normalized activations. If curing shift were the mechanism, this should destroy the benefit. Training stayed just as fast.',
-        'The measured mechanism is different: BN smooths the loss landscape. The gradient of the loss changes more slowly as a function of the parameters (the loss has a smaller Lipschitz constant for its gradients). Smoother landscapes mean larger steps stay trustworthy -- the optimizer can use a higher learning rate without overshooting into a region where the gradient points in a completely different direction. This is why BN networks tolerate 10x larger learning rates: the landscape is flatter, so each step covers more useful ground.',
-        'BN also acts as implicit regularization. Because batch statistics are noisy estimates of the true population statistics (they come from a finite mini-batch), every forward pass injects a small amount of noise into the activations. This noise is analogous to dropout: it prevents co-adaptation and improves generalization slightly. The effect is stronger with smaller batches, where the noise is larger.',
+        'Correctness here means preserving what the network can represent while improving the coordinates used by optimization. The learned gamma and beta prove the representation point: if the best downstream layer wants a different scale or center, it can learn that scale and center after standardization.',
+        'The optimization argument is that normalized activations make the loss surface smoother. Santurkar et al. showed that BatchNorm does not mainly work by eliminating internal covariate shift; it works by making gradients change more predictably. Larger learning-rate steps become less likely to jump into a region with a completely different gradient direction.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'BN is O(N * D) per layer per forward pass: N samples times D features, each requiring a subtraction, division, multiplication, and addition. This is cheap compared to the O(N * D^2) matrix multiplications that produce the activations. For a layer with D = 512 features and a batch of N = 64, BN does about 130K arithmetic operations versus the 17M of the matmul.',
-        'BN adds 2 * D learnable parameters per layer: one gamma and one beta per feature. For D = 512 that is 1,024 parameters -- negligible next to a weight matrix with D^2 = 262,144 entries. It also stores 2 * D running statistics (running mean and running variance) that are not trained by gradient descent but updated by exponential moving average.',
-        'The hidden cost is operational. Running averages must be maintained and saved with the model checkpoint. In distributed training, batch statistics must be synchronized across GPUs (SyncBatchNorm), which adds communication overhead proportional to D at every layer. And the train/eval mode switch is a source of bugs that no amount of documentation fully prevents.',
+        'The arithmetic cost is O(N * D) for a layer with N samples and D features, because each activation is read and transformed. The space cost is two learned values per normalized feature, gamma and beta, plus running mean and running variance for BatchNorm. Compared with a dense matrix multiply, this is usually a small arithmetic cost but a real memory and synchronization cost.',
+        'Cost behaves differently by axis. BatchNorm can require synchronized statistics across GPUs, and its small-batch estimates get noisy. LayerNorm avoids cross-sample communication, but it does not use population statistics for each feature, so it may be weaker in image models where batch and channel statistics are informative.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'CNNs are BN\'s home turf. ResNet, Inception, EfficientNet, and ConvNeXt all carry BN in every block. The fit is natural: image batches are large (32-256), every image has the same spatial dimensions, and each channel (feature) has consistent meaning across samples (edge detector, color channel, texture filter). Per-feature population statistics are genuinely informative in this setting.',
-        'BN enabled the depth revolution. Pre-BN, training networks deeper than 20 layers was fragile. With BN, ResNet-152 trained stably at learning rates that would have diverged without it. The combination of BN and residual connections unlocked architectures with hundreds of layers, and BN\'s implicit regularization reduced overfitting enough that some teams dropped explicit dropout from their CNNs.',
-        'Training converges faster with BN. Ioffe and Szegedy reported reaching the same validation accuracy in 14x fewer training steps on ImageNet. The higher learning rate covers more ground per step, and the smoother landscape means fewer steps are wasted on oscillation.',
+        'BatchNorm is common in convolutional vision networks because image batches have consistent channels and enough samples for useful per-feature statistics. ResNet-style blocks use it to stabilize deep stacks and allow larger learning rates. It works best when training and inference data have similar distributions and batch sizes are large enough.',
+        'LayerNorm is standard in transformers and recurrent models because sequence generation often runs one token or one example at a time. RMSNorm, a LayerNorm relative that divides by root mean square without subtracting the mean, appears in many large language models because it is cheaper and usually good enough.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Small batch sizes produce noisy statistics. With a batch of 2-4 samples, the sample mean and variance are poor estimates of the population values, and the noise feeds directly into the normalized activations. Medical imaging, reinforcement learning, and fine-tuning with limited GPU memory routinely use batch sizes this small. Group Normalization (Wu & He, 2018) was designed specifically for this case: it normalizes within feature groups per sample, avoiding batch coupling entirely.',
-        'RNNs and Transformers process variable-length sequences. In a batch of sentences, BN would normalize the word "the" in sentence A against the words of sentence B, just because they share a batch slot. That cross-contamination is semantically meaningless. Ba, Kiros, and Hinton (2016) introduced Layer Normalization to fix this: normalize each sample across its own features (row statistics instead of column statistics), making each token independent of its batchmates.',
-        'Online learning and single-sample inference during training break BN. If the batch is a single sample, the variance is zero and normalization is undefined. The running-average workaround only applies at inference time; during training, BN fundamentally requires a population. Autoregressive generation (producing one token at a time) is the extreme case: a normalization method that needs peers is architecturally incompatible with sequential decoding.',
+        'BatchNorm fails in small-batch settings because the measured mean and variance are noisy. It also creates a train-versus-eval mode boundary, which is an operational failure point in serving code. In sequential models, cross-sample normalization can mix unrelated examples in a way that has no semantic meaning.',
+        'LayerNorm is not a universal replacement. It may underuse useful population information in vision workloads, and its per-sample statistics can interact badly with architectures that expect absolute feature scale. Normalization also cannot fix bad labels, exploding logits from later layers, or an optimizer that is unstable for other reasons.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A batch of 4 samples, each with 2 features. The raw activations: sample 1 = [4, 10], sample 2 = [8, 6], sample 3 = [6, 14], sample 4 = [2, 10]. BN normalizes each feature (column) independently.',
-        'Feature 1 values: [4, 8, 6, 2]. Mean mu_1 = (4 + 8 + 6 + 2) / 4 = 5. Variance sigma_1^2 = ((4-5)^2 + (8-5)^2 + (6-5)^2 + (2-5)^2) / 4 = (1 + 9 + 1 + 9) / 4 = 5. Standard deviation sigma_1 = sqrt(5) = 2.236. Normalized: x_hat = [(4-5)/2.236, (8-5)/2.236, (6-5)/2.236, (2-5)/2.236] = [-0.447, 1.342, 0.447, -1.342].',
-        'Feature 2 values: [10, 6, 14, 10]. Mean mu_2 = 10. Variance sigma_2^2 = (0 + 16 + 16 + 0) / 4 = 8. Standard deviation sigma_2 = 2.828. Normalized: x_hat = [0, -1.414, 1.414, 0].',
-        'Apply gamma = 1.5, beta = 0.5 to both features. Feature 1 output: y = 1.5 * x_hat + 0.5 = [-0.17, 2.51, 1.17, -1.51]. Feature 2 output: y = [0.5, -1.62, 2.62, 0.5]. The network has shifted each feature to a new learned center (0.5) and stretched by a learned factor (1.5). If the optimal representation happens to need mean 5 and std 2.236 for feature 1, the network can learn gamma = 2.236 and beta = 5 to recover the original distribution exactly.',
+        'Use one BatchNorm feature with four activations: [4, 8, 6, 2]. The mean is (4 + 8 + 6 + 2) / 4 = 5. The variance is ((-1)^2 + 3^2 + 1^2 + (-3)^2) / 4 = 5, so the standard deviation is sqrt(5) = 2.236.',
+        'The normalized values are [(4 - 5) / 2.236, (8 - 5) / 2.236, (6 - 5) / 2.236, (2 - 5) / 2.236] = [-0.447, 1.342, 0.447, -1.342]. With gamma = 1.5 and beta = 0.5, the outputs are [-0.171, 2.513, 1.171, -1.513]. The feature now has controlled scale, but the learned parameters still let the model stretch and shift it.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Ioffe & Szegedy, "Batch Normalization: Accelerating Deep Network Training" (2015) -- introduced BN and the internal covariate shift hypothesis. Santurkar, Tsipras, Ilyas & Madry, "How Does Batch Normalization Help Optimization?" (2018) -- showed BN works by smoothing the loss landscape, not by reducing covariate shift. Ba, Kiros & Hinton, "Layer Normalization" (2016) -- proposed normalizing across features per sample to eliminate batch coupling. Zhang & Sennrich, "Root Mean Square Layer Normalization" (2019) -- simplified LayerNorm by dropping mean subtraction. Wu & He, "Group Normalization" (2018) -- normalizes within feature groups per sample, bridging BN and LN for small-batch vision.',
-        'Study Layer Normalization next to see how changing the normalization axis from "per feature across the batch" to "per sample across features" solved the sequence and small-batch problems. Study Group Normalization for the hybrid approach used in diffusion models and small-batch vision. Study Instance Normalization for the per-sample, per-channel variant used in style transfer. Study RMSNorm for the simplified variant that powers LLaMA-class language models. Study Loss Landscapes to see why smoother optimization surfaces allow larger learning rates -- the same mechanism that explains BN\'s real benefit.',
+        'Primary sources: Ioffe and Szegedy, Batch Normalization, 2015; Ba, Kiros, and Hinton, Layer Normalization, 2016; Santurkar, Tsipras, Ilyas, and Madry, How Does Batch Normalization Help Optimization, 2018; Zhang and Sennrich, Root Mean Square Layer Normalization, 2019; Wu and He, Group Normalization, 2018.',
+        'Study Vanishing and Exploding Gradients before this if scale compounding is unclear. Study Loss Landscapes, Optimizers, Transformers, and Convolutional Neural Networks next to see why different architectures choose different normalization axes.',
       ],
     },
   ],

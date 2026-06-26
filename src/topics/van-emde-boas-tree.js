@@ -221,93 +221,92 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The universe-split view treats an integer key as two coordinates. The high part chooses a cluster, the low part chooses the position inside that cluster, and the summary records which clusters are nonempty.',
         {type: 'image', src: './assets/gifs/van-emde-boas-tree.gif', alt: 'Animated walkthrough of the van emde boas tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Ordered sets need more than membership. A scheduler wants the next timestamp. A simulator wants the next event time. A database index may need predecessor and successor, not just exact lookup. Balanced search trees solve this for arbitrary comparable keys, but they pay O(log n) comparisons because they only learn order by comparing against stored keys.`,
+        'Ordered sets need operations beyond membership. Schedulers, simulators, packet queues, and event systems often need the next key after x, which is the successor operation.',
         {
           type: 'callout',
           text: 'A van Emde Boas tree wins by treating an integer key as geography: high bits choose the region, low bits choose the local position.',
         },
-        `A van Emde Boas tree exists for a narrower problem: keys are integers drawn from a fixed universe U, usually 0 through U - 1. That extra structure changes the game. Integers have bits. The universe can be split. Empty ranges can be skipped by arithmetic on key parts instead of by comparisons against many stored keys.`,
-        `The famous result is O(log log U) time for membership, insert, delete, predecessor, and successor, with minimum and maximum available directly. The bound is universe-sensitive, not n-sensitive. That makes vEB trees a landmark in integer predecessor data structures, even though their classic layout is often too memory-heavy for everyday code.`,
+        'Balanced search trees answer predecessor and successor for arbitrary comparable keys in O(log n). A van Emde Boas tree exists for the narrower case where keys are integers from a fixed universe, so the key bits can guide the search.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious ordered-set baseline is a balanced binary search tree. It stores only the n present keys and gives O(log n) search, insert, delete, predecessor, and successor for any comparable key type. If keys are strings, tuples, or arbitrary objects, a comparison tree is the natural tool.`,
-        `The wall appears when the keys are machine integers and the universe is known. A comparison tree treats key 1000000 and key 1000001 as opaque values; it learns their relation only by comparison. But integer keys already contain structure. The high bits locate a region. The low bits locate a position inside that region. Empty regions can be summarized. A comparison tree does not use that geography.`,
-        `A bitset is the other obvious baseline. For a small dense universe, membership is a bit test and successor can use word scans. The wall is a large sparse universe. A bitset for 64-bit keys is impossible, while a balanced tree gives up integer structure. vEB uses the universe recursively without scanning it linearly.`,
+        'The obvious ordered-set structure is a balanced binary search tree. It stores only the keys present and works for strings, tuples, and any objects with a comparison function.',
+        'A second obvious structure is a bitset over the universe. It gives O(1) membership and fast word-level scans for dense small universes, but it needs one bit for every possible key.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A comparison tree ignores integer structure. It learns that 1,000,000 is before 1,000,001 by comparison even though the binary representation already contains shared high bits and nearby low bits.',
+        'A bitset fails when the universe is huge and sparse. A 32-bit universe needs 2 to the 32 bits, or 512 MB, even if only 1000 keys are present.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is recursive universe decomposition. For a universe of size U, split each key x into high(x) and low(x), each drawn from a universe of about sqrt(U). The high part chooses a cluster. The low part is the key inside that cluster. A summary structure records which clusters are nonempty. The summary is itself a smaller vEB tree.`,
+        'The core insight is recursive universe decomposition. For universe size U, split each key into high(x) and low(x), each from a universe of about sqrt(U).',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6b/VebDiagram.svg', alt: 'Example van Emde Boas tree with clusters and auxiliary structure', caption: 'The diagram shows the recursive split: a root stores min and max, clusters store local keys, and aux tracks nonempty clusters. Source: Wikimedia Commons, Dcoetzee, public domain.'},
-        `Each node stores its global minimum and maximum directly. That makes empty and one-element nodes cheap, gives O(1) min and max at the current node, and avoids storing the minimum redundantly inside a cluster. The recursive machinery handles the rest.`,
-        `The operation depth comes from shrinking U to sqrt(U) at each recursive step. Taking square roots repeatedly halves the number of bits. A 64-bit universe becomes 32 bits, then 16, then 8, then 4, then 2. That is why the time is O(log log U): the recursion follows bit-length, not number of stored keys.`,
+        'The high part selects a cluster, and the low part is stored inside that cluster. A summary vEB tree stores the ids of nonempty clusters, so successor can skip empty regions instead of scanning them.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Membership checks the node's min and max first. If x equals either, the answer is immediate. Otherwise, x is split into high and low pieces, and the query recurses into the selected cluster. If the cluster does not exist or is empty, x is absent.`,
-        `Insertion also starts with min and max. If the tree is empty, x becomes both. If x is smaller than the current min, the structure swaps x with min so the smallest key remains direct. The remaining x is inserted into its high cluster at low(x). If that cluster was empty, its high index is inserted into the summary first. The summary must contain a cluster id if and only if that cluster has a key.`,
-        `Successor shows the design. To find successor(x), first handle x smaller than min: min is the answer. Otherwise split x. If x's cluster has a value larger than low(x), recurse there and combine the same high part with the returned low part. If not, ask the summary for the next nonempty cluster after high(x). The answer is that cluster's minimum, recombined with the new high part. Predecessor mirrors this logic.`,
-        `Deletion has the trickiest edge cases. Removing the only key empties the node. Removing min requires finding the next key from the first nonempty cluster and that cluster's minimum, then deleting that low key from the cluster. If a cluster becomes empty, its id leaves the summary. Max is repaired symmetrically.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The universe-split view proves how one integer becomes two coordinates. For U = 16, key 14 becomes cluster 3, offset 2. The same rule recurses inside the cluster. The visual is a map of integer ranges, with each cluster covering a contiguous block of the universe.`,
-        `The summary node proves the skip mechanism. It records nonempty clusters, so a successor query does not scan cluster 0, cluster 1, cluster 2, and so on. It asks a smaller ordered set of cluster ids for the next occupied region. If a cluster is absent from the summary, every key in that cluster is absent. That invariant is the reason empty ranges disappear from the search.`,
-        `The successor example proves the recombination step. A query for successor of 6 checks cluster 1 because 6 lives there. When cluster 1 has no larger low value, the summary moves to cluster 2. The answer is high 2 plus the minimum low value in cluster 2, giving key 9.`,
+        'Each node stores min and max directly. If the tree is empty, insertion sets both; if a new key is smaller than min, it swaps with min so the direct minimum remains available.',
+        'For the remaining key, insertion computes high and low. If the chosen cluster was empty, its id is inserted into the summary, then the low value is inserted into the cluster.',
+        'Successor first handles keys below min. Otherwise it looks for a larger low value in the same cluster; if none exists, it asks the summary for the next nonempty cluster and returns that cluster minimum recombined with the new high part.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument rests on two invariants. First, each stored key other than the direct min is stored in exactly one cluster determined by high(x), at local position low(x). Second, the summary contains exactly the ids of nonempty clusters. Insert and delete maintain both invariants by updating the cluster and then adding or removing the cluster id in the summary when emptiness changes.`,
-        `For successor, the proof splits by cases. If x is below the node's min, min is the answer. If x has a larger low value in its own cluster, that local successor is also the global successor because later clusters are larger and earlier clusters are smaller. If no local successor exists, every key in the current cluster is too small or absent, so the next possible answer is in the next nonempty cluster reported by the summary. The minimum of that cluster is the first key greater than x.`,
-        `The time recurrence follows the same decomposition. Each operation does constant work plus one or a small constant number of recursive calls on a universe of size sqrt(U). The solution is O(log log U). The algorithm is fast in theory because it cuts the number of key bits roughly in half at each level.`,
+        'The main invariant is exact placement: every stored key other than the direct min is represented in exactly one cluster chosen by high(x), at local position low(x). The summary contains a cluster id if and only if that cluster is nonempty.',
+        'The successor proof follows from contiguous ranges. If a larger low value exists in the same cluster, it is smaller than anything in a later cluster; otherwise every remaining candidate must be in a later nonempty cluster, and the summary finds the first such cluster.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The classic vEB tree pays heavily in space. A direct implementation allocates an array of sqrt(U) clusters at each node, and total space can be proportional to the universe rather than to stored keys. That is acceptable for small universes and theory, but painful for huge sparse ranges.`,
-        `Lazy allocation reduces practical space by creating clusters only when keys arrive, but it adds pointer chasing, allocation overhead, and more complicated deletion. Replacing cluster arrays with hash maps can help sparse universes, but then the implementation inherits hash-table constants and randomized or amortized behavior. The clean asymptotic story becomes an engineering tradeoff.`,
-        `Cache behavior is another tax. B-trees and arrays can be cache-friendly because they pack many keys together. A pointer-heavy recursive vEB tree may jump around memory. For dense small universes, a bitset with word-level find-first-set operations can beat vEB. For disk or SSD indexes, wide nodes often matter more than O(log log U).`,
+        'The time recurrence is T(U) = T(sqrt(U)) + O(1), which solves to O(log log U). A 64-bit universe shrinks by bit length as 64, 32, 16, 8, 4, 2, so the recursion depth is small.',
+        'The classic space cost is the tax. Allocating arrays of clusters can make space proportional to U, while lazy allocation saves memory but adds pointers, allocation overhead, and worse cache locality.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `vEB trees win as a concept whenever bounded integer keys and predecessor queries are the center of the problem. They teach how escaping the comparison model changes what is possible. They also explain why word-RAM assumptions matter: constant-time arithmetic and bit operations on key pieces are part of the model.`,
-        `Possible use cases include priority queues with bounded integer priorities, discrete-event simulation with bounded tick values, schedulers over small time wheels, packet indexes over fixed-width fields, and teaching integer predecessor structures. Production code may use a bucket queue, radix heap, calendar queue, bitset, B-tree, or trie, but vEB gives the reference point for recursive universe splitting.`,
-        `The structure is also a gateway to X-fast tries, Y-fast tries, fusion trees, radix trees, and cache-aware predecessor indexes. Those descendants ask the same question: how can integer bits replace comparison-tree work while controlling space?`,
+        'vEB trees are most useful as a theoretical and specialized integer predecessor structure. They fit bounded integer priorities, simulation event times, packet or timer wheels with known ranges, and teaching word-RAM algorithms.',
+        'Production systems often choose a radix heap, bucket queue, bitset, B-tree, or adaptive radix tree instead. Those structures may lose the clean O(log log U) result but win on memory layout, concurrency, or disk locality.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `vEB is the wrong tool for arbitrary comparable keys. Strings, compound objects, locale-dependent ordering, and custom comparators do not naturally split into fixed high and low integer parts. You can map some domains to integers, but if the mapping is unstable or huge, the universe assumption becomes a liability.`,
-        `It is also weak for huge sparse universes when implemented directly. A 64-bit key space makes U enormous even if only a few thousand keys are stored. Lazy variants help, but simpler structures may use memory better and run faster. If the workload needs range scans, persistence, disk locality, or concurrent updates, a B-tree or log-structured design may be easier.`,
-        `The O(log log U) headline can mislead learners. It is not automatically faster than O(log n). Constants, memory layout, branch behavior, word size, and universe fit decide real performance. A vEB tree with poor locality can lose to a balanced tree on ordinary input sizes. The lesson is that integer structure can beat comparison bounds when the universe and machine model fit.`,
+        'The structure is wrong for arbitrary comparable keys. Strings and custom objects do not naturally split into fixed high and low integer parts unless a stable bounded encoding already exists.',
+        'It can also lose on ordinary machines despite the asymptotic headline. Pointer chasing, cache misses, large sparse universes, and complicated deletion can make a balanced tree faster for realistic input sizes.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study binary search trees first to understand the comparison baseline, then heaps for priority queues and bitsets for dense integer universes. After vEB, study radix tries, adaptive radix trees, X-fast and Y-fast tries, fusion trees, integer sorting, word-RAM algorithms, and cache-oblivious layouts.`,
-        `Primary sources worth reading are Peter van Emde Boas's "Preserving order in a forest in less than logarithmic time" at https://doi.org/10.1109/SFCS.1975.26 and advanced data-structure lecture notes such as MIT 6.851's predecessor-structure material. The older CWI URL sometimes circulated for this title points to an unrelated paper, so use the DOI or a trusted course copy of the original paper.`,
+        'Let U = 16, so keys run from 0 to 15 and sqrt(U) = 4. Key 14 splits into high = floor(14 / 4) = 3 and low = 14 mod 4 = 2.',
+        'Insert keys 2, 3, 9, and 14. The direct min is 2 and max is 14; key 3 goes to cluster 0 low 3, key 9 to cluster 2 low 1, and key 14 to cluster 3 low 2, while the summary stores cluster ids 0, 2, and 3.',
+        'To find successor(6), split 6 into high 1 and low 2. Cluster 1 is empty, so the summary successor of 1 is 2; cluster 2 has min low 1, and recombining gives 2 * 4 + 1 = 9.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Peter van Emde Boas, Preserving order in a forest in less than logarithmic time, FOCS 1975, DOI https://doi.org/10.1109/SFCS.1975.26. MIT 6.851 lecture notes on predecessor structures give a modern teaching path through the same idea.',
+        'Study balanced binary search trees and bitsets first. Then study radix tries, X-fast tries, Y-fast tries, fusion trees, word-RAM algorithms, integer sorting, and cache-aware layouts to see how integer structure and memory behavior trade places.',
       ],
     },
   ],

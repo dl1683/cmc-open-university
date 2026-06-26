@@ -103,135 +103,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation traces a single forward pass through a 2-3-1 network: two inputs, three hidden neurons, one output. Each frame shows one stage of the computation: the weight matrix, the weighted sums (pre-activations), the ReLU activation, the output, and then the full end-to-end summary.',
-        'Active (highlighted) cells are the values being computed right now. When a neuron\'s pre-activation is negative, ReLU silences it to zero and the animation marks it as removed -- that neuron contributes nothing to the output for this particular input. Different inputs activate different subsets of neurons; watch how changing the inputs in the control box reshapes which neurons fire.',
-        'The key inference at each frame: the weighted sum is pure linear algebra (rotation, scaling, shifting). The ReLU bend is what makes the network more than a single matrix multiply. Without that bend, every layer would collapse into one.',
-        {type: 'callout', text: 'A forward pass is repeated affine mixing plus nonlinear gating; depth only helps because the gates prevent the layers from collapsing into one matrix.'},
-      
-        {type: 'image', src: './assets/gifs/nn-forward-pass.gif', alt: 'Animated walkthrough of the nn forward pass visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input hidden and output nodes', caption: 'A layered network makes the forward path concrete: values move from inputs through hidden units to an output. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
-        'In 1943, Warren McCulloch and Walter Pitts published the first mathematical model of a neuron: a binary threshold unit that fires when the weighted sum of its inputs exceeds a threshold. It was a logic gate, not a learning machine, but it proved that networks of simple units could compute any Boolean function. The question shifted from "can a machine compute?" to "can a machine learn which computation to perform?"',
-        'Frank Rosenblatt answered in 1958 with the Perceptron: a single-layer network with a learning rule that adjusted weights from labeled examples. The Perceptron could learn any linearly separable function -- and it came with a convergence proof. If a separating hyperplane exists, the algorithm finds it in finite steps. For a few years, connectionism looked like the path to artificial intelligence.',
-        'Then in 1969, Marvin Minsky and Seymour Papert published Perceptrons, proving that a single-layer perceptron cannot learn XOR. The four points (0,0)=0, (0,1)=1, (1,0)=1, (1,1)=0 are not linearly separable -- no single line in 2D divides the 0-class from the 1-class. This was not a flaw in the learning rule. It was a representational limit: one layer of weights can only carve linear boundaries. The book chilled neural network research for over a decade.',
-        'The fix was hiding layers. A multi-layer network with nonlinear activations can learn XOR and much more. Rumelhart, Hinton, and Williams showed in 1986 that backpropagation could train these deeper networks by propagating error gradients layer by layer. And Cybenko proved in 1989 that a single hidden layer with enough neurons and a squashing activation can approximate any continuous function to arbitrary precision (the Universal Approximation Theorem). The forward pass -- multiply by weights, add bias, apply nonlinearity, repeat -- is the computation that makes all of this work.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The simplest learnable predictor is the linear model: y = Wx + b. It is fast, interpretable, and optimal when the true relationship is a hyperplane. Logistic regression extends it to classification by pushing the linear output through a sigmoid. These models work well when features are hand-engineered and the decision boundary is roughly linear.',
-        'The wall is nonlinearity. XOR is the textbook example: no single line separates (0,0)/(1,1) from (0,1)/(1,0). But the same limit bites in practice everywhere. Classifying images by raw pixel sums fails because object identity depends on spatial patterns, not pixel averages. Predicting stock returns from raw prices fails because the relationship is nonlinear and context-dependent. Any problem where the answer depends on interactions between features -- not just their weighted sum -- defeats a linear model.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Stacking linear layers does not help. If layer 1 computes h = W1*x + b1 and layer 2 computes y = W2*h + b2, substitution gives y = W2*(W1*x + b1) + b2 = (W2*W1)*x + (W2*b1 + b2). The composition of two affine transforms is still one affine transform. Ten layers of linear maps collapse into a single matrix multiply. Depth without nonlinearity is an illusion.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Rectifier_and_softplus_functions.svg', alt: 'Rectifier and softplus activation curves', caption: 'The ReLU curve is the bend that stops stacked affine maps from reducing to one affine map. Source: Wikimedia Commons, Dan Stowell, CC0 1.0.'},
-        'The fix is simple: insert a nonlinear activation between layers. ReLU(z) = max(0, z) is the most common choice. After the linear mix, ReLU zeros out negative values and passes positive values unchanged. This piecewise-linear bend means the composition of two layers is no longer reducible to one. Each layer can carve the input space into regions and build features that the next layer recombines. The forward pass alternates: linear transform, nonlinear activation, linear transform, nonlinear activation.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'A neural network is a composed function whose intermediate values are learned representations. The first layer does not solve the whole task. It transforms raw input into features the next layer can use. A hidden activation is not just a number on the way to the answer -- it is the network\'s internal representation of the input at that depth.',
-        'This is why depth matters more than width. Each layer composes features from the previous layer into higher-level abstractions. In a vision network, early layers detect edges, middle layers combine edges into textures and shapes, deep layers recognize objects. In a language model, early layers capture token identity, middle layers build syntactic structure, deep layers encode semantic meaning. A single wide layer could in theory approximate any function (Universal Approximation), but the number of neurons required can grow exponentially. Depth lets the network reuse features compositionally, which is dramatically more parameter-efficient.',
-        'The forward pass is also the foundation of training. During inference, the output is consumed by an application. During training, the output is compared to a target to compute a loss. Backpropagation then flows error gradients backward through the same layers, using stored forward-pass activations to compute how each weight should change. No correct forward pass means no meaningful loss and no useful gradient.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A dense (fully connected) layer stores a weight matrix W of shape M-by-N and a bias vector b of shape N, where M is the input dimension and N is the output dimension. Given an input vector x of length M, the layer computes z = x*W + b, producing a vector of length N. For a batch of B examples, the input is a B-by-M matrix, and the output is B-by-N, with the bias broadcast across rows.',
-        'The demo\'s hidden layer follows this rule exactly. For input x = [2, -1], each of the three hidden neurons reads one column of the 2-by-3 weight matrix, computes a weighted sum with the two inputs, and adds its scalar bias. The pre-activation values are z1 = 2*0.5 + (-1)*0.4 + 0.1 = 0.7, z2 = 2*(-0.6) + (-1)*0.9 + (-0.2) = -2.3, z3 = 2*0.8 + (-1)*(-0.3) + 0.05 = 1.95.',
-        'ReLU converts these to [0.7, 0, 1.95]. The zero matters: for this input, the second neuron is inactive. It sends no signal to the output layer. Different inputs activate different subsets of neurons -- this input-dependent routing is the source of the network\'s expressive power. The output layer then combines the three hidden activations with a second weight matrix (3-by-1) and one bias to produce the final scalar prediction.',
-        'In production frameworks, the forward pass also manages tensor metadata (shape, dtype, device placement, memory layout), gradient tape for training, and temporary buffers for attention masks, key-value caches, and intermediate activations. The math is simple; the runtime is a carefully scheduled sequence of matrix multiplications, memory transfers, and kernel launches.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'A trained network\'s forward pass works because gradient descent has already shaped its parameters into useful transformations. A randomly initialized network also runs a forward pass, but its outputs are meaningless noise. Training iteratively adjusts weights so that useful input features produce strong signals and irrelevant features are suppressed. After training, the weights encode a function that generalizes to new inputs -- not by memorizing examples, but by learning the structure of the input-output relationship.',
-        'Composition is the mechanism that lets this scale. A single ReLU neuron divides the input space with one hyperplane. A layer of N neurons divides it with N hyperplanes, creating up to 2^N regions. A second layer can combine these regions into more complex shapes. Deeper networks compose exponentially more decision regions per parameter than wide shallow networks. This is why a 100-layer transformer with 175 billion parameters can model language: each layer builds on the representations computed by the layer below, creating an abstraction hierarchy from tokens to syntax to semantics.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'A single dense layer with M inputs and N outputs costs O(M*N) multiplications plus N additions for bias. The demo\'s 2-3-1 network does 6 multiplies in layer 1 and 3 in layer 2 -- trivial. For GPT-scale models with hidden dimension 12,288 and 96 layers, each feed-forward block runs two matmuls of size 12,288 by 49,152, totaling roughly 2.4 billion multiplies per layer per token.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die showing dense compute units', caption: 'Large forward passes are scheduled onto hardware where arithmetic density and memory movement decide throughput. Source: Wikimedia Commons, KL and Intel, public domain.'},
-        'Memory follows the same pattern. Inference stores activations for the current layer plus weight tensors. Training stores activations from every layer because backpropagation needs them for gradient computation. Doubling hidden dimension quadruples weight count per dense layer and doubles activation memory per layer. Doubling depth doubles both compute and activation memory linearly.',
-        'On GPUs, the dominant cost is usually memory bandwidth for reading weight matrices, not arithmetic. Small batch sizes underuse the hardware because the GPU finishes the math before the next weight tile arrives from memory. Larger batches amortize the weight-read cost across more examples, improving throughput until memory limits hit.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Every deployed neural system is built around forward passes. A fraud detector scores transactions by running account features through a feedforward network. Medical imaging classifiers run pixel arrays through convolutional layers (which are structured forward passes with weight sharing). Recommender systems score candidate items by forwarding user and item embeddings through interaction layers. Language models run a forward pass over the prompt (prefill) and then one forward pass per generated token (decode), each time producing a probability distribution over the vocabulary.',
-        'Training is also dominated by forward passes. Each mini-batch runs forward to compute predictions and loss before backpropagation begins. Debugging training starts with forward-pass sanity checks: are shapes correct, are logits finite, is the loss nonzero, do activations saturate, can a tiny model overfit a tiny dataset? These checks catch most errors before optimizer settings matter.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'A forward pass is only as good as its learned weights and its input representation. If serving-time features differ from training features (different normalization, different tokenization, shifted distributions), the computation executes perfectly and still produces wrong answers. Out-of-distribution inputs are dangerous because the network must produce some output -- it cannot say "I don\'t know" without explicit calibration or abstention mechanisms.',
-        'Do not anthropomorphize neurons. A neuron computes a weighted sum, adds a bias, and applies an activation. Individual neurons rarely have clean semantic interpretations because features are distributed across many neurons and composed across layers. Do not confuse inference with learning: unless weights or adapter parameters are updated, a forward pass applies what training already stored. Prompting a language model changes the input context; it does not change the model\'s weights.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Input: x = [2, -1]. Layer 1 weights W1 (shape 2x3), biases B1 (shape 3).',
-        'Hidden pre-activations: z1 = 2*0.5 + (-1)*0.4 + 0.1 = 0.7. z2 = 2*(-0.6) + (-1)*0.9 + (-0.2) = -2.3. z3 = 2*0.8 + (-1)*(-0.3) + 0.05 = 1.95.',
-        'ReLU activation: a = [max(0, 0.7), max(0, -2.3), max(0, 1.95)] = [0.7, 0, 1.95]. Neuron 2 is dead for this input because its pre-activation was negative.',
-        'Output: y = 0.7*0.7 + 0*(-0.5) + 1.95*0.6 + 0.15 = 0.49 + 0 + 1.17 + 0.15 = 1.81. That single number is the network\'s prediction for input [2, -1] given these frozen weights.',
-      ],
-    },
-    {
-      heading: 'Worked example: XOR with a hidden layer',
-      paragraphs: [
-        'XOR cannot be solved by a single-layer perceptron. Here is a 2-2-1 network that solves it, with actual weights you can verify by hand.',
-        'Inputs: (0,0), (0,1), (1,0), (1,1). Targets: 0, 1, 1, 0. Hidden layer: 2 neurons, W1 = [[1,1],[1,1]], b1 = [0,-1], activation = ReLU.',
-        'Trace each input. (0,0): z = [0+0+0, 0+0-1] = [0,-1], h = ReLU = [0,0]. (0,1): z = [0+1+0, 0+1-1] = [1,0], h = [1,0]. (1,0): z = [1+0+0, 1+0-1] = [1,0], h = [1,0]. (1,1): z = [1+1+0, 1+1-1] = [2,1], h = [2,1].',
-        'The hidden layer has remapped the four input points into a new space. In the original 2D space, XOR is not linearly separable. In the hidden space, the points that should output 1 -- (0,1) and (1,0) -- both land at [1,0], while (0,0) lands at [0,0] and (1,1) lands at [2,1]. A single line in this new space can separate them.',
-        'Output layer: W2 = [1,-2], b2 = 0. y(0,0) = 0*1 + 0*(-2) = 0. y(0,1) = 1*1 + 0*(-2) = 1. y(1,0) = 1*1 + 0*(-2) = 1. y(1,1) = 2*1 + 1*(-2) = 0. XOR solved. The hidden layer\'s job was to create a representation where the problem becomes linearly separable. That is what every hidden layer in every neural network does.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'McCulloch & Pitts 1943 (A Logical Calculus of the Ideas Immanent in Nervous Activity -- first mathematical neuron model, binary threshold units computing Boolean functions). Rosenblatt 1958 (The Perceptron: A Probabilistic Model for Information Storage and Organization in the Brain -- single-layer learning with convergence proof). Minsky & Papert 1969 (Perceptrons -- proved single-layer networks cannot learn XOR, paused the field for a decade). Rumelhart, Hinton & Williams 1986 (Learning Representations by Back-propagating Errors -- made training multi-layer networks practical). Cybenko 1989 (Approximation by Superpositions of a Sigmoidal Function -- Universal Approximation Theorem). Hornik 1991 (generalized universal approximation to arbitrary activations).',
-        'Study next: Backpropagation (how error gradients flow backward through these same layers to compute weight updates -- the other half of neural network training). Activation Functions (ReLU, sigmoid, tanh, GELU -- the nonlinear bends between layers that make depth useful; without them, the network collapses to a single linear transform). Gradient Descent (how computed gradients become actual weight updates -- learning rate, momentum, Adam). Loss Functions (what the network is trying to minimize -- MSE for regression, cross-entropy for classification, the choice shapes what "correct" means). Transformer (the modern architecture that replaced feedforward-only networks for sequence tasks -- attention layers interleaved with the same multiply-add-bend forward pass shown here).',
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Prerequisites: matrix multiplication (the forward pass is matmuls -- if you cannot multiply a 2x3 matrix by a 3x1 vector, start there), activation functions (what makes a network nonlinear), loss functions (what the network optimizes).',
-        'This unlocks: all of deep learning. CNNs, RNNs, Transformers, GANs, autoencoders, diffusion models -- every one runs forward passes with the same multiply-add-bend discipline shown here, just with different layer types and tensor shapes.',
-        'Transfer: a neural network is a differentiable function approximator. Any problem reducible to "learn a function from input-output examples" is a neural network candidate. Fraud detection, protein folding, speech recognition, image generation, and language modeling all reduce to this pattern.',
-      ],
-    },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you compute the forward pass for a 2-layer network: input x=[1,2], W1=[[0.5,0.3],[0.2,0.8]], b1=[0,0], activation=ReLU, W2=[0.4,0.6], b2=0? [h=ReLU([0.5*1+0.3*2, 0.2*1+0.8*2])=ReLU([1.1,1.8])=[1.1,1.8], y=0.4*1.1+0.6*1.8=1.52].',
-            'Can you explain why a network without activations is just one big linear function? Composing linear functions: W2*(W1*x) = (W2*W1)*x -- the product of two matrices is still a matrix, so any number of linear layers collapses to one.',
-            'Can you show that XOR requires a hidden layer? Draw the four points (0,0)=0, (0,1)=1, (1,0)=1, (1,1)=0 in 2D space and verify that no single straight line separates the 0-class from the 1-class.',
-            'Can you explain the Universal Approximation Theorem in one sentence? A single hidden layer with enough neurons and a nonlinear activation can approximate any continuous function on a compact set to arbitrary precision.',
-          ],
-        },
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['The animation traces one inference computation through a 2-3-1 neural network: two inputs, three hidden neurons, and one output. A neuron computes a weighted sum, adds a bias, and applies an activation function. Removed cells mark hidden neurons whose ReLU activation becomes zero for the current input.', {type: 'callout', text: 'A forward pass is repeated affine mixing plus nonlinear gating; depth only helps because the gates prevent the layers from collapsing into one matrix.'}, {type: 'image', src: './assets/gifs/nn-forward-pass.gif', alt: 'Animated walkthrough of the nn forward pass visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    { heading: 'Why this exists', paragraphs: ['A forward pass is the computation a trained neural network runs to turn input values into a prediction. It is called forward because data move from input layer to hidden layers to output layer. Layered networks exist because many tasks need learned intermediate representations rather than one linear rule.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input hidden and output nodes', caption: 'A layered network makes the forward path concrete: values move from inputs through hidden units to an output. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'}]},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a linear model, y = W x + b. It is fast, interpretable, and often the right baseline. Linear models fail when the target depends on feature interactions, as XOR shows: no single line separates (0,1) and (1,0) from (0,0) and (1,1).']},
+    { heading: 'The wall', paragraphs: ['Stacking linear layers does not fix the problem. If h = W1 x + b1 and y = W2 h + b2, substitution gives y = (W2 W1) x + (W2 b1 + b2), which is still one affine map. The wall is representation: without nonlinearity, depth adds parameters but not a new kind of function.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Rectifier_and_softplus_functions.svg', alt: 'Rectifier and softplus activation curves', caption: 'The ReLU curve is the bend that stops stacked affine maps from reducing to one affine map. Source: Wikimedia Commons, Dan Stowell, CC0 1.0.'}]},
+    { heading: 'The core insight', paragraphs: ['The core insight is alternating affine mixing and nonlinear gating. An affine map is a matrix multiply plus bias, and a gate such as ReLU changes the function depending on the input. Each hidden layer creates a representation that the next layer can reuse.']},
+    { heading: 'How it works', paragraphs: ['A dense layer with input length M and output length N stores an M by N weight matrix W and a length-N bias vector b. Given input x, it computes z = x W + b. ReLU then transforms z by replacing negative values with zero and passing positive values through.']},
+    { heading: 'Why it works', paragraphs: ['A trained forward pass works because training has already shaped the weights into useful transformations. The correctness of the computation is compositional: if each layer computes its affine map and activation, then the full network computes the composition of those functions. ReLU makes that composition piecewise nonlinear instead of one collapsed matrix.']},
+    { heading: 'Cost and complexity', paragraphs: ['A dense layer costs O(M * N) multiplications for one example. The demo first layer has 2 inputs and 3 hidden units, so it uses 6 weight multiplications before adding 3 biases. Doubling both input and output width roughly quadruples dense-layer weight count.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die showing dense compute units', caption: 'Large forward passes are scheduled onto hardware where arithmetic density and memory movement decide throughput. Source: Wikimedia Commons, KL and Intel, public domain.'}]},
+    { heading: 'Real-world uses', paragraphs: ['Every deployed neural model runs forward passes. Fraud detectors score transactions, recommender systems rank items, medical imaging models classify scans, and language models run forward passes over prompts and generated tokens. Engineers also debug training by checking shapes, finite logits, activation health, and whether a tiny model can overfit a tiny dataset.']},
+    { heading: 'Where it fails', paragraphs: ['A forward pass cannot fix bad weights or bad inputs. If serving uses different normalization, tokenization, feature order, or data distribution than training, the arithmetic can be perfect and the prediction still wrong. It also does not learn by itself; inference applies stored parameters unless weights or adapters are updated.']},
+    { heading: 'Worked example', paragraphs: ['Use input x = [2, -1]. Hidden values are z1 = 2 * 0.5 + (-1) * 0.4 + 0.1 = 0.7, z2 = 2 * (-0.6) + (-1) * 0.9 - 0.2 = -2.3, and z3 = 2 * 0.8 + (-1) * (-0.3) + 0.05 = 1.95. ReLU gives [0.7, 0, 1.95], and the output is 0.7 * 0.7 + 0 * (-0.5) + 1.95 * 0.6 + 0.15 = 1.81.']},
+    { heading: 'Sources and study next', paragraphs: ['Primary sources include McCulloch and Pitts on threshold neurons, Rosenblatt on the perceptron, Minsky and Papert on perceptron limits, Rumelhart, Hinton, and Williams on backpropagation, and Cybenko and Hornik on approximation. Study matrix multiplication, activation functions, loss functions, backpropagation, gradient descent, convolution, and transformers next.']},
   ],
 };

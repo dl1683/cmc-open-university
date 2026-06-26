@@ -192,89 +192,91 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each row as one replica, meaning one machine that stores a copy of the same logical value. A write quorum is the set of replicas that acknowledged a write, and a read quorum is the set of replicas asked during a read.',
         {type: 'image', src: './assets/gifs/quorums.gif', alt: 'Animated walkthrough of the quorums visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference is set overlap. When R + W > N, where R is read count, W is write count, and N is replica count, every read quorum must share at least one replica with every successful write quorum.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Read/write quorums exist because replicated systems want a tunable middle ground between fast but stale reads and fully coordinated consensus. If data lives on N replicas, a write can wait for W acknowledgements and a read can ask R replicas. The choice of R and W decides how much latency, availability, and freshness each request buys.',
+        'Replicated storage keeps several copies of data so the system can survive crashes and slow machines. Waiting for every copy on every request makes the system fragile because one bad replica slows the whole cluster.',
         { type: 'callout', text: 'Quorum freshness is not magic replication; it is set intersection with a version rule attached.' },
-        'Dynamo-style systems expose this as a per-operation dial. Some data can tolerate staleness, such as counters, presence, feeds, or cached views. Other data needs stronger read-your-write behavior. A single database may need both, depending on the request.',
-        'The topic matters because quorum arithmetic is often oversold. It can guarantee overlap between read and write sets when R + W > N, but it does not by itself give a total order for concurrent writes, serializable transactions, or magic conflict resolution.',
+        'Quorums let each request choose how many replicas are enough. The system can trade latency and availability against freshness instead of treating consistency as one global switch.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to write every replica and read one. That gives simple reads, but one slow or unavailable replica can make every write slow or unavailable. It spends availability to make reads cheap.',
-        'The opposite shortcut is to write one replica and read every replica. That makes writes fast but turns reads into fanout and still needs conflict logic. If the one write target dies before replication, durability and freshness suffer.',
-        'A third shortcut is to say majority and stop thinking. Majority quorums are common, but the useful idea is the inequality and the workload. W = 3, R = 3 on N = 5 is different from W = 5, R = 1 or W = 1, R = 5. Each request is spending latency and failure tolerance differently.',
+        'The obvious safe approach is write all replicas and read one. Reads are cheap, but every write waits for the slowest replica and fails when any required replica is unavailable.',
+        'The opposite approach is write one replica and read all replicas. Writes are fast, but reads become expensive and a single write target can lose freshness until repair catches up.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is set intersection. If R + W > N, every read set of size R must overlap every write set of size W. The overlapping replica can carry the newest version into the read response, assuming version comparison and replica selection behave as expected.',
+        'Replication creates a timing gap between success and universal visibility. A client can receive a successful write response while some replicas still hold the old version.',
+        'If a later read asks only stale replicas, it can return old data without any machine crashing. The wall is not storage loss; it is a read set and a write set that failed to intersect.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is the pigeonhole principle. If the write touches W replicas and the read touches R replicas, and R + W is larger than N, the two sets cannot be disjoint.',
         { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Venn_A_intersect_B.svg/640px-Venn_A_intersect_B.svg.png', alt: 'Venn diagram showing the intersection of two sets', caption: 'The shaded overlap is the quorum proof: when read and write sets cannot be disjoint, one replica carries fresh version evidence. Source: Wikimedia Commons, Venn A intersect B.svg, public domain: https://commons.wikimedia.org/wiki/File:Venn_A_intersect_B.svg' },
-        'This is not consensus. A quorum read can see the freshest visible version among the replicas it contacted, but it does not force all writers into one agreed sequence. Concurrent writes can both succeed and later appear as conflicting versions.',
-        'The inequality is a budget, not a law of nature. It assumes reads and writes draw from the same home replica set. Sloppy quorums, hinted handoff, multi-datacenter locality, clock skew, and conflict resolution all add fine print.',
+        'The overlap replica gives the read evidence of the newest acknowledged version, assuming versions are compared correctly. The quorum rule proves visibility of a version; it does not prove a total order for concurrent writes.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For N = 5, a write with W = 3 succeeds when three replicas acknowledge. The other two may be stale for a while. A read with R = 3 asks three replicas, compares versions, and returns the newest value it can justify. Because 3 + 3 = 6 > 5, the read and write sets must overlap.',
-        'If the system uses W = 2 and R = 2 on N = 5, the sets can miss each other. A write may land on A and B while a read asks C and D. The read can confidently return stale data because the math no longer forces overlap.',
-        'Repair mechanisms make staleness temporary. Read repair fixes stale replicas touched by a read. Anti-entropy compares replica ranges in the background, often using Merkle-tree summaries. Hinted handoff forwards writes from temporary stand-ins back to home replicas after recovery.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The first view proves the overlap guarantee. The highlighted replica is not special by identity; it is special because arithmetic forced at least one replica to be in both the write acknowledgement set and the read set.',
-        'The dial view proves that consistency levels are request economics. ONE, QUORUM, LOCAL_QUORUM, and ALL are not moral categories. They are latency, availability, and freshness choices.',
-        'The sloppy-quorum view proves the fine print. If home replicas are down and the system writes to stand-ins, the count may be satisfied while the overlap theorem no longer applies to the home set. Availability was bought by weakening the proof until handoff completes.',
+        'For N = 5, choose W = 3 and R = 3. A write can succeed after any three replicas acknowledge, and a later read asks any three replicas and returns the value with the highest version number.',
+        'Because 3 + 3 = 6, the read set and write set share at least one replica. If the write stored version 2 on A, B, and C, then a read from C, D, and E sees C carrying version 2 and can ignore stale version 1 replies.',
+        'Repair is the cleanup path. Read repair updates stale replicas touched by a read, hinted handoff returns writes from temporary stand-ins, and anti-entropy compares replicas in the background.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because of the pigeonhole principle. If two subsets of a set are large enough that their sizes sum to more than the whole set, they cannot be disjoint. Quorum systems turn that simple fact into a freshness control.',
-        'It also works operationally because the dial is per request. A feed read can use ONE. A checkout write can use QUORUM. A multi-region application can use LOCAL_QUORUM to avoid cross-ocean latency while replicating asynchronously beyond the local datacenter.',
-        'Repair works because the coordinator often sees version disagreement directly. If a read observes versions 2, 1, and 1, it can return 2 and push 2 back to stale replicas. Background anti-entropy handles cold data that nobody reads.',
+        'Correctness for fresh reads follows from intersection plus version choice. The overlap replica stores the successful write, and the coordinator chooses the highest version among the read replies.',
+        'The proof breaks when R + W <= N because the sets can be disjoint. It also breaks for sloppy quorums if writes go to stand-in replicas outside the home replica set, because the count no longer implies the same intersection.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is network fanout and tail latency. A read with R = 3 sends more requests than R = 1 and often waits longer. A write with W = 5 waits for the slowest replica. ALL turns one slow node into everyone\'s latency problem.',
-        'The availability tradeoff is direct. Higher W makes writes more durable and fresher but less available during replica failures. Higher R makes reads fresher but slower. LOCAL_QUORUM reduces geographic latency but narrows the overlap to one datacenter.',
-        'The complexity is conflict resolution. Quorums can surface concurrent writes; they do not decide which one wins. Last-write-wins is fast but can lose data under clock skew. Sibling values or CRDTs preserve conflicts but push merge logic into the application.',
+        'Higher R increases read fanout and tail latency because the coordinator waits for more replies. Higher W increases write latency and makes writes less available during failures.',
+        'For N = 5, W = 3, R = 3 tolerates two unavailable replicas for reads or writes, as long as a quorum remains reachable. W = 5, R = 1 makes reads fast but lets one slow replica block writes.',
+        'The hidden cost is conflict handling. Quorums can reveal concurrent writes, but last-write-wins, vector clocks, siblings, or CRDT merges decide what the application does with them.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Quorums win in systems that prefer availability and tunable freshness over a single global order for every operation. Shopping carts, user preferences, feeds, metrics, presence, session-adjacent state, and eventually consistent stores can all benefit when conflicts are acceptable or mergeable.',
-        'Amazon Dynamo popularized the pattern. Cassandra, Riak, Voldemort-style systems, and Dynamo-inspired stores expose consistency dials in different forms. The exact APIs vary, but the reasoning remains read set, write set, replica count, and repair.',
-        'Quorums are less suitable for unique constraints, ledgers, counters with strict invariants, or workflows where concurrent operations must be ordered. Those problems usually need consensus, transactions, or an application-specific merge model.',
-        'They pair well with session guarantees. A client-side high-water mark can preserve read-your-writes for one user even when the wider system remains eventually consistent.',
+        'Dynamo-inspired systems use quorum settings for shopping carts, user preferences, feeds, metrics, and similar data where availability matters and conflicts can be repaired or merged.',
+        'Cassandra exposes consistency levels such as ONE, QUORUM, LOCAL_QUORUM, and ALL. LOCAL_QUORUM is common in multi-datacenter deployments because it keeps the quorum round trip inside one region.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not confuse overlap with serializability. R + W > N can make stale reads harder, but it does not create a single global order for concurrent writes. Two clients can write different values at the same time and both succeed.',
-        'Do not forget sloppy quorum fine print. If a write lands on stand-ins outside the home replica set, a later read of the home set may miss it until hinted handoff completes. The count is not the same as the theorem.',
-        'Do not hide conflict policy. Last-write-wins, vector clocks, siblings, CRDT merge, and application reconciliation are different product choices. If the application cannot tolerate losing one concurrent write, it should not rely on silent timestamp wins.',
+        'Quorums do not provide serializable transactions. Two clients can write different values at the same time, both can reach quorums, and the system still needs a conflict rule.',
+        'They are a poor fit for ledgers, unique usernames, inventory decrements, and other invariants that require one agreed order. Those workloads usually need consensus or transactions above the storage replicas.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Session Guarantees & Replica Lag for client-side high-water marks, Paxos: Consensus Without a Leader for ordering, Byzantine Fault Tolerance and HotStuff BFT Quorum Certificate Case Study for honest-overlap reasoning, CRDTs for merge semantics, Consistent Hashing for home replica placement, Merkle Tree for anti-entropy, Hinted Handoff Replica Queue and Read Repair Digest Quorum for repair paths, Clocks & Ordering for last-write-wins risk, and Tail Latency & p99 Thinking for why LOCAL_QUORUM exists.',
+        'Use N = 5 replicas A, B, C, D, and E. A write of cart = 2 items reaches A, B, and C, so W = 3 succeeds while D and E still store cart = 1 item.',
+        'A read asks C, D, and E, so R = 3. The replies are version 2 from C and version 1 from D and E. The coordinator returns version 2 because it is the highest version it saw.',
+        'Now change the settings to W = 2 and R = 2. A write reaches A and B, while a read asks D and E. Since 2 + 2 = 4 <= 5, the sets can miss each other and the read returns the stale version.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: DeCandia et al., Dynamo: Amazon\'s Highly Available Key-value Store, 2007; Lakshman and Malik, Cassandra: A Decentralized Structured Storage System, 2010.',
+        'Study the pigeonhole principle, consistent hashing, vector clocks, read repair, hinted handoff, CRDTs, Paxos, Raft, and tail latency. The key distinction to keep is visibility through overlap versus ordering through consensus.',
       ],
     },
   ],

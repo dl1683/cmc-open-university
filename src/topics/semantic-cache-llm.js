@@ -217,90 +217,95 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The animation shows a request entering a cache before an LLM call. LLM means large language model; a semantic cache tries to reuse an old answer when a new prompt has the same intent in different words.',
         {type: 'image', src: './assets/gifs/semantic-cache-llm.gif', alt: 'Animated walkthrough of the semantic cache llm visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Active state marks embedding and nearest-neighbor lookup, found state marks a candidate cached answer, and compare state marks policy gates. The safe inference is: vector similarity may propose a hit, but metadata gates decide whether reuse is allowed.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `LLM applications often pay repeatedly for the same intent. One user asks, "How do I reset my password?" Another asks, "I forgot my password. What should I do?" An exact string cache misses the second prompt even when the safe answer is identical. The result is extra latency, extra model cost, and extra load on a system that already has expensive tail behavior.`,
-        `A semantic cache exists to recover those paraphrase hits. It embeds the incoming prompt, searches a vector index of previous prompts or prompt-response records, and reuses an answer only when the nearest candidate passes similarity and policy gates. RedisVL's SemanticCache documentation describes the same goal: use semantic similarity to retrieve cached responses instead of making redundant LLM calls.`,
-        {type: `callout`, text: `A semantic cache is safe only when approximate similarity proposes candidates and exact metadata gates decide reuse.`},
-        `This is an application-level cache, not a transformer runtime cache. It stores prompts, embeddings, responses, metadata, admission decisions, eviction rules, TTLs, and invalidation contracts. It can skip a whole model call. It can also return a confident wrong answer if the cache treats approximate similarity as proof of equivalence.`,
+        'LLM applications often pay repeatedly for the same intent. One user asks how to reset a password; another says they forgot their password, and the safe answer may be identical.',
+        {type: 'callout', text: 'A semantic cache is safe only when approximate similarity proposes candidates and exact metadata gates decide reuse.'},
+        'An exact string cache misses paraphrases, causing extra latency, token spend, and model load. A semantic cache exists to recover some of those paraphrase hits without treating wording as the cache key.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious first cache is an exact key-value cache. Hash the normalized prompt, model name, system prompt, and maybe a retrieval version. If the same request arrives again, return the stored answer. This is safe when the cache key captures the full contract, and it is useful for repeated API calls, retries, batch jobs, and deterministic FAQ flows.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg/3840px-Hash_table_5_0_1_1_1_1_1_LL.svg.png`, alt: `Hash table diagram mapping keys into buckets with collision chains`, caption: `Exact caching starts as key lookup: identical keys hit, paraphrases miss. Source: Wikimedia Commons, Jorge Stolfi, CC BY-SA 3.0.`},
-        `The wall is wording. Natural-language users do not repeat the exact same bytes. They use synonyms, change word order, add politeness, or ask the same support question with a different sentence. Exact caching has high precision and low recall. It avoids many false hits, but it leaves most paraphrase savings unused.`,
-        `A tempting second attempt is to trust vector distance alone. That is the dangerous wall on the other side. Similarity can find candidates, but it cannot decide tenant boundaries, permissions, freshness, tool access, system-prompt versions, or whether the answer type is cacheable. A nearby vector can still be the wrong answer for the user in front of the system.`,
+        'The obvious cache is a key-value cache. Hash the normalized prompt, model name, system prompt, tool set, and retrieval version, then return the stored response on an exact key match.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg/3840px-Hash_table_5_0_1_1_1_1_1_LL.svg.png', alt: 'Hash table diagram mapping keys into buckets with collision chains', caption: 'Exact caching starts as key lookup: identical keys hit, paraphrases miss. Source: Wikimedia Commons, Jorge Stolfi, CC BY-SA 3.0.'},
+        'This is safe when the key captures the full contract. It works for retries, batch jobs, deterministic FAQ flows, and repeated API calls with identical inputs.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is natural language variation. Users ask the same intent with different words, order, politeness, and context, so exact keys have high precision but low recall.',
+        'Trusting vector distance alone creates the opposite problem. A nearby prompt can cross tenants, permissions, freshness boundaries, prompt versions, output schemas, or tool contracts.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to treat semantic similarity as candidate generation, then make policy decide reuse. The vector index answers, "Which stored prompt is close to this prompt?" The gate answers, "Is it allowed to reuse this stored answer for this request now?" Keeping those questions separate is the difference between a useful cache and a production incident.`,
-        `The invariant is simple: vector distance cannot override authorization, freshness, or prompt contract. A record can be reused only if the candidate is close enough and the metadata still matches the application boundary. That metadata may include tenant, user role, model id, system prompt digest, tool permissions, retrieval corpus version, locale, answer schema, safety label, timestamp, and TTL.`,
-        `The cache entry is therefore richer than an embedding. It is a vector-search key plus an ordinary cache record plus policy fields. GPTCache's project documentation calls out false positives and false negatives as semantic-cache realities. That is the right mental model: semantic caching is approximate retrieval wrapped in exact safety checks.`,
+        'Separate candidate generation from reuse authority. The vector index answers which previous prompts are close; the policy gate answers whether a candidate may be reused now.',
+        'The invariant is that similarity cannot override authorization, freshness, or prompt contract. A reusable record must pass distance threshold, tenant boundary, permissions, model version, system-prompt digest, retrieval corpus version, TTL, and domain rules.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A request enters the semantic cache before the expensive model call. The application normalizes fields that are meant to be semantic, embeds the prompt with a chosen embedding model, and queries an approximate nearest-neighbor index such as HNSW, IVF, or a managed vector-search backend. The index returns candidate records with distances or similarities.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with nodes connected by arrows`, caption: `Graph-style neighbor search is a useful mental model for ANN indexes: find nearby candidates first, then let policy decide whether any candidate can be reused. Source: Wikimedia Commons, David W., public domain.`},
-        `The gate then applies exact checks. Distance must pass the threshold. Tenant and permission boundaries must match. The model behavior must be compatible. The system prompt, tool set, output schema, and retrieval corpus version must match the stored answer's assumptions. The record must not be expired. Domain rules may reject personalized decisions, regulated advice, secrets, or tool results that depended on short-lived state.`,
-        `On a safe hit, the cached answer returns without calling the LLM. On a miss, the request follows the normal LLM path. The resulting answer is stored only if admission rules allow it. Normal cache mechanics still matter: TTL, byte limits, eviction policy, hit counters, negative caching, audit logs, and invalidation hooks. Semantic search changes the lookup; it does not remove cache engineering.`,
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `The semantic-hit path proves that the vector index is not the cache by itself. The prompt becomes an embedding, the embedding finds a neighbor, and only then does the policy gate decide hit or miss. The gate is where correctness lives. Without it, a vector index can cross tenants, stale corpora, tool permissions, or system prompts because those boundaries are not geometry.`,
-        `The threshold plot proves the product tradeoff. Lower thresholds increase hit rate and cost savings, but they also admit more false hits. Higher thresholds increase safe precision, but they may erase most savings. RedisVL exposes a distance threshold as an explicit parameter, which matches the lesson: the threshold is a risk control, not a universal constant.`,
-        `The cache comparison proves the layer boundary. Exact response caching uses string or structured keys. Semantic caching reuses whole answers by approximate meaning. RAG result caching reuses retrieval sets or context assembly. Prefix or KV caching reuses model state for shared token prefixes. These can stack, but a bug in one layer should not be hidden by another.`,
+        'The application embeds the incoming prompt with an embedding model, then queries an approximate nearest-neighbor index such as HNSW, IVF, or managed vector search. The index returns candidate cache records with distances or similarity scores.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Graph-style neighbor search is a useful mental model for ANN indexes: find nearby candidates first, then let policy decide whether any candidate can be reused. Source: Wikimedia Commons, David W., public domain.'},
+        'The gate checks exact metadata. If distance, tenant, permission, model, prompt, tool, schema, corpus, safety, and TTL conditions all pass, the cached answer returns without an LLM call.',
+        'On a miss, the system calls the normal LLM path and stores the new answer only if admission rules allow it. Normal cache mechanics still matter: eviction, invalidation, audit logs, byte limits, and replay tests.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Semantic caching works when embedding geometry groups prompts whose safe answers are interchangeable for the application's domain. In a support FAQ, "reset password" and "forgot password" can map to the same answer because the underlying intent, policy, and source knowledge are stable. The vector index recovers that cluster even when surface wording changes.`,
-        `The correctness argument is a two-stage filter. Approximate nearest-neighbor search provides recall: it proposes records worth checking. Exact gates provide precision over non-semantic boundaries: identity, permissions, data versions, prompt contracts, and time. If either stage is missing, the cache is wrong in a different way. With no vector stage, paraphrases miss. With no exact gate, unsafe hits pass.`,
-        `Evaluation must measure the same two-stage behavior. Hit rate alone is not enough. A cache that returns many answers can still harm users if false hits are high. A cache with perfect safety may be useless if embedding and ANN overhead consume the saved latency. Useful metrics include hit rate, false-hit rate, stale-hit rate, answer quality deltas, p50 and p95 latency, model-call reduction, token cost reduction, and incident classes by rejected gate.`,
+        'It works when embedding geometry clusters prompts whose safe answers are interchangeable in the application domain. Password-reset paraphrases can share a public documentation answer because the policy and source are stable.',
+        'The correctness argument is two-stage filtering. Approximate nearest-neighbor search provides recall over paraphrases, while exact gates provide precision over boundaries that vectors do not understand.',
+        'If either stage is missing, the cache fails differently. Without vectors, paraphrases miss; without gates, unsafe or stale hits can pass.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cache adds an embedding call or local embedding computation, ANN lookup, metadata filtering, serialization, and cache storage. If the model call is cheap, short, or local, the semantic cache may cost more than it saves. If the model call is expensive and the intent distribution is repetitive, the cache can reduce both latency and spend.`,
-        `Threshold choice is a business and safety decision. A customer-support bot for public documentation can use a lower threshold than a system that answers account-specific billing questions or invokes tools. Some teams use multiple thresholds: one for automatic reuse, one for "suggest answer to agent," and one for guaranteed miss. Domain-specific replay sets are better than guessing.`,
-        `Invalidation is harder than lookup. A cached answer may become stale when product docs change, a retrieval corpus is reindexed, a tool permission changes, a policy changes, a model is upgraded, or a prompt template is edited. Exact cache keys fail closed when a version field changes. Semantic caches need the same version fields in metadata gates or they will serve old answers to new contracts.`,
+        'The semantic cache adds embedding cost, vector lookup, metadata filtering, serialization, storage, and monitoring. It is worth it only when the saved model call is more expensive than those steps.',
+        'Thresholds control behavior. Lower thresholds raise hit rate and false-hit risk; higher thresholds protect precision but may erase most savings.',
+        'Invalidation is the hard cost. Product docs, retrieval corpora, tool permissions, model versions, prompt templates, and policies can change, so each must appear in metadata or the cache may serve old answers under a new contract.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Semantic caching wins in stable, repetitive, high-volume flows: support bots, internal help desks, documentation Q&A, onboarding assistants, coding assistants over fixed policies, and low-risk summarization templates. The workload should have many paraphrases of a smaller set of intents, and the answer should not depend on rapidly changing private state.`,
-        `It also works as a cost-control layer for fallback models. A product may check exact cache, semantic cache, retrieval cache, then call a smaller model or larger model depending on risk. The semantic cache is especially useful when it prevents not just generation tokens but also retrieval, reranking, tool calls, and downstream validation.`,
-        `A clean production design records why a hit was allowed. Store candidate id, distance, threshold, metadata versions, gate results, and response provenance. That audit trail lets engineers replay misses, investigate false hits, tune thresholds, and decide which answer categories should be admitted or banned from the cache.`,
+        'Semantic caches fit stable, repetitive, high-volume flows such as support bots, internal help desks, documentation Q&A, onboarding assistants, and low-risk summarization templates. The workload should contain many paraphrases of a smaller set of intents.',
+        'They also fit cost-control stacks. A system can check exact cache, semantic cache, retrieval cache, and then choose a small or large model based on risk.',
+        'Good deployments record why a hit was allowed: candidate id, distance, threshold, metadata versions, gate results, source provenance, and admission policy.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `It fails when prompts are unique, long-tail, or context-heavy. If each request includes fresh private data, current market prices, live account state, or a unique document, semantic similarity to an old prompt says little about answer validity. It also fails when the answer depends on exact wording, such as legal disclaimers, safety-sensitive constraints, or tool instructions.`,
-        `It is dangerous across boundaries. Cross-tenant reuse can leak data. Cross-permission reuse can reveal forbidden actions. Cross-corpus reuse can serve outdated RAG answers. Cross-model reuse can break output format or policy assumptions. Cross-system-prompt reuse can ignore a changed role or safety contract. These are not ANN problems; they are cache-key and policy failures.`,
-        `It can also fail operationally. Embedding models change. Vector indexes need rebuilds. ANN search has recall tradeoffs. Popular bad records can become high-impact false hits. Eviction can remove exactly the stable answers that made the cache valuable if the policy only follows recency. Semantic caches need monitoring, replay evaluation, and conservative admission.`,
+        'It fails when prompts are unique, long-tail, personalized, or tied to live state. Current prices, account balances, private documents, and tool results usually should not be reused from semantic similarity alone.',
+        'It is dangerous across security boundaries. Cross-tenant, cross-permission, cross-corpus, cross-model, and cross-system-prompt reuse are policy failures, not vector-index failures.',
+        'It can also fail operationally. Embedding models change, ANN recall is approximate, stale records become popular, and eviction may remove exactly the stable answers that made the cache useful.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study embeddings and similarity search first, then HNSW and approximate nearest-neighbor indexing. Then study LRU, W-TinyLFU admission, TTL caches, cache invalidation, RAG pipelines, prompt cache-key canonicalization, prefix caching, RadixAttention, LLM inference cost models, and safety ledgers for tool-using agents.`,
-        `Primary sources worth reading are RedisVL's semantic cache guide at https://redis.io/docs/latest/develop/ai/redisvl/user_guide/llmcache/, GPTCache at https://github.com/zilliztech/gptcache, the GPTCache paper page at https://aclanthology.org/2023.nlposs-1.24/, GPT Semantic Cache at https://arxiv.org/abs/2411.05276, and MeanCache at https://arxiv.org/abs/2403.02694.`,
+        'A support bot receives 10,000 daily password-reset questions. Suppose exact caching hits 500 repeated prompts, while semantic caching finds another 3,000 paraphrases at a safe threshold.',
+        'If an LLM call costs 800 ms and the semantic lookup costs 40 ms, each safe semantic hit saves about 760 ms of model latency. Across 3,000 hits, that is about 38 minutes of aggregate waiting removed per day.',
+        'Now add a tenant gate. If 50 nearby candidates belong to another tenant, all 50 must miss even when their vectors are close, because reuse would leak or misapply private context.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary implementation references include RedisVL semantic cache documentation at https://redis.io/docs/latest/develop/ai/redisvl/user_guide/llmcache/ and GPTCache at https://github.com/zilliztech/gptcache. Related papers include GPTCache at https://aclanthology.org/2023.nlposs-1.24/, GPT Semantic Cache at https://arxiv.org/abs/2411.05276, and MeanCache at https://arxiv.org/abs/2403.02694.',
+        'Study embeddings, cosine similarity, HNSW, approximate nearest-neighbor indexing, LRU, W-TinyLFU, TTL caches, RAG pipelines, prompt cache keys, prefix caching, RadixAttention, and LLM inference cost models.',
       ],
     },
   ],

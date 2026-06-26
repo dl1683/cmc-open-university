@@ -239,17 +239,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. The subset-DP view shows a graph where each node is a relation subset ({A}, {B}, {A,B}, {A,B,C}) and edges connect smaller subsets to the larger plans they feed. The interesting-orders view shows the same DP table but tracks physical properties like sort order alongside cost.',
-        {
-          type: 'diagram',
-          text: '  {A}  {B}  {C}        single-table access paths\n    \\  / \\  /\n   {A,B} {B,C}          two-table join candidates\n      \\   /\n     {A,B,C}            full join tree assembled from winners\n        |\n      cost -> plan      cheapest plan becomes the executable tree',
-          label: 'Subset lattice: the optimizer builds bottom-up, reusing smaller winners',
-        },
-        'Active (highlighted) nodes are the subset currently being decided. Found markers show costs that are now locked in. Compare markers show alternatives being evaluated against the current best -- a plan marked "compare" lost or is being tested.',
-        {
-          type: 'note',
-          text: 'Watch the cost column in the DP table. When a larger subset is built, its cost is never recomputed from scratch -- it adds one join cost on top of already-memoized child costs. That reuse is the entire point of the dynamic program.',
-        },
+        'The animation shows a dynamic program over table subsets. A subset such as {A,B} means the optimizer has chosen a physical plan for joining those relations.',
+        'Active nodes are subsets being decided, found nodes are costs already stored in the table, and compare nodes are candidate plans being tested against the current best. The safe inference is: a larger subset never recomputes a smaller join from scratch; it reuses the stored child plan and adds one join step.',
         {type: 'callout', text: 'Selinger DP wins by making join order a subset problem: solve each relation set once, then reuse it in larger plans.'},
       
         {type: 'image', src: './assets/gifs/selinger-dp-join-order-optimizer.gif', alt: 'Animated walkthrough of the selinger dp join order optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
@@ -257,170 +248,85 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          text: 'Given a set of relations to be joined [...] the optimizer must choose the order of joins, the join method, and the access path for each relation.',
-          attribution: 'P. Griffiths Selinger et al., "Access Path Selection in a Relational Database Management System", SIGMOD 1979',
-        },
+        'SQL says what result is wanted, not which table should be joined first. The database optimizer must choose access paths, join methods, and join order before execution starts.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/en/9/9e/SQLServer_QueryPlan.png', alt: 'SQL Server graphical query plan with scan, nested loops join, index seek, and sort operators', caption: 'A query plan is the physical tree produced after optimization; Selinger DP is one way to choose the join portion of that tree. Source: Wikipedia, Microsoft SQL Server Management Studio screenshot.'},
-        'SQL is declarative: a query says which tables to join and what predicates to apply, but not the physical order of joins. The database engine must choose that order, and the choice matters enormously. Two logically equivalent join trees for the same five-table query can differ by 1,000x in intermediate row counts, memory consumption, and wall-clock time.',
-        'The Selinger optimizer, introduced in IBM System R (1979), was the first to apply dynamic programming to this problem. It treats join ordering as a shortest-path search over the lattice of relation subsets, keeping the cheapest known plan for each subset and assembling larger plans from smaller winners.',
-        {
-          type: 'note',
-          text: 'Every major SQL database today -- PostgreSQL, MySQL, SQL Server, Oracle, CockroachDB, DuckDB -- uses a direct descendant of the Selinger approach or its generalization (Cascades/Volcano). Understanding this algorithm is understanding how every SQL query you write actually runs.',
-        },
+        'The choice can change runtime by orders of magnitude. Joining a large fact table before applying selective dimension filters can create a huge intermediate result that a better order would avoid.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest strategy is to join tables in the order the SQL query lists them. FROM orders JOIN customers ON ... JOIN products ON ... becomes orders-then-customers-then-products. This is easy to implement -- just walk the FROM clause left to right, accumulating joins.',
-        'A slightly better approach: try all n! permutations of the join order and pick the cheapest. For 3 tables that is 6 plans. For 5 tables, 120. Manageable so far.',
-        {
-          type: 'bullets',
-          items: [
-            '3 tables: left-to-right has 1 plan, all permutations have 6, and bushy tree shapes reach 12 candidates.',
-            '5 tables: left-to-right has 1 plan, all permutations have 120, and bushy tree shapes reach 1,680 candidates.',
-            '8 tables: all permutations reach 40,320, and bushy tree shapes reach 2,027,025 candidates.',
-            '10 tables: all permutations reach 3,628,800, and bushy tree shapes reach roughly 17.6 billion candidates.',
-            '15 tables: all permutations are already around 1.3 trillion, and bushy enumeration becomes effectively astronomical.',
-          ],
-        },
-        'Left-to-right ignores plan quality entirely. Exhaustive enumeration finds the best plan but the search space explodes factorially -- and that is before considering join methods (hash, merge, nested loop) and access paths (index scan, sequential scan) at each step.',
+        'The simplest approach is to join tables in the order written in the FROM clause. That is easy to implement, but SQL order is not meant to be a physical plan.',
+        'A more serious approach is to enumerate every possible join tree and cost each one. For three tables this is fine; for ten tables, the number of candidate orders and tree shapes becomes enormous.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Left-to-right ordering fails because SQL is declarative and the written order is arbitrary. A query that lists a 50-million-row fact table first and a 200-row dimension table second will build a 50-million-row intermediate before the dimension filter can shrink it. Reversing the order might produce a 200-row intermediate instead.',
-        'Exhaustive enumeration fails because the number of distinct join trees grows faster than factorial. For n tables, the count of binary tree shapes alone is the (n-1)th Catalan number. Multiply by join method choices and access path variants, and 10 tables already exceed billions of candidates.',
-        {
-          type: 'note',
-          text: 'The key structural observation: most of those billions of candidates share subproblems. The best way to join {A,B} does not depend on whether the outer query later joins {A,B} with {C} or with {D}. This is optimal substructure -- the signature of dynamic programming.',
-        },
-        'Selinger DP exploits that overlap. Instead of independently evaluating every full tree, it solves each subset once, bottom-up, and reuses those solutions when building larger subsets. The search space drops from "all trees" to "all subsets" -- from super-exponential to 2^n, which is still exponential but vastly smaller.',
+        'Join enumeration explodes because each added table multiplies the number of possible orders. Ten tables already produce millions of left-deep permutations and far more bushy tree candidates once tree shapes are included.',
+        'The wall is not only search size. Each candidate also needs cardinality estimates, join-method choices, access paths, and physical properties such as sorted order.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The best plan for a larger join can be built from best plans for smaller relation sets. That is optimal substructure, the condition that makes dynamic programming useful.',
+        'Selinger DP stores the cheapest known plan for each subset of relations, then reuses those subset winners when building larger subsets. Interesting orders extend the state by preserving useful physical properties such as sort order when a slightly more expensive subset plan may save a later sort.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The algorithm proceeds in three phases: base cases, bottom-up enumeration, and plan extraction.',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'Phase 1 -- Base cases:\n  For each relation R:\n    For each access path (seq scan, index scan, ...):\n      Estimate cost and output rows.\n      Store cheapest plan in DP[{R}].\n\nPhase 2 -- Bottom-up enumeration:\n  For subset_size = 2 to n:\n    For each subset S of that size:\n      For each way to split S into (S1, S2) where S1 and S2 are non-empty:\n        For each join method (hash, merge, nested loop):\n          left_plan  = DP[S1]\n          right_plan = DP[S2]\n          candidate_cost = left_plan.cost + right_plan.cost + join_cost(S1, S2, method)\n          If candidate_cost < DP[S].cost:\n            DP[S] = new plan (left_plan, right_plan, method, candidate_cost)\n\nPhase 3 -- Extract:\n  Return DP[{all relations}].plan   // backpointers rebuild the full tree',
-        },
-        'Phase 1 seeds the DP table with single-table access paths. For a table with an index on the join column, the index scan might cost 12 I/O units versus 80 for a sequential scan; both are candidates, and the cheapest wins for each base relation.',
-        'Phase 2 is the core loop. For each subset of size k, the optimizer tries every binary partition into two smaller subsets, retrieves their already-computed best plans, and evaluates the cost of joining them. Only the cheapest candidate survives in the table.',
-        {
-          type: 'diagram',
-          text: '  Splitting {A,B,C} into pairs:\n\n  Split 1:  {A}   join  {B,C}    cost = DP[{A}] + DP[{B,C}] + join_cost\n  Split 2:  {B}   join  {A,C}    cost = DP[{B}] + DP[{A,C}] + join_cost\n  Split 3:  {C}   join  {A,B}    cost = DP[{C}] + DP[{A,B}] + join_cost\n\n  Cheapest split wins and is stored in DP[{A,B,C}].',
-          label: 'Competing decompositions for the full relation set',
-        },
-        'System R added a critical refinement: interesting orders. A plan for {A,B} that costs 140 but produces output sorted by date might beat a plan costing 120 that produces unsorted output, because a later merge join or ORDER BY clause would need a sort costing 50. The DP table therefore stores multiple non-dominated plans per subset when they differ in useful physical properties.',
-        {
-          type: 'note',
-          text: 'Practical optimizers also restrict the search. Many only consider left-deep trees (one input to each join is always a base table), which reduces the number of splits. Others enumerate only connected subgraphs of the join graph, avoiding cross products that are almost never useful.',
-        },
+        'First, compute base plans for each single table, including sequential scans and index scans. Store the cheapest useful access paths in the DP table.',
+        'Then grow subsets by size. For each subset S, split it into two non-empty parts, retrieve the stored plans for those parts, estimate the cost of joining them with each join method, and keep the cheapest non-dominated result.',
+        'The final answer is the stored plan for the subset containing all relations. Backpointers reconstruct the executable join tree from the DP table.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness rests on optimal substructure: the best plan for a set S that happens to join subsets S1 and S2 must use the best plans for S1 and S2 individually. If a cheaper plan for S1 existed, substituting it into the plan for S would reduce total cost -- contradicting the assumption that the plan for S was optimal.',
-        {
-          type: 'note',
-          text: 'Optimal substructure holds only when the DP state captures everything that affects future cost. If sort order matters but is not tracked, the optimizer might discard a plan for {A,B} that is 5% more expensive but preserves date order, then pay 40% extra for a final sort. Interesting orders fix this by making the DP key (subset, physical property) rather than just (subset).',
-        },
-        'Dominance is the pruning rule. Plan P1 dominates plan P2 for the same subset if P1 costs no more and satisfies at least the same physical properties. A dominated plan can be safely dropped because no future use of the subset can prefer it. When two plans have different properties -- one is sorted, the other is cheaper but unsorted -- neither dominates, so both survive.',
-        'Termination is guaranteed because the algorithm processes subsets in strictly increasing size order, and each subset is visited exactly once. The total number of subsets is 2^n, and each subset considers at most 2^(k-1) - 1 binary splits (where k is the subset size), giving a finite and bounded search.',
+        'The correctness argument is substitution. If the best plan for S joins S1 and S2, and a cheaper equivalent plan for S1 existed, replacing S1 inside S would make S cheaper, contradicting optimality.',
+        'That argument holds only when the DP state includes everything future costs depend on. If sorted order matters but the state stores only cost, the optimizer may throw away a plan that is slightly expensive now but cheaper later.',
+        'Dominance is the safe pruning rule. A plan can be discarded only when another plan for the same subset costs no more and provides at least the same useful physical properties.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'General time: O(3^n). Summing over all subsets and their sub-partitions gives Sum(C(n,k) * 2^k) = 3^n.',
-            'Left-deep-only time: O(n^2 * 2^n), because each subset tries single-table extensions instead of every bushy split.',
-            'Space: O(2^n) for one DP entry per subset, multiplied by the number of interesting physical properties kept.',
-            'With p interesting orders: O(p * 2^n) space and O(p * 3^n) time when each subset may store p non-dominated plans.',
-            'Practical limit: roughly 12-15 tables before most optimizers switch to heuristic or genetic planners.',
-          ],
-        },
-        'For 8 tables: 3^8 = 6,561 subset evaluations. For 12 tables: 3^12 = 531,441. For 20 tables: 3^20 = 3.5 billion. The exponential growth is why PostgreSQL switches from exhaustive DP to its GEQO (genetic query optimizer) at 12 tables by default.',
-        'Each subset evaluation involves a cost-model call that estimates output cardinality and I/O cost. The quality of those estimates dominates plan quality far more than the search strategy. A perfect search with wrong cardinality estimates picks the wrong plan; a heuristic search with accurate statistics often finds a good plan.',
-        {
-          type: 'code',
-          language: 'sql',
-          text: '-- PostgreSQL: check the DP-to-GEQO threshold\nSHOW geqo_threshold;          -- default: 12\nSET geqo_threshold = 14;      -- allow DP for up to 14 tables\n\n-- Examine the chosen plan and cost estimates\nEXPLAIN (ANALYZE, BUFFERS) SELECT ...',
-        },
+        'General bushy subset DP is exponential, commonly described as O(3^n) over n relations because all subsets and subpartitions are considered. Left-deep variants reduce the search but still have O(n^2 * 2^n)-style growth.',
+        'For 8 tables, 3^8 is 6,561. For 12 tables, 3^12 is 531,441. For 20 tables, 3^20 is about 3.5 billion, so optimizers use thresholds and heuristics.',
+        'The dominant practical cost is often estimation quality. A perfect dynamic program over wrong cardinality estimates can choose a bad plan confidently.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Selinger DP is the right tool whenever the relation count is moderate (under ~15), the cost model is reasonably calibrated, and the query benefits from exploring join reordering.',
-        {
-          type: 'bullets',
-          items: [
-            'OLTP with 3-5 table joins: small subset count keeps planning cheap while still finding the best order.',
-            'Star-schema analytics: joining selective dimensions early can shrink a large fact table before expensive joins.',
-            'Ad-hoc reporting: users write arbitrary join order, so the optimizer must compensate without manual tuning.',
-            'Views and subquery flattening: once views are inlined, the original written order is no longer a useful physical plan.',
-          ],
-        },
-        'The real power is in what it prevents: without Selinger DP, a five-table dashboard query joining a 100M-row fact table could build a 100M-row intermediate in the first join. With it, the optimizer discovers that joining two small dimension tables first produces a 500-row intermediate that filters the fact table down to 10,000 rows before the expensive join.',
-        {
-          type: 'note',
-          text: 'Interesting orders make Selinger DP especially valuable for queries with ORDER BY, GROUP BY, or DISTINCT on a join column. The optimizer can choose a merge join that preserves sorted order, eliminating a separate sort step that would otherwise dominate the query cost.',
-        },
+        'Selinger-style optimization is used by relational databases for moderate-size joins. It is especially valuable for star-schema analytics, ad-hoc reporting, and queries where written table order is arbitrary.',
+        'It prevents large intermediate results by discovering selective joins early. For example, joining two small dimension filters before a 100-million-row fact table can reduce the fact-table join from millions of rows to thousands.',
+        'Modern optimizers generalize the idea with memo structures, transformation rules, connected-subgraph pruning, and heuristics for high table counts.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'High relation counts (>15 tables): 2^n subsets make exhaustive DP too slow. Optimizers fall back to greedy heuristics, genetic algorithms (PostgreSQL GEQO), or randomized search (SQL Server exploration budget).',
-            'Bad cardinality estimates: the DP correctly finds the cheapest plan according to its cost model, but if the model says a join produces 100 rows when it actually produces 10 million, the "optimal" plan is a disaster. Correlated columns, skewed distributions, and stale statistics are the usual culprits.',
-            'Missing physical properties: if the cost model ignores memory pressure, network shuffles (distributed DBs), or NUMA locality, the DP key is incomplete and the optimizer may discard plans that would have been globally better.',
-            'Outer joins and lateral references: Selinger DP assumes joins commute and associate freely. Outer joins, semi-joins, anti-joins, and lateral subqueries restrict reordering. Handling these correctly requires conflict-detection rules (e.g., the TPC-H rules in PostgreSQL) that complicate the subset enumeration.',
-            'Plan rigidity: once a plan is chosen, it runs to completion. If runtime cardinality diverges wildly from estimates, adaptive execution (re-optimization mid-query) is needed -- something the original Selinger framework does not provide.',
-          ],
-        },
-        {
-          type: 'code',
-          language: 'sql',
-          text: '-- Diagnosing a Selinger DP failure in PostgreSQL:\nEXPLAIN (ANALYZE, BUFFERS) SELECT ...\n-- Compare "rows" (estimated) vs "actual rows" at each join node.\n-- A 100x mismatch at an early join means the optimizer chose\n-- this subtree based on a wrong cardinality estimate.\n-- Fix: UPDATE statistics, add extended statistics for\n-- correlated columns, or use pg_hint_plan to force order.',
-        },
+        'It fails when relation counts are too high for exhaustive subset search. Many systems switch to greedy, genetic, or budgeted search after a threshold.',
+        'It also fails when cardinality estimates are badly wrong. Correlated columns, stale statistics, skewed distributions, and missing histograms can make the cheapest estimated plan the worst actual plan.',
+        'Outer joins, lateral references, semi-joins, anti-joins, and distributed execution properties restrict reordering. The simple subset model must be extended or constrained to stay correct.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose tables A, B, and C have base scan costs 10, 20, and 30. Estimated two-table join costs are {A,B}:50, {A,C}:300, and {B,C}:80, including child costs.',
+        'The DP table first stores {A}:10, {B}:20, and {C}:30. For two-table subsets it stores {A,B}:50, {A,C}:300, and {B,C}:80.',
+        'For {A,B,C}, it compares A + {B,C}, B + {A,C}, and C + {A,B}. If joining C with {A,B} adds 40, the full cost is 50 + 30 + 40 = 120, so the plan is (A join B) then join C.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Primary source: P. Griffiths Selinger et al., "Access Path Selection in a Relational Database Management System", SIGMOD 1979. https://dl.acm.org/doi/10.1145/582095.582099',
-            'Implementation reference: PostgreSQL source, src/backend/optimizer/path/joinrels.c -- the join enumeration loop that implements subset DP with connected-subgraph pruning.',
-            'Modern generalization: Goetz Graefe, "The Cascades Framework for Query Optimization", IEEE Data Engineering Bulletin, 1995 -- extends Selinger DP to a rule-based, top-down memo search.',
-            'DuckDB internals: https://duckdb.org/docs/internals/overview -- a modern columnar engine using Selinger-style join ordering with cardinality estimation from HyperLogLog sketches.',
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Dynamic Programming -- subset DP pattern and bitmask enumeration.',
-            'Prerequisite: SQL Join Algorithms Primer -- hash join, merge join, and nested loop.',
-            'Extension: Cascades Memo Query Optimizer -- top-down generalization with rules and enforcers.',
-            'Extension: Cardinality Estimation Error Propagation -- why wrong estimates cascade.',
-            'Production case: PostgreSQL Query Planner Case Study -- Selinger-style DP in a real codebase.',
-            'Contrast: Volcano Iterator Query Execution -- the execution model that consumes the plan Selinger produces.',
-          ],
-        },
+        'Primary source: P. Griffiths Selinger et al., Access Path Selection in a Relational Database Management System, SIGMOD 1979, https://dl.acm.org/doi/10.1145/582095.582099. Cascades and Volcano are the main later optimizer frameworks.',
+        'Study dynamic programming, bitmask subset enumeration, hash join, merge join, nested-loop join, cardinality estimation, Cascades memo optimization, PostgreSQL planner internals, and Volcano iterator execution.',
       ],
     },
   ],

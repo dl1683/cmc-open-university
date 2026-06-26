@@ -218,98 +218,107 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has two views. The shift-matrix view shows a grid where each row is one perturbation axis (harness, tools, edit format, shell, language, budget) and each column tracks the controlled change, the observable symptom, and the gate claim. Highlighted cells are the axes under test; cells marked "found" are axes where the agent survived the shift. The bar chart that follows plots pass rates across audit conditions so you can see the drop shape.',
+        'The audit-loop view shows the full methodology as a directed graph: baseline, perturb, rerun, trace diff, classify, fix, and repeat. Edges marked "repeat" indicate the feedback loop where classified failures drive data or interface fixes before the next perturbation round. The final report-slices matrix shows that each audit condition produces a separate claim, not a blended average.',
         {type: 'image', src: './assets/gifs/agent-harness-portability-audit.gif', alt: 'Animated walkthrough of the agent harness portability audit visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A coding-agent result is never just a model result. The evaluation environment decides what the agent can see, how it edits files, how commands run, how errors are surfaced, how retries are budgeted, and which tests count as success. A model can look strong because the surrounding interface quietly removes hard parts of software work.`,
-        `The portability audit asks a narrower question than a leaderboard: does the behavior survive when the interface changes? It keeps the task family as stable as possible while changing the evaluation environment, tools, edit format, shell, language, scaffold, timeout, or retry budget. A sharp score drop is not just lower performance. It is evidence that the agent depended on the old environment.`,
+        'A coding agent is not just a language model. It is a model plus an evaluation harness: a shell, a file-edit API, a set of tool schemas, a retry policy, a test oracle, and a language distribution. When a leaderboard reports that an agent solves 66% of tasks, that number describes the entire coupled system. If 16 of those percentage points come from a generous retry budget and a file-search helper that pins the model to the right directory, the model\'s portable competence is closer to 50%.',
+        'The portability audit exists to decompose that coupled score. It holds the task family constant and changes one interface axis at a time -- the harness runner, the available tools, the edit grammar, the shell, the target language, or the turn budget. Each shift isolates one dependency. A sharp drop under a single-axis change is direct evidence that the agent learned an interface ritual rather than a transferable coding operation.',
+        'This matters because production environments almost never match benchmark environments. A team that deploys an agent tuned for SWE-bench\'s Docker runner into a Windows CI pipeline, a monorepo with no file-search helper, or a language the benchmark never tested is shipping an untested system. The portability audit is the test that catches this before users do.',
         {type: 'callout', text: 'A portability audit treats the harness as part of the system under test, then changes one interface axis at a time to expose environment overfit.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious evaluation is one clean run in the native evaluation runner. That run is useful. It measures the system the team actually built, gives a baseline, and catches many ordinary regressions.`,
-        `The wall is interpretation. One pass rate cannot tell whether the agent understood the code, benefited from a perfect search helper, relied on a familiar shell, exploited a generous retry policy, or matched a test oracle it had effectively seen before. When the product environment differs from the benchmark environment, that hidden dependency becomes the failure.`,
+        'The obvious evaluation is a single clean run in the agent\'s native harness. The team picks a benchmark (SWE-bench, HumanEval, a private issue set), runs the agent with its production scaffold, and reports the pass rate. This is not a bad starting point. It measures the system the team actually built, establishes a regression baseline, and catches many straightforward bugs.',
+        'The problem is that a single-environment pass rate conflates model ability with interface fit. The agent may score 66% because its file-search tool always returns the right file, its structured-patch editor never produces a malformed diff, its bash shell matches every command it trained on, and its 25-turn retry budget gives it time to stumble into the right answer. Each of those affordances is invisible in the final score.',
+        'Teams often discover this the hard way. An agent that solves Python issues reliably fails on JavaScript repos because it never learned to read package.json. An agent that produces clean patches in a structured editor produces garbage when switched to whole-file replacement. The native score predicted none of these failures because it never tested the interface boundary.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that a single-environment score cannot distinguish three fundamentally different agents: one that understands code and happens to use the local tools, one that has memorized the local tool patterns and would fail with any other interface, and one that gets lucky under a generous retry budget. All three can produce the same pass rate in the native harness.',
+        'This is not a theoretical concern. The SWE-agent paper (Yang et al., 2024) showed that changing the agent-computer interface (ACI) -- the edit commands, search tools, and navigation helpers available to the model -- moved SWE-bench scores by double-digit percentages with the same underlying model. The interface was doing real work, and the native score was taking credit for it.',
+        'Without a way to decompose the score into model contribution and interface contribution, every claim about agent capability is overfit to the test environment. The wall is that you cannot see this overfit from inside the native run.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `Treat the model and evaluation environment as a coupled system, then deliberately perturb the interface. The invariant is matched work under controlled interface shifts. If the task distribution stays comparable and only the edit API changes, the delta says something specific about edit portability. If only the shell changes, the delta says something specific about command portability.`,
-        `This is why the audit pairs scores with trace diffs. A score says that the final patch passed or failed. A trace diff says where the run diverged: search, file selection, tool binding, edit application, command parsing, test choice, retry loop, or stop decision.`,
+        'The core insight is controlled perturbation with matched tasks. Instead of testing the model alone (impossible -- it always needs some interface) or the system in one configuration (uninformative about portability), the audit holds the task distribution constant and changes exactly one interface axis per comparison. The delta between the native score and the perturbed score isolates the contribution of that specific axis.',
+        'This works because of the same logic behind controlled experiments in any field. If you change one variable and the outcome changes, the variable you changed is the best explanation. If you change the edit format from structured patches to whole-file replacement and the pass rate drops from 66% to 43%, the 23-point gap is attributable to edit-format dependence, not to harder tasks or a weaker model.',
         {type: 'image', src: 'https://www.anthropic.com/_next/image?url=https%3A%2F%2Fstorage.googleapis.com%2Fanthropic-website%2F4zrzovbb%2Fwebsite%2F190af9f3e10181e47f55c6e5f6c4b9d12c7b72ca-2401x1000.png&w=3840&q=75', alt: 'Anthropic diagram of an augmented language model with retrieval, tools, and memory.', caption: 'Harness audits should separate model ability from the tools and context wrapped around it. (Source: anthropic.com)'},
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `In the shift-matrix view, read each row as one way to disturb the agent's environment. The shift column is the controlled change, the symptom column is the behavior to watch, and the gate column is the claim you are allowed to make if the agent still works. A highlighted edit or budget cell matters because it tests whether a convenient local affordance was doing the real work.`,
-        `In the audit-loop view, the important movement is baseline, perturb, rerun, trace diff, classify, fix, and repeat. The loop is not ceremony. It prevents a team from calling a native score portable before checking whether the same task family survives a different interface.`,
-        `In the report-slices frame, do not average the claims away. Native strength, interface sensitivity, tool dependence, language transfer, and budget sensitivity are different facts. Keeping them separate is the point of the visualization.`,
+        'The second half of the insight is that scores alone are not enough. Two runs can both fail, but fail for different reasons. The audit pairs every score comparison with a trace diff -- a side-by-side comparison of the tool calls, file reads, edits, shell commands, and decisions the agent made in the native run versus the perturbed run. The trace diff localizes the failure to a specific layer: planning, tool binding, semantic understanding, oracle mismatch, or budget exhaustion.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `First, run the native configuration and save more than pass/fail. Keep the prompt, tool schemas, tool calls, file reads, edits, shell commands, test results, retry count, and final patch. The trace is the evidence needed to explain a later drop.`,
-        `Second, perturb one axis at a time. Replace the ACI, remove a helper, switch from structured patch edits to whole-file edits, change bash to PowerShell, move from Python tasks to JavaScript tasks, reduce the turn budget, or change the test oracle. Matched tasks make the comparison meaningful. Unmatched tasks turn the audit into a new benchmark.`,
+        'Step one: run the native configuration and capture the full trace, not just pass/fail. The trace includes the system prompt, tool schemas, every tool call and its response, every file read and edit, every shell command and its output, the retry count, the test results, and the final patch. This baseline trace is the reference for all later comparisons. Without it, a later score drop is just a number without a cause.',
+        'Step two: define the perturbation matrix. The six standard axes are harness (swap the evaluation runner), tools (remove or replace helpers like file search or linting), edit format (switch between structured patches, whole-file replacement, and line-range edits), shell (bash to PowerShell or cmd), language (shift the task distribution from Python-heavy to JavaScript-heavy or mixed), and budget (reduce the turn limit or token limit). Each axis gets one controlled experiment against the same matched task set.',
         {type: 'image', src: 'https://sambanova.ai/hs-fs/hubfs/mini-swe-agent%20framework.jpg?height=900&name=mini-swe-agent+framework.jpg&width=1600', alt: 'Mini SWE-agent framework showing agent, model, environment, and validation loop.', caption: 'A coding-agent scaffold makes the harness boundary concrete: task, model, tools, environment, and validation. (Source: sambanova.ai)'},
-        `Third, classify the divergence. Planning failures pick the wrong area of the repo. Binding failures know the right operation but cannot express it through the local tool. Semantic failures misunderstand program behavior. Oracle failures optimize for tests that do not match the real task. Budget failures need more retries than the product can afford.`,
+        'Step three: for every perturbation that causes a score drop, run the trace diff. Compare the native trace and the perturbed trace side by side for each failed task. Classify the divergence point into one of five failure types. A planning failure means the agent searched the wrong directory or file. A binding failure means the agent had the right intent but could not express it through the available tool -- for example, it tried to use a structured patch command that no longer exists. A semantic failure means the agent misunderstood what the code does. An oracle failure means the agent optimized for a test that does not match the real specification. A budget failure means the agent was on the right track but ran out of turns or tokens before finishing.',
+        'Step four: feed the classified failures back into the system. Planning failures need better environment-discovery data. Binding failures need tool adapters or operation-graph abstractions. Semantic failures need richer code-understanding training. Oracle failures need better test validation. Budget failures need policy changes for evidence gathering before editing. Then repeat the audit to confirm the fix worked without regressing other axes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument is controlled comparison. If the task, repository, and scoring rule are stable, then the changed environment axis is the best explanation for a systematic new failure. The audit is weaker than a randomized clinical trial, but stronger than a single benchmark run because it names what changed.`,
-        `Trace diffs make the argument inspectable. If the native run finds the right function and the perturbed run never searches the right directory, the failure is retrieval or planning. If both runs find the right function but one cannot apply the patch, the failure is edit binding. This lets the team fix the right layer instead of adding vague training data.`,
+        'The correctness argument rests on controlled comparison, the same principle that makes A/B testing valid. If the task set, the repository state, and the scoring rule are held constant, and only the edit API changes, then a systematic score change is attributable to edit-API dependence. The audit does not prove causation as strongly as a randomized trial (there may be interactions between axes), but it is far stronger than a single benchmark run because it names what changed and provides trace-level evidence for why the score moved.',
+        'Trace diffs make the argument mechanically inspectable. Consider two runs of the same task. In the native run, the agent calls file_search("auth"), reads auth/middleware.py, and patches line 42. In the perturbed run (file-search helper removed), the agent calls grep("auth"), gets no results because the helper\'s fuzzy matching is gone, then edits the wrong file. The trace diff pinpoints the failure: the agent depended on fuzzy file search, not on understanding the repository layout. That diagnosis is actionable. Adding a broader search fallback or training on repository-structure exploration fixes the root cause.',
+        'The classification taxonomy (planning, binding, semantic, oracle, budget) works because these five failure types require different fixes and live in different layers of the system. Conflating them -- which is what a single pass rate does -- leads teams to apply the wrong remedy. A binding failure does not need more training data; it needs a better tool abstraction. A budget failure does not need a smarter model; it needs a more efficient evidence-gathering policy.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The dominant cost is compute multiplication. A six-axis audit with one perturbation per axis requires seven full evaluation runs (one baseline plus six perturbed). If the native benchmark has 300 tasks and each task costs roughly $0.50 in API calls, the baseline run costs $150. The full audit costs $1,050. Adding a second perturbation level per axis (for example, mild and severe tool removal) doubles the perturbation runs to $1,950 total.',
+        'Human review is the second cost. Not every failure is clearly classifiable from traces alone. Ambiguous cases -- where the agent fails for a mix of planning and binding reasons -- need human judgment. In practice, roughly 20-30% of failures in a portability audit require manual trace review. For a 300-task audit where the perturbed runs fail on 40% more tasks (about 120 new failures across all axes), that means 24 to 36 tasks need human analysis.',
+        'The ongoing cost is maintenance. Every time the agent\'s scaffold changes, the perturbation matrix may need updating. A new tool added to the native harness means a new perturbation (what happens without it). A new target language means a new language-shift slice. Teams that treat the audit as a one-time gate rather than a regression suite lose its value within a few release cycles.',
+        'The payoff is sharper risk control. Instead of discovering in production that the agent cannot handle PowerShell, the team knows before deployment. Instead of publishing a benchmark claim that silently depends on a generous retry budget, the team publishes separate scores per condition. The audit cost is small relative to the cost of deploying an agent that fails in a predictable, testable way.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Pre-deployment validation is the primary use. Before shipping a coding agent into a new customer environment -- different OS, different shell, different language mix, different CI system -- the portability audit predicts which axes will cause failures. A team deploying from a Linux/bash/Python benchmark environment into a Windows/PowerShell/C# production environment can run three targeted perturbations and know the risk before any customer sees a failure.',
+        'Benchmark integrity is the second use. When publishing agent scores on SWE-bench or similar benchmarks, the portability audit separates the score into native strength, interface sensitivity, tool dependence, language transfer, and budget sensitivity. This prevents overclaiming. A team that scores 66% natively but 43% without its custom file-search helper can honestly report both numbers and let readers decide what matters for their use case.',
+        'Scaffold comparison is the third use. When choosing between two agent frameworks, running both through the same perturbation matrix reveals which scaffold is more portable versus which is more tuned to its native environment. A scaffold that scores 60% natively and 55% under perturbation is often more valuable than one that scores 70% natively and 40% under perturbation.',
+        'Platform teams use the audit to separate model weakness from interface debt. If every model fails under the same edit grammar, the grammar is the bug, not the models. If one model fails only when a helper is removed, that helper is a product requirement, not a nice-to-have.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The most common failure is confounding. If the audit changes the shell, the language, and the tool set simultaneously, the trace diff cannot attribute the score drop to any single axis. Multi-axis changes turn the audit into a new uncontrolled benchmark. Discipline requires one axis per comparison, which is why the method is expensive.',
+        'Audit overfitting is a subtler failure. Teams that tune prompts, training data, and tool schemas against the portability suite eventually make it another native environment. The perturbation matrix must rotate: new tasks, new axis combinations, new severity levels. A frozen audit suite has a shelf life of roughly two to three release cycles before the agent has effectively trained on it.',
+        'Oracle trust is the third failure mode. The audit inherits whatever test oracle the benchmark uses. SWE-bench tasks use repository test suites, but those tests can be too narrow (passing a wrong patch that happens to satisfy the test), too broad (failing a correct patch on an unrelated test), or contaminated (the model has seen the test in training). OpenAI\'s 2026 announcement that they no longer evaluate on SWE-bench Verified illustrates this risk: the oracle itself became unreliable for frontier claims. Any portability audit should include oracle review when results will drive a public claim or deployment decision.',
+        {type: 'image', src: 'https://langsmith.langchain.ac.cn/assets/images/swebench_evaluation-4086f0af70875bc21fa5e2b9ce7044e0.png', alt: 'SWE-bench evaluation flow from candidate patch to test validation.', caption: 'Public software-agent scores depend on the evaluation runner, patch path, and validation oracle. (Source: langsmith.langchain.ac.cn)'},
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Suppose a team reports 66 percent on a native SWE-style evaluation runner. The audit reruns a matched subset under four shifts: a different ACI, fewer file-edit helpers, a lower retry budget, and a JavaScript-heavy task slice. The new scores are 50, 54, 58, and 43 percent. The exact numbers are illustrative; the interpretation is not. The agent is strongest in its native setup, somewhat tool-dependent, budget-sensitive, and weak on the shifted language slice.`,
-        `The trace diff changes the fix. If the JavaScript slice fails because the agent never recognizes package scripts, add environment-discovery traces and task data. If the lower-budget slice fails after repeated blind test runs, change the policy for gathering evidence before editing. If the different ACI fails during patch application, build a cleaner operation graph or adapter.`,
+        'A team ships a coding agent that scores 66% on a 300-task SWE-style benchmark in its native harness: bash shell, structured-patch editor, file-search helper, Python-heavy task distribution, 25-turn budget. The team wants to deploy into customer environments that include Windows, JavaScript repos, and a 10-turn cost limit. The portability audit runs five perturbations against a matched 200-task subset.',
+        'Perturbation 1 -- harness swap: replace the native evaluation runner with a minimal Docker container that only provides a shell and a text editor. Score drops from 66% to 50%. Trace diffs show the agent trying to call file_search, a tool that no longer exists, on 38 of the 100 newly failed tasks (132 passed natively, 100 passed in perturbation). The failure type is binding: the agent had the right intent but could not express it without the helper.',
+        'Perturbation 2 -- tool removal: keep the native runner but remove the file-search and lint helpers. Score drops to 54%. Trace diffs overlap heavily with perturbation 1, confirming that file-search dependence is the dominant issue. 28 of 36 new failures show the agent grep-ing for filenames it used to get from the helper.',
+        'Perturbation 3 -- edit format: switch from structured patches (diff hunks with line numbers) to whole-file replacement. Score drops to 43%. This is the largest drop. Trace diffs reveal that the agent frequently produces whole-file outputs with subtle off-by-one errors in surrounding context, or truncates long files. The failure type is binding: the agent learned the patch grammar, not the edit operation.',
+        'Perturbation 4 -- language shift: replace 60% of the Python tasks with matched JavaScript tasks (same complexity, same issue types). Score drops to 52%. Trace diffs show the agent failing to recognize package.json scripts, using Python import conventions in JS files, and missing async/await patterns. The failure type is semantic: the agent\'s code understanding is language-specific.',
+        'Perturbation 5 -- budget reduction: cut the turn limit from 25 to 10. Score drops to 58%. Trace diffs show the agent succeeding on the same tasks it solves quickly in the native run but failing on tasks where it previously needed 12-20 turns of retry. The failure type is budget: the agent\'s evidence-gathering strategy is too expensive for tight limits.',
+        'The report names five separate claims: native strength 66%, harness-portable 50%, tool-independent 54%, edit-portable 43%, language-portable 52%, budget-resilient 58%. The team now knows that edit-format dependence is their biggest deployment risk, file-search dependence is second, and language transfer is third. The fix priorities are: build a format-agnostic edit abstraction, add search fallback training, and expand the JavaScript training distribution.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Sources and study next',
       paragraphs: [
-        `The audit is expensive because it multiplies environments. Every perturbation needs task matching, trace capture, scoring, and human review for ambiguous failures. It can also slow product work if every local change must pass every slice.`,
-        `The payoff is sharper risk control. A team can decide that Windows shell portability matters for the product, while Rust transfer can wait. It can also keep benchmark claims honest: native score, fixed-interface score, portability score, and cost per solved task are not interchangeable.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Use this audit before deploying an agent into a new developer environment, publishing a benchmark claim, comparing two scaffolds, or training on traces from a simulator. It is especially useful when the system will face private repos, mixed operating systems, missing dependencies, unfamiliar languages, or strict cost limits.`,
-        `It also helps platform teams. If one model fails only when a helper is removed, the helper may be a product requirement. If every model fails under the same edit grammar, the grammar is probably the bug. Portability data separates model weakness from interface debt.`,
-      ],
-    },
-    {
-      heading: 'Where it is the wrong tool',
-      paragraphs: [
-        `Do not use this audit as the first evaluation for a barely working agent. If native traces already show random search, broken edits, or no test discipline, fix the basic loop first. Portability does not matter until there is behavior worth porting.`,
-        `Do not use it to compare unrelated task sets. Changing the environment and the work at the same time gives a number without a cause. Do not treat it as a replacement for human review either. The audit can show that a patch passes across interfaces; it cannot prove the patch is maintainable or product-correct.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `The common failure is confounding. If the audit changes language, repository size, hidden tests, shell, tool schemas, and budget at once, the trace diff cannot explain the drop. Another failure is audit overfitting: teams tune prompts and training data against the portability suite until it becomes another native environment.`,
-        `A subtler failure is oracle trust. SWE-bench and SWE-bench Verified are useful because they ground software tasks in real repositories, but current benchmark history also shows the limits of public test-based scoring: task ambiguity, too-narrow tests, too-wide tests, environment drift, and contamination can all mislead pass rates. The audit should include oracle review when a result changes a public claim or a deployment decision.`,
-        {type: 'image', src: 'https://langsmith.langchain.ac.cn/assets/images/swebench_evaluation-4086f0af70875bc21fa5e2b9ce7044e0.png', alt: 'SWE-bench evaluation flow from candidate patch to test validation.', caption: 'Public software-agent scores depend on the evaluation runner, patch path, and validation oracle. (Source: langsmith.langchain.ac.cn)'},
-      ],
-    },
-    {
-      heading: 'Study next and sources',
-      paragraphs: [
-        `Study Abstract Agent Operation Graph next for the portable operation vocabulary, then Verified Agent Trajectory Store for trace capture, Execution Trace State Diff Case Study for divergence analysis, and LLM Evaluation Harnesses: Golden Sets and Judges for oracle design. Study Data Leakage & Contamination before trusting public benchmark deltas.`,
-        `Current source checks: SWE-agent argues that agent-computer interface design affects coding-agent behavior at https://arxiv.org/abs/2405.15793. SWE-bench describes real GitHub issue tasks and its Docker evaluation runner at https://github.com/swe-bench/SWE-bench. SWE-bench Verified describes the 500-instance human-filtered subset at https://www.swebench.com/verified.html. OpenAI's 2026 audit explains why SWE-bench Verified is no longer enough for frontier coding claims at https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/. Meta's CWM page is useful background on training code models with interpreter and agentic environment trajectories at https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/.`,
+        'Study Abstract Agent Operation Graph next for a portable vocabulary that survives interface changes. Study Verified Agent Trajectory Store for trace-capture infrastructure. Study Execution Trace State Diff Case Study for worked examples of trace-diff analysis. Study LLM Evaluation Harnesses: Golden Sets and Judges for oracle design and validation. Study Data Leakage & Contamination before trusting any public benchmark delta.',
+        'Primary sources: the SWE-agent paper (Yang et al., 2024) demonstrated that agent-computer interface design moves coding-agent scores by double-digit percentages, establishing the empirical basis for interface-axis perturbation (https://arxiv.org/abs/2405.15793). SWE-bench provides the task format and Docker evaluation runner used by most coding-agent benchmarks (https://github.com/swe-bench/SWE-bench). SWE-bench Verified describes the 500-instance human-filtered subset that improved oracle quality (https://www.swebench.com/verified.html). OpenAI\'s 2026 audit explains why even Verified is insufficient for frontier claims, motivating oracle review as part of any portability audit (https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/). Meta\'s CWM work provides background on training code models with interpreter and agentic environment trajectories (https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/).',
       ],
     },
   ],

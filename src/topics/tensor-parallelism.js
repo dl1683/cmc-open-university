@@ -220,71 +220,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each frame as a statement about tensor ownership. A tensor is a multidimensional array, a rank is one process in a distributed job, and a collective is a communication operation across ranks. The highlighted shard is the piece owned by the current GPU.',
+        'The safe inference is tied to the split dimension. If a weight matrix is split by output columns, each rank computes different output coordinates and the pieces can be gathered. If it is split by input rows, each rank computes a partial sum and the pieces must be reduced.',
         {type: 'image', src: './assets/gifs/tensor-parallelism.gif', alt: 'Animated walkthrough of the tensor parallelism visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'Why This Exists',
+      heading: 'Why this exists',
       paragraphs: [
-        'Tensor parallelism exists because a single transformer layer can become the unit that no longer fits. Data parallelism gives each GPU a different mini-batch and a complete model replica, so it scales examples but does not shrink one huge matrix multiplication. Pipeline parallelism places different layers on different devices, so it scales depth but still leaves a single wide layer intact. Tensor parallelism attacks the layer itself: several ranks cooperate on the same tokens and make one logical operation out of several local operations.',
-        'The pressure shows up in both memory and time. A large projection stores billions of weights, produces large activations, and may create intermediate tensors that cannot be cheaply replicated. During inference, a tensor-parallel group may be the only way to serve a model whose weights do not fit on one accelerator. During training, the same split can keep matmul work distributed while optimizer state and activation strategies handle other memory costs.',
+        'Tensor parallelism exists because a single neural-network layer can be too large or too slow for one accelerator. Data parallelism copies the full model to each GPU and splits examples, so it does not shrink one huge matrix multiplication. Pipeline parallelism splits layers by depth, but one wide layer can still be the bottleneck.',
+        'Transformer models create this pressure in attention projections and feed-forward projections. A dense layer multiplies input X by weight W, and W may contain billions of parameters in large models. Tensor parallelism cuts inside that operation so several GPUs cooperate on one logical layer.',
         {type: 'callout', text: 'Tensor parallelism is a layout contract: every shard boundary must name the collective that reconstructs the next legal tensor.'},
       ],
     },
     {
-      heading: 'The Obvious Split And The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first reasonable attempt is layer placement: put layer 0 on GPU 0, layer 1 on GPU 1, and send activations forward. That can help a deep network, and it is easy to explain. The wall is width. If one attention projection or MLP projection is too large for a device, moving whole layers around does not change the fact that one layer still wants more memory or compute than one GPU should provide.',
-        'The second attempt is manual slicing. An engineer can split a weight matrix, fix the immediate shape error, and keep patching until the model runs. That fails because tensor layout becomes hidden state. One rank may hold output features, another path may expect replicated activations, and a later layer may silently need summed partials. Without a contract for what each rank owns before and after every layer, the implementation becomes a pile of lucky shape repairs.',
+        'The first approach is to put whole layers on different GPUs. GPU 0 runs early layers, GPU 1 runs later layers, and activations move between them. This helps when the model is deep and each layer fits alone.',
+        'A second approach is to slice a matrix by hand wherever memory breaks. That can get one experiment running, but it makes layout implicit. A later operation may consume a shard as if it were the full tensor, and the error can look like a shape bug rather than a distributed-systems bug.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that a dense layer can be algebraically decomposed if the repair operation matches the split. For a linear layer Y = XW, a column split partitions W by output columns. Every rank receives the same X, computes a different slice of Y, and the full output is the concatenation of those slices. A row split partitions W by input rows. Every rank sees a slice of X, computes a partial contribution to the same output coordinates, and the correct output is the sum of the partials.',
+        'The wall is that matrix algebra determines the repair operation. For Y = XW, a column split of W creates disjoint columns of Y. A row split of W creates terms that must be added to form the same Y.',
+        'If the code forgets this distinction, it can produce the wrong tensor with the right shape. Gathering partial sums duplicates information that should have been added. Reducing output slices destroys coordinates that should have stayed separate.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to track both the shard and the rule that makes the next tensor legal. Tensor parallelism is not "put half the matrix here and half there." It is "put this dimension here, then use this collective to preserve the unsplit computation."',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Layer diagrams make the split point visible: tensor parallelism cuts inside a layer rather than moving whole layers. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0: https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
-        'That repair rule is the invariant. Output-feature splits create pieces that need concatenation or all-gather if the next layer wants the full tensor. Input-feature splits create partial sums that need all-reduce or reduce-scatter. Sequence parallelism moves the split to the token dimension, often to reduce activation memory around normalization and dropout. The technique is not just "split the tensor"; it is "split on a dimension whose algebra tells you how to restore the next layout."',
+        'A column-parallel linear layer gives each rank the same input and different output features. A row-parallel linear layer gives each rank different input features and asks ranks to sum their contributions. The invariant is that after the declared collective, the next layer sees the same logical tensor the unsharded model would have produced.',
       ],
     },
     {
-      heading: 'How The System Works',
+      heading: 'How it works',
       paragraphs: [
-        'A tensor-parallel plan starts by choosing a process group and a device mesh. Inside that group, each rank owns a shard of selected parameters and follows the same program with different local data. The runtime must track whether a tensor is replicated, sharded along hidden dimension, sharded along sequence dimension, or already partially reduced. PyTorch DTensor describes these layouts explicitly; Megatron-style implementations often encode the same idea in parallel linear modules and collective calls.',
-        'A transformer block has useful natural cuts. QKV projection and MLP expansion are wide output-producing layers, so they often use column-wise sharding. Attention heads can remain local after the QKV split because each rank can process its assigned heads. Output projection and MLP down-projection collapse features back to the model width, so they often use row-wise sharding and all-reduce partial sums. The best plans arrange those cuts so the output layout of one operation is already the input layout of the next.',
+        'A runtime first forms a tensor-parallel group, such as four GPUs connected by NVLink. Each rank loads the shard of parameters assigned to it. The program then runs the same layer schedule on each rank, but each rank computes only its local slice.',
+        'For an attention QKV projection, the weight is often split by output heads. Each rank produces Q, K, and V for its assigned heads, and attention for those heads can run locally. The output projection then combines head outputs and often needs an all-reduce because ranks contribute partial sums to the same hidden coordinates.',
+        'For an MLP block, the expansion projection is often column-parallel and the down projection is often row-parallel. Good plans arrange the pair so one layer produces the layout the next layer can consume. Bad plans insert extra all-gathers and all-reduces that erase the compute savings.',
       ],
     },
     {
-      heading: 'What The Visual Proves',
+      heading: 'Why it works',
       paragraphs: [
-        'The first view proves that tensor parallelism is a semantic-preserving rewrite, not a different model. The graph still has one logical input and one logical output. The two GPU branches only change where the multiplications happen and where the intermediate slices live. The collective node is the repair point that restores the layout required by the next operation.',
-        'The table proves why different splits need different collectives. A column-wise layer produces disjoint output coordinates, so gathering is a layout operation. A row-wise layer produces overlapping output coordinates, so reduction is a math operation. The transformer view then shows why this matters in practice: the QKV and MLP expansion cuts are cheap if the following operation can consume shards, while the down projections have to pay the reduction tax.',
+        'Correctness comes from matrix identities. If W is split into output-column blocks W0 and W1, then XW equals the concatenation of XW0 and XW1. Each rank owns a non-overlapping slice, so gathering reconstructs the full output.',
+        'If X and W are split over the input dimension, then XW equals X0W0 plus X1W1 plus the remaining partial products. Each rank computes one term in the sum, so all-reduce reconstructs the full output. The animation is showing these identities as communication edges.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Correctness comes from ordinary matrix algebra plus a layout invariant. In the column case, W = [W0 W1], so XW = [XW0 XW1]. Each rank computes a non-overlapping slice of the output, and concatenating slices gives the same tensor as the unsplit layer. In the row case, split X and W across the input dimension: XW = X0W0 + X1W1 + ... . Each rank computes one term in that sum, and reducing the terms gives the same output coordinates. The animation makes the invariant visible: every split has a matching repair.',
+        'Tensor parallelism trades communication for memory headroom and local compute reduction. With p ranks, a perfectly sharded matrix gives each rank about one p-th of the parameters and one p-th of the multiply work for that layer. The collective cost grows with tensor size, group size, latency, and fabric bandwidth.',
+        'Doubling ranks usually halves local shard size, but it does not halve end-to-end latency. More ranks add synchronization points, and the slowest rank gates the group. The method behaves well when matmuls are large and links are fast; it behaves badly when collectives dominate.',
+        'The engineering cost is layout bookkeeping. The system must know whether each tensor is replicated, sharded by hidden dimension, sharded by sequence dimension, or a partial sum. Debugging failures requires inspecting both numeric values and ownership state.',
       ],
     },
     {
-      heading: 'Cost And Tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Tensor parallelism spends communication to buy memory headroom and parallel matmul throughput. When a layer is enormous and ranks are connected by NVLink, NVSwitch, or a fast local fabric, the local compute saved can dominate the collective cost. When the layer is small, the batch is tiny, or the group crosses slow network links, the collective can cost more than the matmul it replaced. Doubling the number of tensor-parallel ranks roughly shrinks each local shard, but it also increases the number of participants that must synchronize.',
-        'The practical costs are not only bandwidth. Tensor parallelism adds shape constraints, placement constraints, debugging complexity, and numerical differences from reduction order. It can also fight batching in inference: one request may reserve several GPUs at once, so poor scheduling wastes an entire group. It composes with data parallelism, pipeline parallelism, and ZeRO/FSDP, but each extra dimension adds another mapping between logical tensors and physical ownership.',
+        'Large language model training uses tensor parallelism when a transformer layer or its optimizer-adjacent state cannot fit on one GPU. It is commonly combined with data parallelism and pipeline parallelism to split examples, layers, and tensors at the same time. Megatron-style training popularized these layer-internal cuts.',
+        'Inference servers use tensor parallelism when the model weights exceed one device or when latency requires several devices to compute one request. The serving scheduler must then allocate a whole group per request or per batch. That improves model capacity but makes underfilled groups expensive.',
       ],
     },
     {
-      heading: 'Where It Wins And Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
-        'It wins on very wide transformer layers, especially attention projections, output projections, and MLP blocks whose parameter and activation footprints are too large for one GPU. It is common in large-model training stacks and in inference servers that shard a single model across a fixed group of accelerators. It is also useful as a teaching bridge: once the layout contract is clear, GPU All-Reduce, reduce-scatter, all-gather, sequence parallelism, and 3D parallel training become variations of the same ownership problem.',
-        'It fails when communication is the bottleneck, when ranks are placed across weak links, when the serving system cannot keep every rank busy, or when the model has many small operations that do not amortize collective latency. It also fails as an engineering practice when layout is implicit. Most tensor-parallel bugs are layout bugs: a tensor is treated as replicated when it is sharded, a reduce is used where a gather is required, or a downstream operation consumes partial sums as if they were complete values.',
+        'It fails on weak interconnects. A tensor-parallel group spread across slow network links can spend more time communicating than multiplying. Small layers, small batches, and short sequences often cannot amortize collective latency.',
+        'It also fails when the rest of the system cannot keep every rank busy. One request may reserve four GPUs even if the batch is too small to use them well. Numerics can differ from the unsharded model because reductions happen in a different order, so exact bitwise equality is not guaranteed.',
       ],
     },
     {
-      heading: 'Sources And Study Next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: PyTorch tensor parallel docs at https://docs.pytorch.org/docs/stable/distributed.tensor.parallel.html, the Megatron-LM tensor-parallel paper at https://arxiv.org/abs/1909.08053, and the large-scale Megatron-LM training paper at https://arxiv.org/abs/2104.04473. Study GPU All-Reduce for the collective repair step, Pipeline Parallelism for depth splitting, ZeRO Optimizer and Fully Sharded Data Parallel for state sharding, Transformer Block for the layer anatomy, and Ring Attention or sequence parallelism for token-dimension splits.',
+        'Let X be one token vector [2, 3] and W be [[1, 4, 7, 10], [2, 5, 8, 11]]. The unsharded result is [8, 23, 38, 53] because each output column is a dot product. With two-way column parallelism, rank 0 stores columns 0 and 1 and computes [8, 23], while rank 1 stores columns 2 and 3 and computes [38, 53].',
+        'An all-gather returns [8, 23, 38, 53], exactly matching the unsharded layer. For a row split, rank 0 might compute [2, 8, 14, 20] from input 2 and the first row, while rank 1 computes [6, 15, 24, 33] from input 3 and the second row. An all-reduce sum gives [8, 23, 38, 53].',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources include the Megatron-LM tensor-parallel paper, Shoeybi et al. 2019, and PyTorch DTensor and tensor parallel documentation for explicit layout APIs. Megatron-Core and NVIDIA Transformer Engine are useful implementation references for column-parallel and row-parallel linear layers.',
+        'Study GPU all-reduce next because it is the repair step for row splits. Then study pipeline parallelism, ZeRO or fully sharded data parallelism, sequence parallelism, and transformer inference scheduling to see how tensor ownership interacts with whole-system throughput.',
       ],
     },
   ],

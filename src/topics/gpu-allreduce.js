@@ -208,76 +208,96 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The "ring choreography" view shows four GPUs arranged in a ring. Watch the reduce-scatter phase first: chunks circulate and accumulate local contributions at each stop. Then watch all-gather: the reduced chunks circulate again until every GPU holds the full result. The "training step" view zooms out to show where all-reduce sits inside a synchronous data-parallel training iteration.',
+        'Each frame highlights active edges or cells. Green marks the operation in progress; blue marks completed results. Step through slowly the first time to match each explanation line to the highlighted state.',
         {type: 'image', src: './assets/gifs/gpu-allreduce.gif', alt: 'Animated walkthrough of the gpu allreduce visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'Why This Exists',
+      heading: 'Why this exists',
       paragraphs: [
-        'GPU all-reduce exists because replicated training has a simple correctness rule: every model replica must apply the same update. In synchronous data parallel training, each GPU sees a different slice of the batch and computes a local gradient. Those gradients are not interchangeable guesses; they are pieces of the gradient for the larger global batch. All-reduce combines them and leaves the combined result on every rank, so the optimizer step keeps the replicas identical.',
-        'The key word is collective. All ranks participate in the same operation, with compatible count, datatype, reduction operator, and call order. NVIDIA NCCL documents AllReduce as reducing values across devices and storing the result in every rank receive buffer. That definition is small, but it is the hinge for data parallelism, ZeRO, tensor parallelism, and many distributed debugging failures.',
+        'Training a neural network on multiple GPUs requires every GPU to apply the same weight update. In data-parallel training, each GPU processes a different slice of the batch and computes a local gradient. Those local gradients must be combined into one averaged gradient and delivered to every GPU so the optimizer step keeps all replicas identical. The operation that does this is called all-reduce.',
+        'A collective is a communication primitive where every participant calls the same operation at the same time with compatible arguments. All-reduce is a specific collective: it reduces (sums, averages, or otherwise combines) values from all participants and places the identical result on every participant. NVIDIA\'s NCCL library documents AllReduce as "reduce data across ranks and store the result in every rank\'s receive buffer." That one-line contract is the foundation of synchronous distributed training.',
         {type: 'callout', text: 'All-reduce is a placement contract: every rank contributes to one reduction and every rank receives the same reduced tensor.'},
       ],
     },
     {
-      heading: 'The Obvious Coordinator And The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first design most people imagine is a coordinator. Every worker sends gradients to rank 0, rank 0 sums them, and rank 0 broadcasts the answer. That works for small systems and is easy to reason about. The wall is bandwidth concentration. One rank receives the whole tensor from every other rank and then sends the whole result back out. The coordinator becomes the slowest link in the step, and the other accelerators wait.',
-        'A second weak design is to perform many tiny reductions, one parameter tensor at a time. That keeps the math correct but wastes latency and launch overhead. Modern training stacks bucket gradients into larger transfers and try to overlap communication with backpropagation. The algorithmic problem is not only "compute the sum"; it is "move the bytes without making expensive devices idle."',
+        'The simplest design uses a coordinator. Every GPU sends its local gradient to GPU 0, GPU 0 sums them all, and GPU 0 broadcasts the result back. This is correct and easy to implement. For two or three GPUs on a fast bus it works fine.',
+        'A slightly better variant skips the single coordinator and instead performs many small reductions, one per parameter tensor. Each tensor is reduced independently. This is still correct, but each reduction pays a fixed launch and synchronization cost, so many small reductions waste time on overhead rather than moving useful bytes.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to split the tensor into chunks and spread both reduction and distribution across the participants. A ring all-reduce does this in two phases. Reduce-scatter circulates chunks around a ring, and each rank adds its local contribution as a chunk passes. When that phase finishes, every rank owns one fully reduced shard. All-gather then circulates those reduced shards until every rank has the full reduced tensor.',
+        'The coordinator approach concentrates all bandwidth at one node. With k GPUs and a gradient of size S bytes, GPU 0 must receive (k-1) * S bytes and then send (k-1) * S bytes. The other GPUs sit idle during both phases. At k = 8, GPU 0 handles 14 * S bytes while the remaining 7 GPUs do nothing. The coordinator becomes the bottleneck, and adding more GPUs makes it worse.',
+        'The many-small-reductions approach avoids the bandwidth bottleneck but hits a latency wall. If a model has 1,000 parameter tensors and each reduction takes 10 microseconds of launch overhead, communication alone costs 10 milliseconds of pure overhead before any bytes move. Modern training stacks solve this by bucketing gradients into larger buffers and overlapping communication with backward computation, but the fundamental algorithmic problem remains: how to move S bytes across k GPUs without concentrating traffic at one node.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Split the gradient tensor into k chunks (one per GPU) and spread both the reduction work and the distribution work across all participants simultaneously. No single GPU ever holds or processes the full tensor from all peers. Instead, chunks circulate through the group, accumulating partial sums as they move.',
         {type: 'image', src: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allreduce.png', alt: 'NCCL all-reduce collective diagram showing data reduced and available on every rank', caption: 'NVIDIA NCCL documentation shows the AllReduce placement contract: every participant receives the reduced result. Source: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html'},
-        'The two-phase view matters because the named collectives are data-placement contracts. All-reduce means every rank ends with the full reduced tensor. Reduce-scatter means the tensor has been reduced and sharded. All-gather means shards have been concatenated back everywhere. All-to-all means each rank sends a different shard to each peer. Once the output placement is clear, distributed training systems look less magical and more like layout transformations.',
+        'This decomposition reveals that all-reduce is actually two simpler collectives composed in sequence. Reduce-scatter reduces the tensor and distributes the result as shards: each GPU ends with one fully reduced chunk. All-gather then copies those shards to every GPU so each one reconstructs the full reduced tensor. Understanding these two halves separately makes ZeRO, FSDP, and tensor parallelism much easier to learn, because those systems use reduce-scatter and all-gather independently.',
       ],
     },
     {
-      heading: 'How The Algorithm Works',
+      heading: 'How it works',
       paragraphs: [
-        'In a ring with k ranks, the tensor is divided into k chunks. During reduce-scatter, each rank repeatedly sends one chunk to its neighbor and receives another chunk from the previous neighbor. On receive, it adds its local contribution for that chunk. After k - 1 steps, each chunk has visited all contributors, and each rank holds one reduced chunk. During all-gather, the reduced chunks circulate for another k - 1 steps, so every rank collects every reduced chunk.',
+        'Arrange k GPUs in a logical ring. Divide the gradient tensor into k equal chunks. The algorithm proceeds in two phases, each taking k - 1 steps. In the reduce-scatter phase, each GPU sends one chunk to its right neighbor and receives one chunk from its left neighbor. On receiving a chunk, the GPU adds its own local values for that chunk to the incoming partial sum and forwards the updated chunk in the next step. After k - 1 steps, each chunk has visited all k GPUs, so each GPU holds one chunk that contains the sum of all k contributions.',
         {type: 'image', src: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/reducescatter.png', alt: 'NCCL reduce-scatter collective diagram showing reduced shards distributed across ranks', caption: 'NVIDIA NCCL documentation shows ReduceScatter as reduction plus sharding, which is the first half of the ring all-reduce mental model. Source: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html'},
-        'This is not the only all-reduce algorithm. Tree and hierarchical algorithms can be better for different message sizes and network topologies. NCCL chooses algorithms and protocols based on devices, links, ranks, and message sizes. The animation uses a ring because it exposes the conservation law: no central node owns the whole problem, and every link can carry useful traffic while reduction progresses.',
-      ],
-    },
-    {
-      heading: 'What The Visual Proves',
-      paragraphs: [
-        'The ring view proves why all-reduce is not a parameter server in disguise. The arrows carry chunks around the group, and the center bucket is one logical tensor rather than one physical coordinator. The reduce-scatter step shows where the sum is formed. The all-gather step shows where replication is restored.',
+        'In the all-gather phase, each GPU sends its fully reduced chunk to the right neighbor and receives a fully reduced chunk from the left. No addition happens this time; chunks are simply copied. After another k - 1 steps, every GPU has collected all k reduced chunks and can concatenate them into the full reduced tensor.',
         {type: 'image', src: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allgather.png', alt: 'NCCL all-gather collective diagram showing shards collected on every rank', caption: 'NVIDIA NCCL documentation shows AllGather restoring full replication after shards have been produced. Source: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html'},
-        'The training-step table proves the correctness role. Before synchronization, every rank has a gradient for its own mini-batch. After synchronization, every rank has the same averaged gradient. That is why the optimizer row can show the same weights on every rank. If the all-reduce row is skipped, reordered, or applied to different shapes, the table no longer represents one shared model.',
+        'The ring is not the only topology. Tree reductions, recursive halving-doubling, and hierarchical (intra-node then inter-node) algorithms exist. NCCL selects among them based on message size, link speed, and GPU topology. The ring is the clearest to teach because every link carries useful traffic on every step and no single node is special.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        'Correctness follows from associativity and equal participation. If the reduction is sum, each output element is the sum of the same element from every rank. The algorithm may add those values in a different order than a coordinator would, so floating-point bits can differ, but the mathematical target is the same. The placement invariant is that after the final gather, every rank has the same list of reduced chunks in rank order.',
-        'The training invariant is stronger than the communication invariant. Every rank must enter the same collective sequence. If rank 2 calls all-gather while the others call all-reduce, there is no well-defined shared operation. This is why collective bugs often appear as hangs: each rank is waiting for peers that are not at the same rendezvous.',
-        'Averaging gradients is usually implemented as sum followed by scaling, either inside the collective path or around it. The important point is consistency. If every rank applies the same scale to the same reduced tensor, the replicas stay aligned. If one rank clips, scales, skips, or unscales differently before the collective, all-reduce faithfully spreads the wrong contract.',
+        'Correctness rests on two properties. First, addition is associative and commutative, so the order in which partial sums accumulate does not change the mathematical result. (Floating-point addition is not truly associative, so bit-level results may differ from a coordinator approach, but the target value is the same.) Second, every chunk visits all k GPUs exactly once during reduce-scatter, so no contribution is missed or double-counted.',
+        'The placement guarantee is that after all-gather completes, every GPU holds the same k chunks in the same order. Since each chunk is the sum of the corresponding chunk from every GPU, concatenation produces the same full reduced tensor on every rank. The optimizer step then applies the same update to every replica, preserving weight identity across GPUs.',
+        'The training-level invariant is stricter: every GPU must call the same collective with the same tensor shapes in the same order. If one GPU calls all-gather while the others call all-reduce, or if one GPU passes a tensor of a different size, the group hangs or produces garbage. This is why collective bugs usually manifest as deadlocks rather than wrong answers.',
       ],
     },
     {
-      heading: 'Cost And Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The arithmetic is cheap; moving bytes is the cost. For large tensors, bandwidth dominates. For small tensors, launch overhead and latency dominate. If buckets are too small, the system pays many rendezvous costs. If buckets are too large, communication starts late and cannot overlap enough with the remaining backward computation. Good training stacks tune bucket size, overlap, stream usage, and rank placement together.',
-        'Topology matters because not all links are equal. A ring across GPUs on the same NVSwitch fabric behaves very differently from a ring that crosses hosts or uneven network rails. Hierarchical collectives may reduce inside a node first and then communicate across nodes. Bad placement can make a mathematically clean algorithm slow, and a single straggler can hold the whole collective open.',
-        'The performance question is therefore not "is all-reduce O(n)?" but "how many bytes cross which links while useful compute remains available?" A profiler trace that shows backward computation overlapping with gradient buckets is healthy. A trace where every rank finishes compute and then waits on one large exposed all-reduce is a sign that bucket timing or topology is wasting throughput.',
+        'A ring all-reduce with k GPUs and a tensor of S bytes sends 2 * (k-1)/k * S bytes per GPU across both phases. As k grows, each GPU sends approximately 2S bytes regardless of how many GPUs participate. This is optimal for bandwidth: no algorithm can do better than 2S bytes per GPU for all-reduce. The total number of steps is 2 * (k-1), and each step transfers S/k bytes, so latency scales as O(k) with k round-trip delays.',
+        'For large tensors (hundreds of megabytes), bandwidth dominates and the ring is efficient. For small tensors (a few kilobytes), each step pays fixed launch overhead that outweighs the data transfer, and tree or recursive-doubling algorithms with O(log k) latency steps are faster. Production systems like NCCL switch algorithms at a size threshold.',
+        'Topology matters because not all links are equal. A ring across GPUs connected by NVSwitch (900 GB/s per GPU) behaves differently from a ring that crosses InfiniBand host boundaries (200-400 Gb/s per link). Hierarchical collectives reduce inside a node first, then communicate across nodes, trading extra local bandwidth for less cross-node traffic. A single slow link or a straggler GPU blocks the entire collective, so rank placement is a performance-critical decision.',
       ],
     },
     {
-      heading: 'Where It Wins And Where It Fails',
+      heading: 'Real-world uses',
       paragraphs: [
-        'All-reduce wins when the next computation needs the same reduced tensor everywhere. Synchronous SGD is the standard example. It also appears inside tensor-parallel layers that compute partial sums, in metric aggregation, and in some distributed solvers. It is the right mental model when replication after reduction is a requirement, not an accident.',
-        'It fails when replication is unnecessary. ZeRO and FSDP often prefer reduce-scatter because each rank only needs an owned shard. Expert routing uses all-to-all because each rank sends different tokens to different expert owners. All-reduce also fails operationally when ranks diverge, dataloaders starve, tensor counts differ, or one process crashes. The collective contract is strict: same operation, compatible buffers, same order, all participants.',
+        'Synchronous data-parallel training (PyTorch DDP, Horovod) uses all-reduce on every training step to average gradients across replicas. This is the most common use and the reason all-reduce is the first collective most engineers encounter. The gradient tensor is bucketed into large buffers, and communication starts while later layers are still computing backward gradients, overlapping compute and communication.',
+        'Tensor parallelism splits individual layers across GPUs. After each parallel matrix multiplication, a small all-reduce sums the partial results so every GPU has the full layer output before the next layer begins. Metric aggregation during evaluation (summing loss or accuracy across workers) is another common use. Any situation where every participant needs the same combined value is a candidate for all-reduce.',
       ],
     },
     {
-      heading: 'Sources And Study Next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Primary sources: NVIDIA NCCL collective operations at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html and the NCCL overview at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/overview.html. Study Backpropagation for why gradients are produced, Batch Size Scaling for why global batches are split, Parameter Server for the coordinator baseline, ZeRO Optimizer for reduce-scatter and all-gather composition, Tensor Parallelism for in-layer collectives, and MoE expert routing for the contrasting all-to-all pattern.',
+        'All-reduce replicates the full result on every GPU. When the model is large and memory is scarce, that replication is wasteful. ZeRO Stage 1-3 and FSDP replace all-reduce with reduce-scatter (so each GPU only stores its assigned shard) plus all-gather (to reconstruct parameters on demand). The result is the same math but lower peak memory per GPU.',
+        'Mixture-of-experts routing uses all-to-all instead of all-reduce because each GPU needs to send different tokens to different expert owners, not the same combined result to everyone. All-reduce is the wrong primitive whenever the output needs to differ by rank.',
+        'Operationally, all-reduce fails when participants disagree. Mismatched tensor shapes, different call ordering, a crashed rank, or a dataloader that stalls one GPU will hang the entire group. Debugging requires checking that every rank reaches the same collective call with identical buffer sizes. NCCL provides environment variables (NCCL_DEBUG=INFO) and tools like nsys/nccl-tests to diagnose these issues.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Four GPUs train a model with a single parameter vector of 4 floats. Each GPU computes a local gradient on its slice of the batch. GPU 0 has [1.0, 2.0, 3.0, 4.0], GPU 1 has [0.5, 1.5, 2.5, 3.5], GPU 2 has [2.0, 0.0, 1.0, 5.0], GPU 3 has [1.5, 2.5, 0.5, 1.5]. The target average gradient is the element-wise sum divided by 4: [(1.0+0.5+2.0+1.5)/4, (2.0+1.5+0.0+2.5)/4, (3.0+2.5+1.0+0.5)/4, (4.0+3.5+5.0+1.5)/4] = [1.25, 1.5, 1.75, 3.5].',
+        'The tensor is split into 4 chunks of 1 float each. GPU 0 owns chunk 0, GPU 1 owns chunk 1, and so on. Reduce-scatter runs for 3 steps. Step 1: GPU 0 sends its chunk 0 value (1.0) rightward to GPU 1; GPU 1 sends its chunk 1 value (1.5) to GPU 2; GPU 2 sends chunk 2 (1.0) to GPU 3; GPU 3 sends chunk 3 (1.5) to GPU 0. Each receiver adds the incoming value to its own local value for that chunk. After step 1, GPU 1 holds a partial sum for chunk 0: 0.5 + 1.0 = 1.5.',
+        'Steps 2 and 3 continue the circulation. After all 3 steps, each GPU holds one fully reduced chunk: GPU 0 has chunk 0 = 5.0 (the sum 1.0+0.5+2.0+1.5), GPU 1 has chunk 1 = 6.0, GPU 2 has chunk 2 = 7.0, GPU 3 has chunk 3 = 14.0. All-gather then circulates these reduced values for 3 more steps. After all-gather, every GPU holds [5.0, 6.0, 7.0, 14.0]. Each GPU divides by 4 to get the average: [1.25, 1.5, 1.75, 3.5]. All replicas now hold the same averaged gradient and apply the same optimizer step.',
+        'Total data moved per GPU across both phases: 2 * (4-1)/4 * 4 floats = 6 floats. A coordinator approach would require GPU 0 to receive 3 * 4 = 12 floats and send 3 * 4 = 12 floats, while other GPUs only send and receive 4 floats each. The ring distributes the load evenly.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'NVIDIA NCCL collective operations documentation: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html. NCCL overview and design: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/overview.html. Baidu\'s ring all-reduce blog post (2017) introduced the ring algorithm to the deep learning community and remains a clear reference.',
+        'Study next: Backpropagation (why gradients exist), Batch Size Scaling (why the batch is split across GPUs), Parameter Server (the coordinator baseline all-reduce replaces), ZeRO Optimizer (reduce-scatter and all-gather used independently to shard optimizer state), Tensor Parallelism (all-reduce inside individual layers), and Mixture of Experts routing (the contrasting all-to-all collective).',
       ],
     },
   ],

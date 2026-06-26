@@ -215,88 +215,107 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has two views. The federated-averaging view shows a server distributing a model to clients, each client training locally, and the server averaging the returned updates into a new global model. The secure-aggregation view shows each client masking its update with random noise, the server summing the masked updates, and the masks canceling to reveal the true aggregate.',
+        'Watch the mask colors: every mask that appears as a positive value on one client appears as a negative on exactly one other. That is the mechanism that makes cancellation work. The dropout frame shows what happens when a device vanishes mid-round and the protocol must recover.',
         {type: 'image', src: './assets/gifs/federated-learning-secure-aggregation.gif', alt: 'Animated walkthrough of the federated learning secure aggregation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Federated learning trains a shared model from decentralized data. Instead of collecting raw user data in a central warehouse, the server sends a model to clients, clients train locally, and the server aggregates updates. The canonical algorithm is federated averaging: local training followed by weighted averaging of client model updates.',
+        'Machine learning models improve by seeing examples. The standard recipe is to collect all examples in one place and train there. But sometimes the examples are private text messages on phones, medical scans in hospitals, or financial records across banks. Moving that data to a central server creates legal liability, breach risk, and user distrust.',
         {
           type: 'callout',
           text: 'Federated learning moves computation to private data, then secure aggregation narrows what the server can observe to the cohort sum.',
         },
-        'Secure aggregation strengthens the privacy story by hiding individual client updates from the server. The server sees only the aggregate sum. Differential privacy can add another layer by clipping and noising updates so any one participant has bounded influence. These ideas match the local corpus note on privacy-preserving ML: practical systems combine architecture, cryptography, and statistical noise, each with a cost.',
+        'Federated learning inverts the flow: instead of pulling data to the model, it pushes the model to the data. Each device trains locally and sends back only a model update (a set of number changes, not the original examples). Secure aggregation then ensures the server cannot even inspect individual updates -- it can only see the combined result from all participants.',
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious way to train from user behavior is to collect all examples in one warehouse and run ordinary centralized training. That is simpler for optimization, debugging, and evaluation. It also concentrates sensitive data, increases breach impact, creates policy and consent problems, and can be impossible when data is legally or operationally stuck on devices, hospitals, browsers, or edge deployments.',
-        'Another tempting answer is to send anonymized records. That usually fails as a privacy story. High-dimensional behavior, text, location, medical measurements, and usage traces can reidentify people when joined with other data. Federated learning tries a different boundary: move the model to the data, not the data to the model. Secure aggregation then limits what the coordinator can inspect about any one participant update.',
+        'The straightforward way to train from user data is to upload everything to a warehouse and run standard training. This is simpler to debug, faster to converge, and easier to evaluate. It also concentrates sensitive data in one breach target, creates consent headaches, and may be illegal when data is bound by jurisdiction (health records in the EU, financial data under sector-specific rules).',
+        'A common workaround is to anonymize the data before uploading. This fails more often than it works. High-dimensional data -- browsing behavior, location traces, medical measurements -- can be re-identified by joining with other datasets. Removing names is not enough when the data itself is a fingerprint.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that many learning algorithms need gradients or weight updates, not raw examples. A client can download the current model, take several local gradient steps, and send back a delta. The server can average deltas across many clients and produce a new global model. When the cohort is large enough and the update rule is stable enough, the aggregate can move the model in a useful direction without centralizing examples.',
-        'Secure aggregation changes the trust shape. Each client masks its update with random values arranged so masks cancel in the sum. The server can recover the aggregate but not one row. Differential privacy changes the statistical shape by clipping update norms and adding noise so participation of one client has limited influence. These layers solve different problems and should not be collapsed into one vague privacy claim.',
+        'Even if you accept federated learning\'s premise (send model updates, not raw data), the server still receives each client\'s individual update. A model update is a high-dimensional vector that encodes what the client learned. Research shows these updates can leak training examples: gradient inversion attacks reconstruct images from gradients, and membership inference can detect whether a specific record was in a client\'s dataset.',
+        'So the server coordinator becomes a privacy bottleneck. It does not hold the raw data, but it holds something almost as dangerous: a compressed representation of what each user\'s data looks like. The wall is that federated learning alone does not deliver the privacy promise its marketing implies.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The server does not need to see individual updates. It only needs their sum. If client A sends update [+3, -1, +2] and client B sends [+1, +4, -2], the server only needs [+4, +3, 0] to update the global model. The individual vectors are irrelevant to the averaging step.',
+        'Secure aggregation exploits this by having each pair of clients agree on a random mask. Client A adds the mask to its update; client B subtracts the same mask from its update. When the server sums both, the mask cancels and the true aggregate remains. With n clients, each client shares a different mask with every other client. The server receives n masked updates that are individually meaningless, but their sum is the exact aggregate it needs.',
+        'This is not encryption in the traditional sense (no ciphertext is decrypted). It is algebraic cancellation: the noise is structured so it self-destructs under addition.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A training round selects available clients, sends the current model, runs local optimization, receives updates, aggregates them, and publishes a new global model. Because client data is non-IID, updates can point in different directions. Because clients are phones or edge devices, availability and bandwidth dominate. Because updates can leak information, secure aggregation and differential privacy may be required.',
+        'A federated round proceeds in phases. First, the server selects a cohort of available clients and sends each the current global model weights. Each client trains on its local data for several gradient-descent steps, producing an update vector (the difference between its trained weights and the received weights).',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Centralized_federated_learning_protocol.png/250px-Centralized_federated_learning_protocol.png',
           alt: 'Central server coordinating model updates from several smartphones in federated learning',
           caption: 'A central federated-learning round sends a model to clients and receives updates instead of raw examples. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Centralized_federated_learning_protocol.png',
         },
-        'Secure aggregation often uses masks that cancel only when summed. Each client sends a masked update; the server can add masked updates to recover the aggregate but cannot inspect one client contribution. Practical protocols also handle client dropout, which is essential because mobile devices disappear during rounds. Shamir Secret Sharing is the next useful primitive: it explains how recovery material can be split so masks can be repaired only with a threshold of cooperating clients.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The federated-averaging view is proving that the server is a coordinator, not a data warehouse. The server sends a model out, clients train on local examples, and the only thing that comes back is an update. The client matrix is the warning label: those updates are not clean samples from one balanced dataset. Language, behavior, device quality, sample count, and availability all skew the average.',
-        'The secure-aggregation view is proving an algebraic boundary. Every random mask appears once positive and once negative across the cohort, so the masks disappear only after aggregation. The dropout frame is the production twist. If a device disappears mid-round, cancellation can break unless the protocol has recovery shares and abort thresholds. Privacy and fault tolerance are part of the same design.',
+        'Before sending updates, clients run the secure-aggregation protocol. Each pair of clients uses a shared secret (established via Diffie-Hellman key agreement) to generate a pseudorandom mask vector. Client i adds mask_ij to its update for every other client j; client j subtracts the same mask_ij. The masked updates go to the server, which sums them. Every mask appears once positive and once negative, so the sum equals the true aggregate.',
+        'Dropout is the production complication. If client j disappears after client i has already added mask_ij, the cancellation breaks. The protocol handles this with Shamir Secret Sharing: each client splits its secret key into shares distributed to other clients. If a client drops out, a threshold of surviving clients can reconstruct the dropout\'s secret, regenerate the mask, and subtract it from the sum. The round aborts only if too many clients drop simultaneously.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Federated averaging works when local training is a useful approximation to centralized gradient descent. The server is not seeing examples, but it is still combining many noisy estimates of how the model should change. Weighting by local example count can reduce variance, while cohort sampling spreads participation across the population.',
-        'Secure aggregation works because the server only needs a sum. It does not need to inspect each update to compute the mean. The cryptographic protocol exploits that narrow requirement. Differential privacy works only after update influence is bounded; clipping controls the maximum contribution and noise hides small participation effects. The price is lower signal, more rounds, or lower accuracy if the privacy budget is tight.',
+        'Federated averaging converges because averaging many noisy gradient estimates approximates what centralized training would compute. Each client\'s update is a biased sample (its local data is not representative of the whole population), but across hundreds or thousands of clients per round, the biases average out. Weighting each update by the client\'s sample count further reduces variance.',
+        'Secure aggregation works because addition is commutative and the masks are symmetric. For any mask m added by client i and subtracted by client j, the sum contains +m and -m, which cancel to zero regardless of what m is. The server learns the true sum and nothing else, provided it cannot collude with clients to reveal individual masks.',
+        'The privacy guarantee is information-theoretic against an honest-but-curious server: it literally never receives an unmasked individual update. Adding differential privacy (clipping each update to a maximum norm, then adding calibrated noise to the aggregate) provides a stronger statistical guarantee that bounds what can be inferred about any single participant, even from the aggregate.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Federated learning trades central data collection for orchestration complexity. Communication rounds are expensive. Client data is skewed. Devices have limited battery, compute, and connectivity. Secure aggregation adds cryptographic setup and dropout recovery. Differential privacy adds clipping, noise, privacy accounting, and usually some model-quality cost. Poisoning and sybil attacks remain a threat if hostile clients can participate.',
-        'The evaluation must track model quality across user slices, communication cost, privacy budget, dropout rate, fairness, and robustness. A global average can improve while minority user groups regress. A privacy budget can be consumed over repeated rounds. A secure aggregate can still be poisoned if the aggregation rule trusts every update equally. The hard question is not "can we train without uploading data?" but "can we prove the shipped model improved without hiding privacy or slice failures?"',
-        'The systems cost also appears in rollout. Client selection must avoid draining batteries or biasing toward always-online users. Updates need compression, scheduling, and retry limits. The server needs cohort ledgers, secure-aggregation round state, privacy-accountant state, and rollback records for model releases. Without those records, a team cannot explain which users influenced a model, which privacy budget was spent, or why one training round was accepted.',
+        'Communication dominates. A model with 10 million parameters requires each client to download and upload 40 MB per round (at 4 bytes per float). With 1,000 clients per round and 500 rounds, that is 40 TB of total transfer. Compression (quantization, sparsification, top-k selection) can cut this by 10-100x but introduces approximation error.',
+        'Secure aggregation adds a setup phase where every pair of clients exchanges Diffie-Hellman keys. For n clients, that is O(n^2) key exchanges per round. Google\'s production protocol batches and optimizes this, but the quadratic cost means cohort sizes beyond a few thousand require protocol modifications. Dropout recovery adds another communication round and reconstruction work proportional to the number of dropouts.',
+        'Differential privacy costs model quality. Clipping updates to norm S discards large-magnitude signals. Adding Gaussian noise with standard deviation proportional to S/epsilon degrades the signal-to-noise ratio. Tighter privacy (smaller epsilon) means more noise, which means more rounds to reach the same accuracy, which means more privacy budget spent. This is a genuine tradeoff, not a free lunch.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Federated learning is used or studied for keyboard prediction, speech personalization, mobile recommendations, health data, wearable sensors, browser telemetry, edge AI, and settings where raw data is too sensitive or too large to centralize. The same concepts connect to Parameter Server Case Study, Gradient Descent, Backpressure, and Distributed Tracing because the training loop becomes an unreliable distributed workflow.',
+        'Google deployed federated learning for next-word prediction on Gboard (the Android keyboard) starting in 2017. Each phone trains on its local typing history, and the server aggregates updates to improve suggestions without reading anyone\'s messages. Apple uses a variant for Siri voice model personalization and QuickType suggestions.',
+        'Hospitals in the MELLODDY consortium used federated learning to train drug-discovery models across ten pharmaceutical companies without sharing proprietary compound data. Each company kept its molecules local; only model updates crossed organizational boundaries.',
+        'The pattern generalizes to any setting where data cannot move: cross-border financial fraud detection (data sovereignty laws), browser telemetry (Mozilla studied federated telemetry for Firefox), and on-device health monitoring from wearable sensors.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        'Federated learning does not automatically mean private. Model updates can leak information. The server can still learn aggregate behavior. Differential privacy must be designed and accounted for. Secure aggregation hides individual updates from the aggregator, but it does not make malicious updates harmless. Another misconception is that federated learning is only a machine-learning algorithm. It is also a fleet-management, networking, security, privacy, and evaluation problem.',
-        'Practical guidance: log cohort statistics, dropout, secure-aggregation thresholds, DP spend, validation slices, and rollback decisions for every candidate model. If those records are missing, the system may be doing distributed training, but it is not producing a reviewable privacy-preserving ML artifact.',
-        'A final misconception is that keeping data local removes consent and governance work. Users still need to know what training happens, when devices participate, what leaves the device, how privacy budget is spent, and how to opt out. Federated learning narrows data movement; it does not erase the obligation to explain the system.',
+        'Federated learning does not automatically mean private. Without secure aggregation, the server sees every individual update and can run gradient inversion attacks. Without differential privacy, the aggregate itself can leak information about participants (membership inference still works against aggregates from small cohorts).',
+        'Non-IID data causes convergence problems. If one hospital sees only cardiac patients and another sees only orthopedic cases, their gradient updates point in different directions. Naive averaging produces a model that is mediocre for both. Techniques like FedProx (adding a proximal term to keep local models close to the global one) help, but the fundamental tension between local specialization and global generalization remains.',
+        'Poisoning is hard to defend against. A malicious client can send an update designed to shift the global model toward misclassifying a specific input (a backdoor attack). Because secure aggregation hides individual updates, the server cannot inspect them for anomalies. Robust aggregation rules (coordinate-wise median, trimmed mean) sacrifice some accuracy to limit outlier influence, but determined adversaries can still craft updates that look normal in aggregate statistics.',
+        'Keeping data local does not remove the need for consent and governance. Users must know when their device participates, what computation runs, what leaves the device, how the privacy budget is spent, and how to opt out.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a server trains a model with 3 parameters, and 3 clients participate in one round. The current global model is [10.0, 20.0, 30.0]. Each client downloads this model and trains locally.',
+        'Client A (50 examples) produces updated weights [10.5, 19.8, 30.3], so its update is [+0.5, -0.2, +0.3]. Client B (30 examples) produces [10.2, 20.4, 29.7], update [+0.2, +0.4, -0.3]. Client C (20 examples) produces [10.1, 20.1, 30.6], update [+0.1, +0.1, +0.6].',
+        'Without secure aggregation, the server receives all three updates in the clear and computes the weighted average. Total examples: 50+30+20 = 100. Weighted sum: 50*[+0.5,-0.2,+0.3] + 30*[+0.2,+0.4,-0.3] + 20*[+0.1,+0.1,+0.6] = [25-6+9, -10+12-6, 15-9+12] / 100... but let\'s use the simpler unweighted mean for clarity: ([+0.5,−0.2,+0.3] + [+0.2,+0.4,−0.3] + [+0.1,+0.1,+0.6]) / 3 = [+0.267, +0.1, +0.2]. New global model: [10.267, 20.1, 30.2].',
+        'Now add secure aggregation. Clients agree on pairwise masks: mask_AB = [+7, -3, +5] (A adds it, B subtracts it), mask_AC = [+2, +8, -4] (A adds, C subtracts), mask_BC = [-1, +6, +9] (B adds, C subtracts). Client A sends its update plus mask_AB plus mask_AC: [+0.5+7+2, -0.2-3+8, +0.3+5-4] = [+9.5, +4.8, +1.3]. Client B sends its update minus mask_AB plus mask_BC: [+0.2-7-1, +0.4+3+6, -0.3-5+9] = [-7.8, +9.4, +3.7]. Client C sends its update minus mask_AC minus mask_BC: [+0.1-2+1, +0.1-8-6, +0.6+4-9] = [-0.9, -13.9, -4.4].',
+        'The server sums: [9.5-7.8-0.9, 4.8+9.4-13.9, 1.3+3.7-4.4] = [+0.8, +0.3, +0.6]. Dividing by 3: [+0.267, +0.1, +0.2]. This is identical to the unmasked average. Every mask appeared once as addition and once as subtraction, so they vanished. The server computed the correct aggregate without ever seeing any individual update.',
+        'If client C drops out after sending its masked update, the server has [9.5, 4.8, 1.3] + [-7.8, 9.4, 3.7] + [-0.9, -13.9, -4.4] but cannot remove C\'s contribution cleanly without knowing mask_AC and mask_BC. Using Shamir shares, clients A and B reconstruct C\'s secret, regenerate the masks C used, subtract them from C\'s masked update to effectively remove C, and the server re-averages over the remaining two clients.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Federated Averaging at https://arxiv.org/abs/1602.05629, Practical Secure Aggregation at https://eprint.iacr.org/2017/281 and https://research.google/pubs/practical-secure-aggregation-for-privacy-preserving-machine-learning/, and Deep Learning with Differential Privacy at https://arxiv.org/abs/1607.00133. Study Shamir Secret Sharing, Gradient Descent, Parameter Server Case Study, Batch Size Scaling, Backpressure, Differential Privacy SGD, Membership Inference Shadow Model Case Study, Model Inversion Confidence Attack, and Privacy-aware evaluation topics next.',
+        'McMahan et al., "Communication-Efficient Learning of Deep Networks from Decentralized Data" (2017, https://arxiv.org/abs/1602.05629) introduced federated averaging. Bonawitz et al., "Practical Secure Aggregation for Privacy-Preserving Machine Learning" (2017, https://eprint.iacr.org/2017/281) designed the mask-cancellation protocol with dropout recovery. Abadi et al., "Deep Learning with Differential Privacy" (2016, https://arxiv.org/abs/1607.00133) established how to clip and noise gradients for formal privacy guarantees.',
+        'Study Shamir Secret Sharing next to understand how dropout recovery distributes key material. Gradient Descent explains the optimization step each client runs locally. Differential Privacy SGD covers the clipping-and-noise mechanism in detail. Parameter Server Case Study shows the distributed-systems infrastructure that federated systems build on. Membership Inference Shadow Model Case Study and Model Inversion Confidence Attack illustrate the attacks that motivate secure aggregation in the first place.',
       ],
     },
   ],

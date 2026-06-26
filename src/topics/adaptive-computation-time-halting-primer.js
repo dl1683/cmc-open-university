@@ -344,70 +344,78 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation traces the ACT state machine step by step. Active nodes (highlighted) are the current computation point -- the recurrent core producing a new state and halt probability. Found markers show the moment cumulative halt mass reaches one and the model emits its answer. Compare markers show the alternative path: looping back for another recurrent step.',
-        'In the halting-mass view, each row of the table is one recurrent step. Watch the cumulative probability column climb toward one. The final row uses a remainder -- not the raw halt probability -- so the weights sum exactly. The action column is not decoration; it is the runtime branch between "continue" and "emit."',
-        'In the recurrent-depth view, positions process in parallel but halt independently. Ambiguous tokens stay active longer while simple tokens freeze early. The graph shows shared weights applied in a loop, not a fixed stack of distinct layers.',
-        'At each frame, ask: how much halt mass has accumulated, which examples or positions are still active, and what the ponder cost would be if the model stopped here versus continuing.',
+        'The animation has two views. In the halting-mass view, each row is one recurrent step. The cumulative probability column climbs toward one. Active highlights mark the halt probability cells that contribute mass; the found marker appears on the final action cell when cumulative mass reaches one and the model emits its answer.',
+        'In the recurrent-depth view, positions process in parallel but halt independently. Ambiguous tokens stay active longer (more highlighted steps) while simple tokens freeze early. The graph uses shared weights applied in a loop -- not a fixed stack of distinct layers.',
+        'At each frame, track three quantities: how much halt mass has accumulated so far, which examples or positions are still active, and how the ponder cost changes if the model continues versus stops. The final row always uses a remainder -- not the raw halt probability -- so the output weights sum to exactly one.',
         {type: 'callout', text: 'ACT turns compute depth into trainable state: halt mass, remainder, active mask, and ponder cost decide when thinking stops.'},
-      
+
         {type: 'image', src: './assets/gifs/adaptive-computation-time-halting-primer.gif', alt: 'Animated walkthrough of the adaptive computation time halting primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Fixed-depth neural networks spend the same compute on every input. A trivial addition and a five-step logical deduction both pass through the same number of layers or recurrent steps. That uniformity simplifies batching and hardware utilization, but it wastes work on easy inputs and starves hard ones.',
+        'Fixed-depth neural networks spend the same compute on every input. A trivial addition like 2+3 and a five-step logical deduction like "if A implies B and B implies C and C implies D, does A imply D?" both pass through the same number of layers. That uniformity simplifies GPU batching but wastes work on easy inputs and starves hard ones.',
         {
           type: 'quote',
           text: 'An RNN should learn how many computational steps to take between receiving an input and emitting an output.',
           attribution: 'Alex Graves, "Adaptive Computation Time for Recurrent Neural Networks," 2016',
         },
-        'Graves proposed ACT to make computation depth a learned variable. The model emits a halting probability at each step, accumulates that mass, and stops when the total reaches one. The result is a network that can spend two steps on "2+2" and five steps on "is this sentence sarcastic?" -- without a human writing the branching rule.',
-        'The idea matters beyond RNNs. Every modern system that adjusts how hard it thinks -- chain-of-thought reasoning, early-exit inference, test-time compute scaling -- descends from this framing. ACT turned "think longer on hard problems" from a vague aspiration into a differentiable mechanism with concrete buffers: hidden state, halt probability, cumulative mass, remainder, active mask, and ponder cost.',
+        'Alex Graves proposed Adaptive Computation Time (ACT) in 2016 to make computation depth a learned variable. The model emits a halting probability at each recurrent step, accumulates that probability mass, and stops when the total reaches one. The result is a network that can spend two steps on "2+3" and eight steps on a multi-hop logic chain -- without a human writing the branching rule.',
+        'The idea extends far beyond RNNs. Every modern system that adjusts how hard it thinks -- chain-of-thought reasoning, early-exit inference, test-time compute scaling -- descends from this framing. ACT turned "think longer on hard problems" from a vague aspiration into a differentiable mechanism backed by concrete data structures: hidden state, halt probability, cumulative mass, remainder, active mask, and ponder cost.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is a fixed compute budget. Build a Transformer with L layers or an RNN that runs for T steps, and send every input through the full stack. This is simple to implement, simple to batch on GPUs, and simple to reason about: every forward pass takes the same time.',
-        'A slightly more sophisticated attempt is a hand-coded confidence threshold. Run the model, check the output distribution, and stop early if the top class has probability above 0.95. This saves compute on easy cases without changing the architecture.',
-        'Both approaches are defensible starting points. Fixed depth works well when most inputs have similar difficulty. Confidence thresholds work when the model is well-calibrated and the output distribution is a reliable signal of internal certainty.',
+        'The first reasonable attempt is a fixed compute budget. Build an RNN that always runs for T steps, or a Transformer with L layers, and send every input through the full stack. Implementation is simple, GPU batching is trivial, and latency is predictable: every forward pass takes exactly the same time.',
+        'A slightly better attempt is a hand-coded confidence threshold. Run the model, check the output distribution after each layer or step, and stop early if the top class has probability above 0.95. This saves compute on easy cases without changing the architecture or retraining.',
+        'Both are defensible starting points. Fixed depth works when most inputs have similar difficulty -- say, classifying MNIST digits, where a "7" is about as hard to recognize as a "3." Confidence thresholds work when the model is well-calibrated and its output distribution reliably tracks internal certainty.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Fixed depth hits a wall when difficulty varies widely. If T=3 is enough for 80% of inputs but T=8 is needed for the hard 20%, you face a lose-lose choice. Setting T=8 wastes five steps on most inputs. Setting T=3 damages the hard tail. There is no single budget that serves both populations well.',
-        'Confidence thresholds hit a different wall: they are not trained jointly with the model. The threshold is a post-hoc rule applied to an output distribution that was never optimized to be a reliable halting signal. Miscalibrated models can be confidently wrong (halt too early) or perpetually uncertain (never halt). The stopping policy has no gradient -- the model cannot learn to produce better halting signals from task loss.',
-        'The core problem is that both approaches treat computation depth as a hyperparameter chosen before training, not as a variable the model learns during training. ACT closes this gap by making the halting decision differentiable.',
+        'Fixed depth hits a wall when difficulty varies widely. Suppose T=3 steps suffice for 80% of inputs but the hard 20% need T=8. Setting T=8 wastes five steps on the easy majority. Setting T=3 damages the hard tail. There is no single budget that serves both populations without wasting compute or sacrificing accuracy.',
+        'Confidence thresholds hit a different wall: the stopping rule is not trained jointly with the model. The threshold is a post-hoc rule applied to an output distribution that was never optimized to be a reliable halting signal. Miscalibrated models can be confidently wrong (halt too early on adversarial inputs) or perpetually uncertain (never halt on ambiguous ones). The stopping policy has no gradient -- the model cannot learn to produce better halting signals from task loss.',
+        'Both approaches treat computation depth as a hyperparameter chosen before training. Neither lets the model learn, from data, how many steps each input actually needs. ACT closes this gap by making the halting decision differentiable and jointly trained with the task objective.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that stopping can be treated as probability mass. Instead of a binary "stop or continue" gate, each recurrent step emits a scalar halt probability p_t between 0 and 1. These probabilities accumulate across steps, and the model stops when the total mass reaches one. The final output is a weighted average of all intermediate states, with weights equal to the halt probabilities (and a remainder on the last step to make them sum to exactly one).',
+        'This turns halting into a differentiable operation. The weights form a convex combination, so the output changes smoothly as the halt probabilities change, and gradients flow backward through the "when to stop" path just as they flow through the "what to compute" path. The model can learn both what to compute and when to stop from the same task loss.',
+        'A ponder cost penalty -- a loss term proportional to the number of steps used -- completes the mechanism by giving the optimizer a reason to halt early. Without it, more steps are always free. With it, each additional step must justify its cost by improving the task loss more than the penalty charges. The penalty weight tau controls the tradeoff: high tau compresses computation, low tau allows generous thinking.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'At each recurrent step t, the core network reads the current hidden state and produces two outputs: an updated state h_t and a scalar halt probability p_t (passed through a sigmoid). The runtime maintains a running sum of halt probabilities. If the cumulative mass is still below one, the example stays active and another step runs.',
-        'When the next p_t would push the cumulative sum past one, the runtime does not use p_t directly. Instead it assigns the final step a remainder weight: R = 1 - (sum of all previous p values). This guarantees the output weights sum to exactly one. The model\'s final prediction is the weighted combination: y = p_1*h_1 + p_2*h_2 + ... + R*h_N.',
+        'At each recurrent step t, the core network reads the current hidden state and produces two outputs: an updated state h_t and a scalar halt probability p_t (produced by a linear layer followed by a sigmoid). The runtime maintains a running sum of halt probabilities across steps.',
+        'If the cumulative sum is still below one, the example stays active: the hidden state is updated to h_t and another step runs. When the next p_t would push the cumulative sum past one, the runtime does not use p_t directly. Instead it assigns the final step a remainder weight: R = 1 - (sum of all previous p values). This guarantees the output weights sum to exactly one.',
+        'The model\'s final prediction is the weighted combination: y = p_1*h_1 + p_2*h_2 + ... + R*h_N, where N is the number of steps actually taken.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A directed graph clarifies the recurrent control loop: update state, add halt mass, emit or loop. Source: Wikimedia Commons, David W., public domain.'},
         {
           type: 'code',
           language: 'python',
           text: '# Halting probability accumulation (simplified)\ncum_prob = 0.0\nstep_weights = []\nfor t in range(max_steps):\n    h_t = core_network(state)       # updated hidden state\n    p_t = sigmoid(halt_head(h_t))   # halt probability\n    if cum_prob + p_t >= 1.0:\n        remainder = 1.0 - cum_prob\n        step_weights.append(remainder)\n        break\n    step_weights.append(p_t)\n    cum_prob += p_t\n    state = h_t\n# output = sum(w_t * h_t for each step t)',
         },
-        'An active mask tracks which examples in the batch are still computing. Halted examples are frozen -- their states are not updated by later steps even though the batch continues running for other examples. The ponder cost adds a loss term proportional to the number of steps used (or the cumulative halt mass), giving the optimizer a reason to stop early when extra steps do not improve the answer. A hard cap on maximum steps prevents unbounded loops when the halt unit is uncertain.',
+        'An active mask tracks which examples in the batch are still computing. Halted examples are frozen -- their states are not updated by later steps, even though the batch continues running for other examples. The ponder cost adds a loss term proportional to the number of steps used (or equivalently the cumulative halt mass), giving the optimizer pressure to stop early when extra steps do not improve the answer. A hard cap on maximum steps prevents unbounded loops when the halt unit is uncertain.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The key correctness property is that the output is a convex combination of intermediate states, with weights summing to one by construction. This makes the output a smooth function of the halt probabilities, so gradients flow through both the "what to compute" path (the recurrent core) and the "when to stop" path (the halt unit).',
-        'The remainder is the critical detail. Without it, halt probabilities could overshoot (weights sum to more than one) or leave mass unassigned (weights sum to less than one). Either breaks the convex combination. The remainder absorbs the difference, keeping the mixture well-formed regardless of what the halt unit produces.',
-        'The ponder penalty converts the halting decision into an explicit accuracy-versus-compute tradeoff. Without it, the model would always prefer more steps -- extra computation is free. With it, the model must justify each additional step by improving the task loss more than the ponder cost penalizes. The penalty weight tau is the knob: large tau forces early halting; small tau allows generous computation.',
-        'The active mask ensures that halting has runtime consequences. If halted states could be silently updated by later steps, the model would learn that halting is meaningless -- the gradient signal for the halt unit would decouple from actual compute savings. The mask makes the learned policy match the deployed behavior.',
+        'The output is a convex combination of intermediate states, with weights summing to one by construction. This makes the output a smooth, differentiable function of the halt probabilities. Gradients flow through both the "what to compute" path (the recurrent core producing h_t) and the "when to stop" path (the halt unit producing p_t). The model can improve its task accuracy and its halting decisions simultaneously.',
+        'The remainder is the critical mechanism detail. Without it, halt probabilities could overshoot (weights sum to more than one, breaking the convex combination) or leave mass unassigned (weights sum to less than one, producing an unnormalized mixture). The remainder absorbs the difference: R = 1 - sum(p_1 ... p_{N-1}), keeping the mixture valid regardless of what the halt unit produces.',
+        'The ponder penalty converts halting into an explicit accuracy-versus-compute tradeoff. Without the penalty, more steps are always weakly better -- extra computation is free from the optimizer\'s perspective. With it, the total loss is L_task + tau * N(x), where N(x) is the number of steps for input x. The model must earn each additional step by reducing task loss more than tau penalizes. The penalty weight tau is the tuning knob: tau = 0.01 allows generous thinking; tau = 1.0 forces aggressive compression.',
+        'The active mask ensures halting has runtime consequences. If halted states could be silently updated by later steps, the model would learn that the halt decision is meaningless -- the gradient signal for the halt unit would decouple from actual compute savings. The mask makes training behavior match deployed behavior: once halted, the state is frozen.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'ACT adds per-step overhead: one sigmoid computation for the halt head, one comparison against the cumulative threshold, and bookkeeping for the active mask and remainder. These costs are tiny relative to the recurrent core. The real cost is sequential depth -- each step depends on the previous state, so the maximum number of steps bounds latency.',
+        'ACT adds per-step overhead: one sigmoid computation for the halt head (a single linear layer mapping d-dimensional hidden state to a scalar), one comparison against the cumulative threshold, and bookkeeping for the active mask and remainder. These costs are negligible relative to the recurrent core. The real cost is sequential depth -- each step depends on the previous state, so the maximum step count directly bounds worst-case latency.',
         {
           type: 'table',
           headers: ['Component', 'Cost', 'Note'],
@@ -419,25 +427,36 @@ export const article = {
             ['Max steps cap', 'Constant', 'Hard upper bound prevents runaway'],
           ],
         },
-        'The savings come from early halting. If 70% of inputs halt after 2 steps and the max is 10, the average compute drops substantially. But on accelerators, variable-length computation within a batch creates padding waste. The theoretical FLOP savings may not translate to proportional wall-clock gains unless the batch is reorganized (e.g., by sorting inputs by predicted difficulty or using dynamic batching).',
-        'Training is more expensive than fixed-depth models because the halt policy, ponder weight, maximum steps, and halt bias all become hyperparameters. Getting these wrong produces models that halt too eagerly (accuracy drops) or too late (no compute savings). The search space is manageable but nontrivial.',
+        'The savings come from early halting. Consider a batch of 128 examples with max_steps = 10. If 90 examples halt after 2 steps and the remaining 38 need all 10, the average steps per example is (90*2 + 38*10) / 128 = 4.4 -- a 56% reduction versus running all 128 for 10 steps. But on accelerators, the batch runs until the last active example finishes: wall-clock time is bounded by the slowest example, not the average. The theoretical FLOP savings only translate to real wall-clock gains if the batch is reorganized -- e.g., by sorting inputs by predicted difficulty or using dynamic batching to retire halted examples early.',
+        'Training is more expensive than fixed-depth models because the halt policy introduces four new hyperparameters: ponder weight tau, maximum steps cap, halt sigmoid bias initialization, and active mask implementation. Getting these wrong produces models that halt too eagerly (accuracy drops) or too late (no compute savings). The search space is manageable but nontrivial.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'ACT wins on tasks where input difficulty genuinely varies and extra internal steps improve hard cases. Graves demonstrated this on parity (bit strings of varying length need different numbers of XOR operations), sorting (longer sequences need more comparisons), and logic (deeper formulas need more evaluation steps). The common thread: the number of internal operations is a function of the input, not a constant.',
-        'The idea also wins as a conceptual ancestor. Universal Transformer (Dehghani et al., 2018) applied ACT to Transformer depth, letting each position halt at a different layer. PonderNet (Banino et al., 2021) replaced the cumulative-mass accumulator with a learned halting distribution, reducing sensitivity to the ponder weight. Modern chain-of-thought and test-time compute systems -- where an LLM decides how many reasoning tokens to produce before answering -- are ACT\'s spiritual descendants.',
-        'In production, the pattern appears whenever a system must allocate variable compute under a budget: speculative decoding (try cheap drafts, fall back to expensive verification), early-exit inference (skip later layers when intermediate representations are confident), and mixture-of-depths routing (send only some tokens through expensive layers).',
+        'Graves demonstrated ACT on parity (bit strings of varying length require different numbers of XOR operations), sorting (longer sequences need more comparisons), and logic (deeper formulas need more evaluation steps). In each case, the number of internal operations needed is a function of the input, not a constant. The parity task showed the clearest adaptive behavior: 8-bit strings halted in 8 steps, 16-bit strings in roughly 16, with compute scaling proportionally to problem size.',
+        'The Universal Transformer (Dehghani et al., 2018) applied ACT to Transformer depth, letting each position in a sequence halt at a different layer. This produced strong results on algorithmic tasks like copying and reversing, where some positions (e.g., the first symbol vs. the last) require genuinely different amounts of processing. PonderNet (Banino et al., 2021) replaced the cumulative-mass accumulator with a learned geometric halting distribution, reducing sensitivity to the ponder weight tau.',
+        'In production, ACT\'s pattern appears wherever a system allocates variable compute under a budget. Speculative decoding tries cheap draft tokens and falls back to expensive verification. Early-exit inference skips later Transformer layers when intermediate representations are already confident. Mixture-of-depths routing sends only a subset of tokens through expensive layers. These are all descendants of the same core question: how much work does this input deserve?',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'ACT fails silently when the halt unit is poorly initialized. If the sigmoid bias starts too high, the model halts after one step on every input and never explores deeper computation. If it starts too low, every input runs to the maximum cap and the ponder penalty dominates learning. Both look like training -- loss decreases -- but the model has not learned adaptive behavior.',
-        'The remainder path is fragile. If the remainder gradient is accidentally detached (a common implementation bug in autograd frameworks), the model receives no signal about when to stop. The forward pass runs correctly, but the halt unit does not learn. This failure is invisible at inference time unless you inspect step-count distributions.',
-        'Variable depth also creates evaluation traps. Average accuracy can improve while tail accuracy degrades -- the model learns to spend less compute on hard cases because the ponder penalty outweighs the accuracy gain on rare inputs. Evaluating ACT requires quality-by-difficulty-slice reporting, not just mean metrics.',
+        'ACT fails silently when the halt unit is poorly initialized. If the sigmoid bias starts too positive (say, +3), the initial halt probability is near 1.0 for every input, so the model halts after one step and never explores deeper computation. If the bias starts too negative (say, -3), every input runs to the maximum cap and the ponder penalty dominates learning. Both look like training -- loss decreases -- but the model has not learned adaptive behavior. The fix is deliberate bias initialization: Graves used a bias of +1, which gives an initial halt probability around 0.73.',
+        'The remainder gradient path is fragile. If the remainder is accidentally detached from the computation graph (a common autograd bug when implementing the "break out of the loop" logic), the model receives no gradient signal about when to stop. The forward pass runs correctly and predictions look fine, but the halt unit never learns. This failure is invisible unless you inspect step-count distributions and notice every example taking the same number of steps.',
+        'Variable depth creates evaluation traps. Average accuracy can improve while tail accuracy degrades -- the model learns to spend less compute on hard cases because the ponder penalty outweighs the accuracy gain on rare inputs. Evaluating ACT requires quality-by-difficulty-slice reporting. Mean accuracy alone hides the problem.',
         'For large-scale LLM serving, ACT-style mechanisms are usually too fine-grained. Production systems prefer coarser controls: early exit at the layer level, speculative decoding at the token level, or routing at the request level. These give operators explicit knobs for latency budgets and SLA compliance, which a learned halt unit does not directly provide.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a 256-dimensional RNN with ACT processes the input "bank" in a sentence-disambiguation task. The halt head is a single linear layer mapping 256 dimensions to 1 scalar, followed by sigmoid. Max steps = 6, ponder weight tau = 0.01.',
+        'Step 1: The core network reads the initial embedding and produces h_1. The halt head outputs sigmoid(-0.8) = 0.31. Cumulative mass: 0.31. Still below 1.0, so the example stays active.',
+        'Step 2: The core reads h_1 plus the original input and produces h_2. The halt head outputs sigmoid(-0.4) = 0.40. Cumulative mass: 0.31 + 0.40 = 0.71. Still active.',
+        'Step 3: The core produces h_3. The halt head outputs sigmoid(0.1) = 0.52. But 0.71 + 0.52 = 1.23, which exceeds 1.0. The runtime does not use 0.52. Instead it computes the remainder: R = 1.0 - 0.71 = 0.29. The example halts.',
+        'The final output is: y = 0.31 * h_1 + 0.40 * h_2 + 0.29 * h_3. The weights sum to 0.31 + 0.40 + 0.29 = 1.00 exactly. The ponder cost for this example is N(x) = 3 steps, contributing 0.01 * 3 = 0.03 to the total loss.',
+        'Compare an easy input like "the" in the same batch. Step 1: halt probability = sigmoid(1.2) = 0.77. Step 2: halt probability = sigmoid(0.6) = 0.65, but 0.77 + 0.65 > 1.0, so remainder R = 0.23. Output: y = 0.77 * h_1 + 0.23 * h_2. Only 2 steps, ponder cost = 0.02. The ambiguous word "bank" consumed 50% more compute than the unambiguous word "the" -- exactly the adaptive behavior ACT is designed to produce.',
       ],
     },
     {

@@ -186,170 +186,97 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Capability Security & Attenuation. A primer on capability security: unforgeable references, least authority, delegation, attenuation, revocation, membranes, and confused-deputy resistance..",
+        'The animation has two views. The "object capability" view builds a directed graph of actors, references, and resources, then shows delegation and attenuation as graph operations. The "attenuation and revocation" view shows a root capability being split into weaker references, wrapped by a membrane, and cut by a revocation switch.',
         {type: "callout", text: "Authority is safe only when it travels through explicit unforgeable references rather than ambient reachability."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/capability-security-attenuation.gif', alt: 'Animated walkthrough of the capability security attenuation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Active (highlighted) nodes are the current focus of the operation. Found nodes are outcomes now established. Compare nodes show what is excluded or contrasted. At each frame, ask: what edge was added or removed, and why does that change what the actor can do?',
+        {type: 'image', src: './assets/gifs/capability-security-attenuation.gif', alt: 'Animated walkthrough of the capability security attenuation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
-      heading: 'Problem',
+      heading: 'Why this exists',
       paragraphs: [
-        `Most software security bugs are not caused by a program needing no authority at all. They are caused by a program receiving more authority than the current job requires. A markdown previewer needs to read one document. A formatter needs to read a source file and write a replacement buffer. A package installer may need network access, a cache directory, and a narrow write path. If all of those components inherit the whole filesystem, process environment, credential store, and network by default, then a small bug or malicious dependency can exercise power that had nothing to do with the task.`,
-        `Capability security turns authority into something concrete. The right to act is not a global mood attached to a process or a user name. It is carried by an unforgeable reference. If code has a reference to an object, and that reference exposes a method, then code can send that message. If code never receives such a reference, it has no path to the resource through that object-capability graph. The central design question becomes: which references did this component receive, and how narrow are the operations behind those references?`,
+        'Most security bugs are not caused by code that needs zero authority. They are caused by code that receives far more authority than the current task requires. A markdown previewer needs to read one document, but it inherits the entire filesystem, credential store, and network of the process that launched it. A single bug or malicious dependency in that previewer can exercise power that had nothing to do with rendering markdown.',
+        'Capability security exists to make authority concrete and narrow. Instead of granting power through ambient process-level privileges, the system hands each component an unforgeable reference that exposes only the operations that component needs. If a component never receives a reference to a resource, it has no path to that resource, period. The security question becomes structural: which references did this code receive, and how narrow are the operations behind them?',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The usual first design is an access-control list. Each protected object has a table that says which users, groups, roles, or service accounts may perform which operations. On every operation, the resource asks whether the caller is on the list. This is a useful model for many durable authorization problems. A document service really does need to answer questions like whether user 123 can comment on document 456 because of a team, folder, organization, or sharing relation.`,
-        `But ACL thinking becomes awkward for local delegation. Suppose Alice has a file handle and wants Bob, an untrusted plugin, to format exactly that file. Editing a global permission table to represent this one temporary interaction is too broad. Bob may run under the same user account as Alice. Bob may be able to call ambient APIs that never mention the current file. The table may answer the identity question correctly while the runtime still gives Bob too many paths to act.`,
+        'The usual first design is an access-control list (ACL). Each protected resource has a table mapping users, groups, or roles to allowed operations. On every call, the system checks whether the caller\'s identity appears in the table. This works well for durable authorization: a document service genuinely needs to answer whether user 123 can comment on document 456 based on team membership, folder hierarchy, or sharing relation.',
+        'But ACLs become awkward for local, temporary delegation. Suppose Alice has a file handle and wants Bob, an untrusted plugin, to format exactly that file. Editing a global permission table for this one interaction is overkill. Bob may run under the same user account as Alice. Bob may call ambient APIs that have nothing to do with the current file. The ACL answers the identity question correctly while the runtime still gives Bob too many paths to act.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is ambient authority. A component can often do things merely because it is running in a process with broad privileges, not because the caller deliberately supplied the needed authority for this call. Environment variables, current working directory, global filesystem objects, inherited sockets, process-wide credentials, and singleton clients all create hidden edges. Those edges defeat least authority because the component can reach resources that were never part of the local request.`,
-        `Delegation is the second wall. In real systems, authority is passed from one actor to another all the time: a user gives a photo app access to one album, an editor gives a plugin access to one buffer, an orchestration service gives a job access to one secret, or a parent object gives a child object access to a helper. A global table can represent some of this, but it does not naturally express the shape "this exact object reference, with these exact methods, for this exact path, until this revoker says stop."`,
+        'The first wall is ambient authority. A component can do things simply because it runs in a process with broad privileges, not because the caller deliberately supplied authority for this specific call. Environment variables, the current working directory, inherited sockets, process-wide credentials, and global filesystem objects all create hidden edges in the authority graph. Those edges defeat least-authority because the component can reach resources that were never part of the local request.',
+        'The second wall is delegation shape. In real systems, authority passes between actors constantly: a user gives a photo app access to one album, an editor gives a plugin access to one buffer, a job runner gives a task access to one secret. A global ACL can represent some of this, but it does not naturally express "this exact object reference, with these exact methods, for this exact path, until this revoker says stop." The shape of the delegation is richer than what a flat table can capture.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `A capability is both designation and authority. Designation means the reference names the object. Authority means the holder may use the operations exposed through that reference. Those two facts are intentionally fused. You do not first name an object by a global string and then ask a separate access-control table whether you may use it. You use the object through the reference you were given.`,
-        `This makes security look like a graph problem. Actors, services, resources, proxies, and revokers are nodes. Capability references are directed edges. If Alice sends Bob a reference, delegation adds an edge from Bob to the object or to a proxy in front of the object. If Bob never receives the edge and cannot forge it, Bob cannot use that path. Least authority becomes a construction rule: build the graph so every component receives only the edges needed for the work it was asked to perform.`,
+        'A capability fuses two properties into one object. Designation: the reference names the resource. Authority: the holder may call the operations exposed through that reference. You do not first name an object by a global string and then consult a separate table about whether you may use it. You use the object through the reference you were given. If you were never given the reference and cannot forge one, you cannot act.',
+        'This makes security a graph problem. Actors, resources, proxies, and revokers are nodes. Capability references are directed edges. If Alice sends Bob a reference, that adds an edge from Bob to the resource (or to a proxy in front of it). If Bob never receives the edge and cannot fabricate it, Bob has no path to the resource. Least authority becomes a construction rule: build the graph so every component receives only the edges it needs for the work it was asked to do.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with nodes connected by arrows`, caption: `Capability security is reachability in a directed graph: authority exists only along explicit edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.`},
-        `Attenuation is the operation that makes a stronger capability weaker before sharing it. A wrapper can remove write methods, limit a path prefix, enforce a time limit, decrement a budget counter, record an audit trail, or translate a large API into a narrow one. Revocation is the operation that makes a previously shared path stop working, usually by placing a forwarder or switch on the path and later turning it off.`,
+        'Attenuation is the operation that makes a stronger capability weaker before sharing. A wrapper can remove write methods, limit a path prefix, enforce a time limit, decrement a budget counter, or log every call. Revocation is the operation that makes a previously shared path stop working, typically by interposing a switch on the forwarding path and later turning it off.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The smallest capability system needs only a few pieces. First, references must be unforgeable. Code may receive a reference, store it, call it, or pass it on, but it may not invent a working reference from an arbitrary string. Second, objects must avoid ambient escape hatches. If every object can reach global filesystem and network APIs, then the visible graph is a lie. Third, delegation must be ordinary message passing: a holder of a capability can introduce another actor to that capability by sending the reference.`,
-        `Attenuation is usually implemented with a proxy. The proxy holds the stronger target reference privately and exposes a smaller surface. A read-only file proxy forwards read calls and rejects write calls. A path-limited directory proxy checks that every requested child path stays under an allowed prefix. A budget proxy decrements a counter before forwarding. A logging proxy records method, caller, and resource before allowing the call. The delegate receives the proxy, not the original object, so all of its calls pass through the narrowing policy.`,
+        'A capability system requires three properties. First, references must be unforgeable: code can receive, store, invoke, or pass a reference, but it cannot invent a working reference from an arbitrary string or integer. Second, the runtime must not provide ambient escape hatches. If every object can reach a global filesystem API, the capability graph is a lie. Third, delegation is ordinary message passing: a holder of a capability introduces another actor to it by sending the reference.',
+        'Attenuation is implemented with a proxy. The proxy holds the stronger reference privately and exposes a smaller surface. A read-only file proxy forwards read calls and rejects write calls. A path-limited directory proxy checks that every child path stays under an allowed prefix. A budget proxy decrements a counter before forwarding. The delegate receives the proxy, not the original object, so every call passes through the narrowing policy.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png`, alt: `Decision tree model diagram with branches leading to leaves`, caption: `An attenuating proxy acts like a small decision gate on every call: allow, reject, log, meter, or narrow before forwarding. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Decision_tree_model.png.`},
-        `Membranes extend that idea across an object graph. If a proxy forwards one call and the target returns another object, the returned object can accidentally become an escape route. A membrane wraps not only the first object but also the objects reached through it. The wrapper preserves the same policy across returned references, so read-only access does not become write access just because the delegate called a method that returned a child object.`,
-        `Revocation usually needs indirection. If Alice gives Bob the original file object directly, Alice cannot later make only Bob's copy stop without changing the file object for everyone. If Alice gives Bob a revocable forwarder, future calls pass through a live bit or revocation cell. Flipping that cell makes Bob's path stop, while unrelated holders of other references continue to work.`,
+        'Membranes extend attenuation across an object graph. If a proxy forwards a call and the target returns another object, the returned object can become an escape route. A membrane wraps not just the first object but every object reached through it. Read-only access does not become write access just because a method returned a child object.',
+        'Revocation requires indirection. If Alice gives Bob the original file object directly, she cannot later cut only Bob\'s access without affecting everyone. If she gives Bob a revocable forwarder, future calls pass through a live-bit cell. Flipping that bit makes Bob\'s path stop while unrelated holders of other references keep working.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The key invariant is "no reference, no authority." That statement is only true under object-capability discipline: references are unforgeable, powerful globals are removed or wrapped, and authority is obtained only by receiving references through existing paths. Under those conditions, the reference graph is not just a diagram. It is the security boundary.`,
-        `Attenuation works because the delegate does not receive the strong edge. The proxy keeps the strong reference inside a smaller object and exposes only the safe behavior. The delegate can call what it holds, but what it holds is the weaker object. This is why the design is stronger than giving a component a broad API and asking it to behave. The component cannot call methods that are not on the reference it received.`,
-        `Revocation works when every call that should be revocable crosses the revoker. The revoker does not need to find all copies of a reference in the heap. It only needs to make the forwarding path refuse future calls. That also explains the limitation: revocation is reliable for paths you interposed before sharing. It does not magically cancel direct references that were already leaked around the revoker.`,
+        'The central invariant is "no reference, no authority." This holds only under object-capability discipline: references are unforgeable, powerful globals are removed or wrapped, and authority is obtained exclusively by receiving references through existing graph paths. Under those conditions, the reference graph is not just a diagram -- it is the security boundary itself.',
+        'Attenuation works because the delegate never receives the strong edge. The proxy keeps the strong reference private and exposes only safe behavior. The delegate can call what it holds, but what it holds is the weaker object. This is stronger than giving a component a broad API and trusting it to self-limit: the component literally cannot call methods that are not on the reference it received.',
+        'Revocation works when every call that should be revocable crosses the revoker node. The revoker does not need to find all copies of a reference in memory. It only needs to make the forwarding path refuse future calls. The limitation follows directly: revocation is reliable for paths you interposed before sharing, not for direct references that were already leaked around the revoker.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Imagine an editor that supports third-party formatters. The editor itself has broad authority: it can read the workspace, write buffers, open network connections for extension updates, and read user settings. A formatter does not need all of that. For one formatting request, the editor can create a narrow capability that reads only the current buffer, writes only a replacement buffer, and exposes no direct filesystem or network operation.`,
-        `Now suppose the formatter calls a helper library. In a capability system, the formatter can pass only the capabilities the helper needs. If the helper needs to parse the current text, it receives a read capability. If it needs to report diagnostics, it receives a diagnostic sink. It does not inherit the editor's root authority just because it runs inside the same process. Authority flows along explicit references.`,
-        `Add attenuation and revocation. The editor gives the formatter a path-limited directory capability for a temporary scratch directory. The capability is actually a proxy with a prefix check, a byte budget, and an audit log. The editor also places a revocation switch in front of it. When the formatting task finishes or the extension is disabled, the switch flips. The formatter may still hold an old object reference, but calls through that reference now stop at the forwarder.`,
-      ],
-    },
-    {
-      heading: 'What the animation shows',
-      paragraphs: [
-        `The object-capability view starts with Alice, a capability, and a file. The important fact is not the names of the nodes. It is reachability. Alice can use the file because Alice has an edge to a reference that reaches the file. The denied node is outside that path. It may know that a file exists, but it has no usable edge to it.`,
-        `The delegation frame shows Alice introducing Bob to the capability. Nothing about the file's global identity has to change. The local graph changes because Bob now holds a usable reference. The matrix frame contrasts this with ACLs, Zanzibar-style relation graphs, and bearer tokens. The point is not that one model replaces all others. The point is that each model stores authority in a different place, so each model has different leak, staleness, and ambient-authority risks.`,
-        `The attenuation and revocation view shows root authority being split into weaker references, then wrapped by a membrane and a switch. Follow the forwarding path. The read-only or time-limited capability reaches the membrane, then the revocation switch, then the object. When the switch is turned off, the object still exists and other references may still work, but this delegated path no longer forwards.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The runtime cost is extra indirection. Proxies add method calls. Membranes add wrapper allocation and identity bookkeeping. Revocation adds a branch on the forwarding path. Audit, budget, and time checks add state. In a fine-grained object graph, those costs can matter. In many security-sensitive systems, the cost is acceptable because the alternative is broad authority with weak confinement.`,
-        `The engineering cost is discipline. A single unrestricted global can bypass the whole model. Reflection, dynamic module loading, native extensions, process-wide credentials, shared mutable singletons, and raw bearer URLs all need careful treatment. Capability security is easiest when the language or runtime helps: object references are unforgeable, imports are controlled, and dangerous authority is not placed in the global namespace by default.`,
-        `There is also a modeling tradeoff. Capabilities are excellent for local authority transfer, but they do not automatically answer every historical or organizational authorization question. A storage service may still need relationship-based authorization to decide whether a user should receive a capability in the first place. The models often compose: a durable policy system decides what can be minted, and the capability system controls what the running component can actually use.`,
+        'The runtime cost is extra indirection. Every proxy adds a method-call hop. Membranes add wrapper allocation and identity bookkeeping (two proxied objects that wrap the same target must compare as equal). Revocation adds a branch on every forwarded call. Audit, budget, and time-limit checks add small state per proxy. In fine-grained object graphs these costs can matter, but in most security-sensitive systems they are acceptable because the alternative is broad authority with weak confinement.',
+        'The engineering cost is discipline. A single unrestricted global can bypass the entire model. Reflection, dynamic module loading, native extensions, process-wide credentials, shared mutable singletons, and raw bearer URLs all need careful treatment. Capability security is easiest when the language or runtime enforces it: object references are unforgeable by construction, imports are controlled, and dangerous authority is not available in the global namespace.',
+        'There is also a modeling boundary. Capabilities handle local authority transfer well, but they do not automatically answer organizational authorization questions. A storage service may still need relationship-based authorization to decide whether a user should receive a capability in the first place. The models compose: a durable policy system decides what can be minted, and the capability system controls what the running component can actually use at call time.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Capabilities win in plugin systems, browser APIs, mobile permissions, sandboxed agents, distributed actors, object stores, build systems, and job runners. In all of these settings, the caller can hand a component narrow task authority instead of letting it inherit a root context. A test runner can receive a temporary directory capability. A browser tab can receive a handle to one selected file. An agent tool can receive a budgeted, audited API reference.`,
-        `They also win when delegation is frequent and local. Passing a read-only, time-limited reference to one worker is easier to reason about than updating a shared role that may affect many future calls. The graph edge makes the authority visible in the program structure. That visibility is valuable for reviews because the reviewer can ask why this object received this reference and whether a weaker proxy would have been enough.`,
+        'Capabilities win in plugin systems, browser APIs, mobile permissions, sandboxed agents, distributed actors, object stores, build systems, and job runners. In every case, the caller hands a component narrow task authority instead of letting it inherit root context. A test runner receives a temporary-directory capability. A browser tab receives a handle to one selected file. An agent tool receives a budgeted, audited API reference.',
+        'They also win when delegation is frequent and local. Passing a read-only, time-limited reference to one worker is easier to reason about than updating a shared role that may affect many future calls. The graph edge makes authority visible in program structure, which is valuable during code review: a reviewer can ask why this object received this reference and whether a weaker proxy would have been sufficient.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The model fails when references are forgeable. If a capability is just a predictable URL, a guessed path, or a token that can be copied from logs, then anyone who obtains the string obtains the authority. Bearer capabilities can still be useful, but they require secrecy, short lifetimes, channel security, and careful logging. The object-capability ideal is stronger: a normal program cannot fabricate a reference by guessing its name.`,
-        `It fails when ambient authority remains available. If a plugin can ignore the narrow file capability and call a global filesystem API, the narrow edge did not confine it. If a proxy returns raw target objects instead of wrapped objects, the membrane leaks. If revocation is inserted after direct references were already handed out, old paths keep working. If equality, serialization, or debugging hooks expose hidden target references, the wrapper can be bypassed.`,
-        `It also fails as a complete policy language. Capabilities describe possession and delegation, not necessarily why possession should be granted. Large organizations often need auditability, group membership, inheritance, approval workflows, and policy search. Those concerns can sit upstream of capability minting, but they do not disappear.`,
+        'The model fails when references are forgeable. If a capability is a predictable URL, a guessable path, or a token copied from logs, then anyone who obtains the string obtains the authority. Bearer capabilities can still be useful, but they require secrecy, short lifetimes, channel security, and careful logging. The object-capability ideal is stronger: a normal program cannot fabricate a reference by guessing.',
+        'It fails when ambient authority remains available. If a plugin can ignore the narrow file capability and call a global filesystem API, the narrow edge did not confine it. If a proxy returns the raw target instead of a wrapped object, the membrane leaks. If revocation is added after direct references were already distributed, old paths keep working. Every ambient escape hatch must be closed for the graph to be truthful.',
+        'It also fails as a complete policy language. Capabilities describe possession and delegation, not necessarily why possession should be granted. Large organizations need auditability, group membership, inheritance, approval workflows, and policy search. Those concerns sit upstream of capability minting; they do not disappear just because the runtime uses capabilities downstream.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Primary references include Capability Myths Demolished, the ERights capability material, and Dennis and Van Horn's work on programming semantics for multiprogrammed computations. For a modern systems view, compare object capabilities with sandbox APIs, browser file handles, mobile permission grants, and service-to-service credential minting.`,
-        `Study Zanzibar Authorization Case Study for durable relationship authorization, OAuth PKCE Token Lifecycle Case Study and JWT Verification for bearer-token systems, Macaroon Caveat Chain Case Study and UCAN Delegation Proof Chain for attenuated credentials, Agent Tool Permission Lattice for explicit tool authority, and Seccomp BPF Sandbox Policy for process-level confinement. The useful next question is how a system decides when to mint a capability, how narrow it can be, and how every escape path is closed.`,
-      ],
-    },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
+        'Consider a text editor that supports third-party formatters. The editor holds broad authority: workspace reads, buffer writes, network for extension updates, user settings. A formatter needs almost none of that. For one formatting request, the editor creates a narrow capability: read the current buffer, write a replacement buffer, nothing else. The formatter receives that proxy, not the editor\'s root context.',
+        'The formatter calls a helper library for parsing. In a capability system, the formatter passes only the capabilities the helper needs: a read reference for the text buffer, a diagnostic-sink reference for errors. The helper does not inherit the editor\'s root authority just because it runs inside the same process. Authority flows along explicit references, and each hop can narrow further.',
+        'Now add attenuation and revocation. The editor gives the formatter a path-limited directory capability for a temporary scratch folder. Under the hood, the capability is a proxy with three layers: a prefix check (path must start with /tmp/fmt-session-42/), a byte budget (50 MB max writes), and an audit log. The editor also places a revocation switch in the forwarding chain. When the formatting task finishes, the editor flips the switch. The formatter may still hold the old reference object, but calls through it now stop at the dead forwarder. Total authority graph: editor -> [revocation switch] -> [prefix+budget+audit proxy] -> scratch directory. Remove the switch edge and the formatter\'s path is severed without touching any other reference in the system.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources: Mark Miller\'s "Capability Myths Demolished" (2003), Dennis and Van Horn\'s "Programming Semantics for Multiprogrammed Computations" (1966), and the ERights.org capability material. For a modern systems view, compare object capabilities with browser File System Access API handles, Android scoped storage, and service-mesh credential minting.',
+        'Study Zanzibar Authorization for durable relationship-based authorization, OAuth PKCE and JWT Verification for bearer-token systems, Macaroon Caveat Chains and UCAN Delegation Proofs for attenuated credentials, Agent Tool Permission Lattice for explicit tool authority, and Seccomp BPF Sandbox Policy for process-level confinement. The key follow-up question is how a system decides when to mint a capability, how narrow it should be, and how every ambient escape path is closed.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Capability Security & Attenuation moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

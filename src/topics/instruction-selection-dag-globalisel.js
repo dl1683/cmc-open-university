@@ -143,88 +143,46 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/instruction-selection-dag-globalisel.gif', alt: 'Animated walkthrough of the instruction selection dag globalisel visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `A compiler middle end wants a stable language for optimization. It should be able to reason about add, load, branch, call, vector operation, and memory ordering without knowing every addressing mode and immediate encoding of every processor. That is why IR is target-independent: it preserves program meaning while hiding machine details.`,
-        {type: `callout`, text: `Instruction selection is the contract that preserves IR meaning while spending target-specific machine affordances.`},
-        `Machine code has the opposite requirement. It must use the exact operations that the target instruction set provides. One CPU may fold address arithmetic into a load. Another may need separate shift, add, and load instructions. One target may have condition flags. Another may use compare results in registers. One vector width may be legal in hardware while another must be split.`,
-        `Instruction selection exists at this boundary. It lowers portable IR into target-shaped Machine IR: opcodes, operands, register classes, addressing modes, memory forms, condition codes, call sequences, and pseudo-instructions that later backend passes can allocate, schedule, and emit.`,
-      ],
-    },
-    {
-      heading: 'The naive approach and why it fails',
-      paragraphs: [
-        `The naive approach is one-to-one lowering. IR add becomes machine add. IR load becomes machine load. IR branch becomes machine branch. This is fine for a teaching VM whose instruction set was designed to match the IR. It breaks on real hardware because real instruction sets are not clean mirrors of compiler IR.`,
-        `The first failure is legality. The IR may contain an integer width, floating-point type, vector shape, atomic operation, or address form that the target cannot encode directly. A 128-bit add may need two 64-bit adds plus carry. A wide vector may need to be split. A legal load may require a base register plus a small displacement, not an arbitrary expression.`,
-        `The second failure is quality. One-to-one lowering misses machine idioms. Multiplication by a power of two may be better as a shift. Address arithmetic may be free inside a load. A compare followed by a branch may use flags instead of a materialized boolean. A multiply-add instruction may replace two IR operations. Good selection must preserve meaning while exploiting target forms.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `Instruction selection is not a single lookup table. It is a staged conversion from target-independent meaning to target-legal machine operations. First, the backend legalizes operations and types that the target cannot represent. Then it combines equivalent shapes into forms the target can use well. Then it matches those legal shapes to concrete instructions.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed acyclic graph with nodes connected by arrows`, caption: `A DAG visual is a useful base model for instruction selection because legal combines depend on data edges, not text order. Source: Wikimedia Commons, David W., public domain.`},
-        `For example, the expression y = a + b * 4 has several legal implementations. An x86-like target may fold b * 4 into a scaled index addressing mode or select an lea instruction. A simpler RISC target may emit shift-left by two followed by add. A target with a special multiply-add may use that when profitable. The source meaning is the same; the target affordances differ.`,
-        `The insight is that the backend should keep the middle-end IR clean while letting each target describe its own legality and patterns. Target independence and target exploitation are not opposites. Instruction selection is the layer that lets them coexist.`,
-      ],
-    },
-    {
-      heading: 'How the system works',
-      paragraphs: [
-        `LLVM has historically used SelectionDAG for much of this job. The backend builds a directed acyclic graph of operations for a region, legalizes types and operations, performs DAG combines, and then uses target patterns to select machine instructions. The DAG makes data dependencies explicit and gives the selector a place to see multi-operation shapes such as load-address forms, arithmetic folds, and compare-branch patterns.`,
-        `GlobalISel is LLVM's newer selection framework. It translates LLVM IR into generic Machine IR, legalizes generic machine operations, combines them, and selects target opcodes within the Machine IR pipeline. The goal is to share more infrastructure with the rest of the backend, support more global reasoning, and make the path from IR to Machine IR more uniform. The same conceptual stages remain: translate, legalize, combine, select.`,
-        `After instruction selection, the program is not final assembly. It may still contain virtual registers, frame indices, pseudo-instructions, unresolved copies, and scheduling choices. Register allocation must map virtual registers to physical registers or spills. Frame lowering must assign stack slots. The assembler or emitter must encode final instructions. Selection makes the code target-shaped, not finished.`,
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        `The lowering-pipeline view proves that selection is a sequence of contracts. IR states what the program means. Legalization states what the target can express. Combining states which equivalent shapes are worth exposing. Pattern selection states which machine instruction implements a legal shape. Each stage narrows freedom while preserving semantics.`,
-        `The pattern view proves why instruction selection needs structure, not just opcodes. The selector may choose an addressing mode, a flag-setting instruction, a shift, a fused operation, or a target pseudo-instruction by seeing the shape around an operation. The GlobalISel view proves that the representation can change while the boundary remains: portable meaning becomes target-specific Machine IR.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `It works because each rewrite is semantics-preserving under target constraints. Legalization replaces unsupported operations with equivalent supported operations. Combines replace a shape with another shape that computes the same value or has the same observable behavior under the IR rules. Pattern selection chooses an instruction whose target semantics match the legal operation and operands.`,
-        `The target description is the proof boundary. It defines legal types, legal operations, register classes, addressing modes, immediate ranges, memory constraints, and instruction semantics. If those descriptions are accurate, the selector can reject impossible forms and choose valid ones. If they are wrong, later stages inherit invalid machine code no matter how clean the original IR was.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `The cost is mostly compiler engineering complexity. Each target needs legalization rules, selection patterns, custom lowering for awkward operations, and tests for edge cases. A missed pattern may produce slow code. A wrong pattern may miscompile. A pattern that is locally profitable may hurt scheduling, register pressure, or code size.`,
-        `SelectionDAG gives a mature graph-based place for local combines and pattern matching, but it introduces a separate representation that backend engineers must understand. GlobalISel keeps more of the flow in Machine IR and can be easier to integrate with later backend passes, but target coverage and maturity depend on the architecture and compiler version. Many real backends use both paths during long transitions.`,
-        `Compile time also matters. A selector can spend effort exploring alternatives, but a JIT or shader compiler may need a quick answer. Ahead-of-time compilers can afford more target-specific work. The right selector is not only the one that emits the fastest code; it is the one that fits the compiler tier and reliability needs.`,
-      ],
-    },
-    {
-      heading: 'Real uses',
-      paragraphs: [
-        `C, C++, Rust, Swift, and other native compilers rely on instruction selection to retarget the same high-level optimizations to many CPUs. A vectorized loop can lower differently on AVX2, AVX-512, NEON, SVE, or WebAssembly SIMD. Atomic operations lower differently depending on memory model support. Calls lower through each platform ABI.`,
-        `JIT compilers use selection under tighter latency budgets. A JavaScript engine or JVM may have a baseline selector for quick code and a stronger optimizing selector for hot functions. Database query compilers, GPU shader compilers, eBPF compilers, and WebAssembly engines all face the same boundary: a portable internal plan must become legal instructions for a specific execution target.`,
-      ],
-    },
-    {
-      heading: 'Failure modes and limits',
-      paragraphs: [
-        `Legalization bugs are common failure roots. If an operation is marked legal when the target cannot encode it, selection fails or emits invalid code. If it is expanded incorrectly, the program computes the wrong result. Combines can be wrong when they ignore poison, undef, signed overflow flags, floating-point NaN behavior, memory ordering, or target-specific side effects.`,
-        `Selection can also create performance traps. Choosing a clever addressing mode may increase register pressure. Folding a load into an instruction may block reuse of the loaded value. A pseudo-instruction may expand later into more code than expected. A pattern that wins on one microarchitecture may lose on another. Instruction selection is therefore tied to cost models, scheduling, and register allocation even though it runs before final code emission.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Static Single Assignment & Phi Nodes to understand the value form many selectors start from. Study SSA Destruction Phi Elimination & Parallel Copy for the move problems that appear before allocation. Study Linear Scan Register Allocation and Interference Graph Register Allocation to see how selected virtual registers become physical locations. Study Calling Convention & Stack Frame Layout for call lowering. Then read target backend documentation and inspect compiler dumps after legalization, combine, selection, allocation, and emission.`,
-      ],
-    },
+    {heading: 'How to read the animation', paragraphs: [
+      'The animation follows a compiler backend as it turns portable intermediate representation into machine operations. Active nodes are the operations being lowered, and each edge shows a dependency that must already have a legal target form.',
+      {type: 'image', src: './assets/gifs/instruction-selection-dag-globalisel.gif', alt: 'Animated walkthrough of the instruction selection dag globalisel visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+    ]},
+    {heading: 'Why this exists', paragraphs: [
+      'A compiler middle end wants one clean representation for optimization, while a CPU wants exact opcodes, register classes, addressing modes, immediate ranges, and calling conventions. Instruction selection is the boundary that turns portable meaning into target-specific operations.',
+      {type: 'callout', text: 'Instruction selection is the contract that preserves IR meaning while spending target-specific machine affordances.'},
+    ]},
+    {heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is one-to-one lowering: IR add becomes machine add, IR load becomes machine load, and IR branch becomes machine branch. That works for a teaching VM whose instruction set mirrors the IR, but real processors do not have that shape.',
+    ]},
+    {heading: 'The wall', paragraphs: [
+      'The first wall is legality: a target may not support the IR type, vector width, atomic form, or address expression. The second wall is quality: literal lowering misses flags, fused operations, scaled addressing, and other target idioms.',
+    ]},
+    {heading: 'The core insight', paragraphs: [
+      'Instruction selection is a staged rewrite from meaning to legal machine shape. The backend legalizes unsupported operations, combines equivalent shapes, then matches legal patterns to target instructions.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed acyclic graph with nodes connected by arrows', caption: 'A DAG visual is a useful base model for instruction selection because legal combines depend on data edges, not text order. Source: Wikimedia Commons, David W., public domain.'},
+    ]},
+    {heading: 'How it works', paragraphs: [
+      'SelectionDAG builds a dependency graph, legalizes types and operations, performs graph combines, and selects target opcodes from patterns. GlobalISel follows the same idea through generic Machine IR: translate, legalize, combine, and select.',
+    ]},
+    {heading: 'Why it works', paragraphs: [
+      'Correctness comes from semantic preservation at every stage. Legalization replaces unsupported operations with equivalent supported operations, combines preserve the computed value or side effect, and selected instructions match the target semantics for the legal operation.',
+    ]},
+    {heading: 'Cost and complexity', paragraphs: [
+      'The cost is mostly compiler engineering and compile time. Each target needs legality rules, patterns, custom lowering hooks, and tests for overflow, poison values, NaNs, memory ordering, flags, and side effects.',
+      'A JIT may choose a cheaper selector to reduce startup latency, while an ahead-of-time compiler can spend more time for better code. The selected instruction can also change later costs such as register pressure and scheduling.',
+    ]},
+    {heading: 'Real-world uses', paragraphs: [
+      'Native compilers for C, C++, Rust, Swift, and Zig use instruction selection to retarget shared optimizations to x86-64, Arm, RISC-V, WebAssembly, and GPUs. JITs, shader compilers, database query compilers, and eBPF compilers solve the same boundary problem under tighter latency constraints.',
+    ]},
+    {heading: 'Where it fails', paragraphs: [
+      'It fails when a rewrite ignores a semantic detail such as signed overflow, floating-point NaNs, atomics, exceptions, or memory ordering. It also fails when a locally clever instruction increases register pressure, blocks scheduling, or expands badly as a pseudo-instruction.',
+    ]},
+    {heading: 'Worked example', paragraphs: [
+      'For y = base[b * 4 + 8] + c, an x86-like target can fold b * 4 + 8 into a scaled-index load, then add c. A simple RISC target may need shift-left b by 2, add base, add 8, load, then add c.',
+      'If base is 1000, b is 3, and c is 7, both targets must load from address 1000 + 3 * 4 + 8 = 1020 and then add 7. Different instructions are correct only because the computed value and memory access are the same.',
+    ]},
+    {heading: 'Sources and study next', paragraphs: [
+      'Read LLVM documentation on SelectionDAG, GlobalISel, legalization, and target descriptions. Then study Static Single Assignment, Calling Convention and Stack Frame Layout, Register Allocation, and SSA Destruction to see what instruction selection must feed.',
+    ]},
   ],
 };

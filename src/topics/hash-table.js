@@ -169,6 +169,14 @@ export const article = {
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'The collision problem becomes a probe path problem: if insert and lookup follow the same deterministic path, then a key is findable exactly when it occupies the first empty slot on its path. The physical insight is that an empty slot is a proof -- it proves the key was never placed past that point.',
+        'The cost of this scheme is not measured in comparisons but in memory hops. A cache line holds 64 bytes, enough for roughly 8 key-pointer pairs on a 64-bit system. Linear probing loads one cache line and checks 8 consecutive slots in sequence. Chaining loads one key-pointer pair per node. At alpha = 0.7, a linear probe that hits after 3 steps has loaded 1 cache line. A chain that walks 3 nodes may have loaded 3 different cache lines. The difference is the memory hierarchy, not the algorithm.',
+        'Backward-shift deletion (Rust hashbrown, SwissTable) avoids tombstones by sliding displaced keys back toward their home slots after a deletion, keeping every slot either occupied or empty -- never deleted-but-probe-through. This maintains short probes even after heavy deletion churn.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'Hash key k to home slot h(k) = hash(k) mod m. If slot h(k) is empty, store the entry there. If occupied, try h(k)+1, h(k)+2, and so on, wrapping around modulo m. Insert at the first empty slot found.',
@@ -185,7 +193,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Cost and behavior',
       paragraphs: [
         'Expected time per operation is O(1/(1 - alpha)). At alpha = 0.5 a lookup averages 1.5 probes; at alpha = 0.75, 2.5 probes for a hit and 8.5 for a miss; at alpha = 0.9, a miss averages about 50 probes. The cost is constant for any fixed maximum load factor, but the constant degrades sharply above alpha = 0.7.',
         'Worst case is O(n): if every key hashes to the same slot, the entire table becomes one cluster and every operation scans every entry. A good hash function (or a randomized one like SipHash) makes this astronomically unlikely.',
@@ -195,7 +203,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'CPU caches love sequential memory access. Linear probing turns collision resolution into a short forward scan through adjacent slots, which the hardware prefetcher serves from L1 cache. At moderate load (alpha <= 0.6), a probe sequence of 2-3 slots fits in a single cache line. This makes linear probing the fastest hash table strategy on modern hardware for workloads that control load.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel i7 processor die photograph', caption: 'Linear probing wins in practice because nearby buckets ride the memory hierarchy better than scattered heap nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},

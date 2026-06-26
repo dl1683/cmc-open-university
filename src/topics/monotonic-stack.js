@@ -242,171 +242,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type: 'callout', text: 'A monotonic stack keeps unresolved boundaries in order so one future value can settle many earlier questions at once.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Lifo_stack.svg/500px-Lifo_stack.svg.png', alt: 'LIFO stack diagram showing push and pop order', caption: 'The stack discipline matters because only the most recent unresolved candidate can be settled before older candidates below it. Source: Wikimedia Commons, Maxtremus, CC BY-SA 4.0.'},
-        'Monotonic stacks exist for nearest-boundary questions: next greater value, next smaller value, stock span, daily temperatures, and histogram rectangles. The naive solution compares each item with many neighbors until it finds the first value that defeats it.',
-        'That nested scan can become O(n^2). A monotonic stack keeps only unresolved candidates while scanning once. It is just Stack plus an ordering invariant, but that invariant deletes candidates that can no longer matter.',
+        'Read the stack as unresolved questions. Active marks the current value, and found marks a candidate whose nearest boundary has just become known.',
+        'The safe inference rule is first-boundary resolution. If the current value pops an older index, then every value between them already failed to resolve that index, so the current value is the nearest valid boundary.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Stack_UML_class_diagram.svg/250px-Stack_UML_class_diagram.svg.png', alt: 'UML class diagram for a stack interface', caption: 'A monotonic stack keeps the ordinary stack interface, then adds one invariant about value order. Source: Wikimedia Commons, Rfc1394, public domain.'},
+        {type: 'image', src: './assets/gifs/monotonic-stack.gif', alt: 'Animated walkthrough of the monotonic stack visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A monotonic stack solves nearest greater, nearest smaller, span, and histogram-boundary problems. These problems ask for the first later or earlier value that crosses a comparison threshold.',
+        'The difficulty is that many positions wait for the same future value. A stack keeps only candidates whose boundary has not yet arrived.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach starts at each index and scans right until it finds a larger value. For daily temperatures, day i checks day i + 1, then i + 2, and keeps going until a warmer day appears.',
+        'That is easy to trust because it mirrors the definition. It repeats boundary search for many indexes that a single future value could settle at once.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious approach for next greater element is to start at each index and scan right until a larger value appears. That is easy to understand, but an increasing array makes each item scan many positions. The same waste appears in histogram area if every bar expands left and right one step at a time.',
-        'The wall is repeated boundary discovery. Many elements are waiting for the same future value to resolve them. A monotonic stack lets that future value resolve a whole run of waiting candidates at once.',
+        'The wall is quadratic work on inputs that force repeated scans. For largest rectangle in a histogram, expanding left and right from every bar can re-check the same taller run many times.',
+        'The repeated work is unnecessary because a shorter bar can close many taller bars at once. The problem needs a structure for unresolved boundaries, not a fresh scan from every index.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to keep only candidates that have not yet found the first value capable of resolving them. For next greater element, the stack is decreasing. If a larger value arrives, smaller stack entries are resolved immediately because this is the first larger value to their right.',
-        'For histogram area, the stack is increasing. A shorter incoming bar becomes the first right boundary for taller bars on the stack. After popping, the new stack top gives the previous smaller boundary on the left.',
+        'Keep a stack whose order makes unresolved candidates comparable. For next greater element, the stack is decreasing; a larger incoming value resolves all smaller values on top.',
+        'For largest histogram rectangle, the stack is increasing. A shorter incoming bar supplies the first right boundary for taller bars that must now be scored.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Stack_UML_class_diagram.svg/250px-Stack_UML_class_diagram.svg.png', alt: 'UML class diagram for a stack interface', caption: 'A monotonic stack keeps the ordinary stack interface, then adds one invariant about value order. Source: Wikimedia Commons, Rfc1394, public domain.'},
-        'Inspect the stack as a list of unresolved candidates, not as a sorted copy of the input. Every value on the stack is waiting for the first future value that can resolve its boundary question. Popping means the current value has proved something final about that candidate.',
-        'The useful question at every step is: which candidates can never matter again? If the current value dominates the stack top under the problem comparison, the top is resolved and removed. If it does not dominate, the current value becomes a new unresolved candidate.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'For next greater element, scan left to right and keep a decreasing stack of indexes. Compare the current value with the stack top. While the current value is larger, pop the top and record the current value as its next greater neighbor. When order is restored, push the current index as unresolved.',
-        'For largest rectangle in a histogram, keep an increasing stack of bar indexes. When a shorter bar arrives, pop taller bars and compute their rectangle area. The current index is the right boundary. The new stack top after popping is the previous smaller boundary, so width is currentIndex - previousSmallerIndex - 1.',
-        'A sentinel value often appears at the end. For next greater, a final pass may mark unresolved entries as none. For histograms, a final height 0 flushes every remaining bar so all candidate rectangles are scored.',
+        'Scan once and store indexes, not just values. While the current value resolves the stack top, pop the top and write its answer using the current index.',
+        'After popping stops, push the current index as unresolved. A sentinel value is often added at the end when remaining candidates need a final boundary, such as height 0 for histograms.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness comes from the monotonic invariant. In next greater element, the stack is decreasing from bottom to top. If current is greater than the top, every value between the popped index and current has already failed to be greater; otherwise the popped index would have been resolved earlier. So current is the nearest greater value.',
-        'In histogram area, a bar stays on the increasing stack until the first shorter bar on the right appears. The previous smaller bar is below it on the stack. Those two smaller bars define the widest rectangle where the popped height is the limiting height, so scoring it at pop time is safe.',
+        'The invariant is that the stack contains exactly the unresolved candidates in monotone order. If a candidate had already found a valid boundary, it would have been popped when that boundary arrived.',
+        'When the current value pops a candidate, no intervening value was valid, because any such value would have popped it earlier. The current value is therefore not merely a valid boundary; it is the nearest one.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Every index is pushed once and popped at most once, so the total work is O(n) even though one iteration can pop many items. Space is O(n) in the worst case when many entries remain unresolved. This is amortized analysis in its cleanest interview-problem form.',
-        'The tradeoff is specialization. A monotonic stack is excellent for one-pass nearest-boundary discovery, but it is not a general range-query structure. If the data changes or queries arrive out of order, Segment Tree, Fenwick Tree, Sparse Table, or Binary Heap may fit better.',
-        'The main implementation traps are off-by-one boundaries, choosing strict versus non-strict comparisons for duplicates, and forgetting a sentinel value when a final flush is needed.',
-        'Duplicate handling is not cosmetic. For example, using greater-than versus greater-than-or-equal decides whether equal bars merge into one wider rectangle or whether the earlier equal bar is resolved first. The comparison must match the exact boundary definition.',
+        'Every index is pushed once and popped at most once, so the scan is O(n). Space is O(n) in the worst case when no candidate resolves until the end.',
+        'The cost behaves like a ledger. A frame that pops five entries looks expensive, but those five entries are gone forever, so later frames do not pay for them again.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Monotonic stacks solve next greater element, next smaller element, stock span, daily temperatures, rainwater boundaries, histogram rectangles, visibility counts, and many span-compaction problems in compilers or layout engines.',
-        'They win when each item needs the first later or earlier item that crosses one comparison boundary. The access pattern is a single scan plus a stack of unresolved candidates. That is why the pattern appears in coding interviews, parsers, layout engines, chart analysis, and span compaction.',
+        'The pattern appears in stock span, daily temperatures, next greater element, largest rectangle in a histogram, rainwater boundaries, and visibility counts. The access pattern is one pass plus nearest-boundary answers.',
+        'It also appears in parsers, layout engines, and compaction passes where nested or ordered spans close when a boundary token arrives. The stack is useful when unresolved local structure must be closed by a later event.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The stack is not sorting the input. It is preserving only unresolved candidates in an order that makes future resolution cheap. If the question requires arbitrary range updates, repeated online queries, or a rolling fixed-size window, a Segment Tree, Fenwick Tree, Sparse Table, or Monotonic Queue may be a better fit.',
-        'It also fails when the comparison does not create a one-direction boundary. If a candidate can become useful again after being dominated, popping it would lose information. The delete-forever rule is valid only when the dominance argument is valid.',
+        'It fails when a popped candidate might become useful later. That means the dominance or boundary argument is false, and deleting the candidate loses information.',
+        'It also fails for arbitrary online range queries, mutable data, and rolling windows with expiration by time. Use a segment tree, Fenwick tree, sparse table, or monotonic queue when those constraints dominate.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Largest rectangle in a histogram is the complete case. The naive approach chooses each bar and expands left and right until a shorter bar stops it. That can take O(n^2) across all bars. The monotonic stack computes the same boundaries in one scan.',
-        'Keep bar indexes in increasing height order. When a shorter bar arrives, pop taller bars. For each popped bar, the shorter current bar is the right boundary and the new stack top is the previous smaller left boundary. The area is height times width. A final sentinel height 0 flushes bars that never found a shorter right boundary.',
+        'For temperatures [73, 74, 75, 71, 69, 72], keep a decreasing stack of day indexes. Day 0 with 73 is pushed, day 1 with 74 pops day 0 and records distance 1, then day 1 is pushed.',
+        'Day 2 with 75 pops day 1 and records distance 1. Days 3 and 4 push because 71 and 69 are cooler, then day 5 with 72 pops day 4 with distance 1 and day 3 with distance 2. Each recorded answer is nearest because no earlier warmer day appeared while the index sat on the stack.',
       ],
     },
     {
-      heading: 'Worked example (2)',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Daily temperatures is the gentlest way to see the pattern. The question is: for each day, how many days until a warmer temperature? Keep a decreasing stack of day indexes. When today is warmer than the day on top of the stack, today is the first warmer day for that unresolved index, so pop it and record the distance.',
-        'The delete-forever argument is the lesson. If day 7 resolves day 3, no day between 4 and 6 was warm enough, or day 3 would already have been popped. Day 7 is therefore not merely a warmer day; it is the nearest warmer day. That is why the stack gives exact boundaries without scanning from every index.',
+        'Study stack discipline, amortized analysis, nearest greater element, and largest rectangle in a histogram. The key proof to practice is why a popped item never needs to return.',
+        'Next study Monotonic Queue for moving-window extrema, Cartesian Tree for the tree view of histogram minima, and Segment Tree for repeated range queries where a one-pass stack is not enough.',
       ],
     },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Choose whether the stack stores indexes or values. Indexes are usually better because they preserve distance and allow duplicate values. Decide whether equal values should pop or remain, and write that comparison into the problem statement before coding.',
-        'Add a sentinel when the algorithm needs to flush unresolved candidates. For histograms the sentinel height 0 is a common way to force all remaining bars to compute their areas. Without that final flush, the right boundary for trailing bars never arrives.',
-      ],
-    },
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'A monotonic stack is a proof device. The invariant says which unresolved candidates are still possible. The pop operation says the first valid boundary has arrived. The amortized O(n) cost follows because each candidate can enter and leave the unresolved set only once.',
-        'For teaching, emphasize the delete-forever argument before code templates. Students often memorize while-pop-push without knowing why information is not lost. The method is safe only when a popped candidate has been permanently resolved or permanently dominated for the question being asked.',
-      
-        {type: 'image', src: './assets/gifs/monotonic-stack.gif', alt: 'Animated walkthrough of the monotonic stack visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study references: monotonic-stack pattern overview at https://www.hellointerview.com/learn/code/stack/monotonic-stack and CP-style nearest-boundary templates at https://leetcode.com/discuss/post/2347639/a-comprehensive-guide-and-template-for-m-irii/. Study Stack first, then Monotonic Queue for rolling windows, Sliding Window for moving boundaries, Cartesian Tree for the tree view of histogram minima, and Segment Tree for repeated range queries.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Monotonic Stack moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

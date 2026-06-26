@@ -174,125 +174,88 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         {type: 'callout', text: 'Initialization is a variance-control problem: the starting weight scale decides whether signal and gradient survive depth.'},
-        'The plot shows layer number on the horizontal axis and the log₁₀ of activation variance on the vertical axis. Each line is one initialization strategy. A flat line near zero means variance stays close to 1 at every layer — the signal propagates cleanly.',
-        'A line that climbs steeply means activations are exploding: variance multiplies at each layer until numbers overflow. A line that drops steeply means activations are vanishing: the signal decays toward zero and the network goes silent. The invariant across all frames is that a good initialization keeps the line flat.',
-        'Watch the contrast between the first two strategies (too large, too small) and the last two (Xavier, Kaiming). The gap between those pairs is the entire difference between a network that trains and one that does not.',
-      
-        {type: 'image', src: './assets/gifs/weight-initialization.gif', alt: 'Animated walkthrough of the weight initialization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Read the plot as variance over depth. Variance means the average squared spread of activations or gradients around their mean. Active highlights show the initialization being tested, and found highlights show layers where the signal stays near scale 1.',
+        {type: 'image', src: './assets/gifs/weight-initialization.gif', alt: 'Animated walkthrough of the weight initialization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference rule is multiplication across layers. If each layer multiplies variance by 2, ten layers multiply it by 1024. If each layer multiplies variance by 0.5, ten layers shrink it to about 0.001.',
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Depth makes variance preservation matter: each layer receives the scale produced by the previous layer. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
-        'A neural network starts with random weights and adjusts them by gradient descent. The initial random values are not a formality. Each layer multiplies the input by a weight matrix, and the variance of the output depends on the variance of the weights, the number of inputs (fan-in), and the activation function. If the per-layer variance factor is even slightly above 1, it compounds exponentially across depth. A 50-layer network with a per-layer factor of 1.01 ends at 1.01⁵⁰ ≈ 1.64 — mild growth. With a factor of 2: 2⁵⁰ ≈ 10¹⁵ — total explosion.',
-        'The same compounding works in reverse for backpropagation. Gradients travel backward through the same weight matrices. If the forward signal explodes, gradients also explode. If the forward signal vanishes, gradients vanish too. Training is impossible in either regime. Weight initialization is the cheapest intervention that determines whether a deep network can learn at all.',
+        'A neural network starts before learning with random weights. Those weights decide the scale of signals moving forward and gradients moving backward. If the scale grows or shrinks at every layer, training can fail before the optimizer has a useful chance.',
+        'Weight initialization exists to choose a random scale that breaks symmetry without destroying signal. It is cheap, but it sets the initial numerical regime for the whole network.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first thing a learner tries is setting all weights to zero. The network produces the same output for every input, every neuron computes the same gradient, and every weight receives the same update. All neurons remain identical forever. This is the symmetry problem: zero initialization makes depth and width useless because every neuron is a copy of every other.',
-        'The next attempt is random initialization with some arbitrary standard deviation. Pick std = 1.0 and a 256-wide layer multiplies variance by roughly 256 per layer. Pick std = 0.01 and variance is multiplied by 256 * 0.01² = 0.0256, shrinking to zero within a few layers. Both choices seem reasonable until you watch what happens across more than two or three layers.',
+        'The obvious approach is to set all weights to zero. That makes every neuron in the same layer compute the same value and receive the same gradient. The network never breaks symmetry, so width is wasted.',
+        'The next obvious approach is to draw small random weights from a fixed range such as -0.01 to 0.01. This breaks symmetry, but the same scale is wrong for layers with very different fan-in, which means number of input connections.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The margin between stable and catastrophic is narrow. Consider a single fully connected layer with fan-in n. If each weight is drawn from N(0, σ²), the output variance is n * σ² * Var(input). For the signal to neither grow nor shrink, we need n * σ² = 1, which gives σ = 1/√n. Miss by a factor of 2 and the per-layer multiplier is 2. Over 50 layers: 2⁵⁰ ≈ 10¹⁵.',
-        'Activation functions complicate the picture. ReLU zeros out negative inputs, so roughly half the signal disappears at each layer. A variance-preserving init for a linear layer will halve the variance at each ReLU layer. Tanh and sigmoid saturate for large inputs, compressing variance further. The init strategy must account for the specific activation.',
-        'Early deep learning research hit this wall repeatedly. Networks deeper than a handful of layers refused to train. The solution was not a better optimizer or more data — it was choosing the right initial scale.',
+        'The wall is compounding. A layer with 1,000 inputs sums many weighted values, while a layer with 10 inputs sums far fewer. One fixed random scale cannot preserve variance in both layers.',
+        'Activation functions change the math too. ReLU clips negative values to zero, so it removes part of the signal distribution. Sigmoid and tanh can saturate when inputs are too large, causing gradients to vanish.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Choose Var(w) so that Var(output) = Var(input) at every layer. This is the variance-preservation principle. If each layer preserves signal magnitude in the forward pass, it also preserves gradient magnitude in the backward pass. A deep network initialized this way starts training with useful gradients at every layer, from the output back to the input.',
-        'The activation function determines the correction factor. For a linear layer or a symmetric activation like tanh (near the origin): Var(w) = 1/n suffices (or 2/(fan_in + fan_out) to balance forward and backward). For ReLU, which kills half the distribution: Var(w) = 2/n. The extra factor of 2 replaces the energy lost to the dead half of ReLU.',
+        'Choose the weight variance from the layer shape and activation. Xavier initialization balances fan-in and fan-out for roughly symmetric activations. Kaiming initialization uses 2 divided by fan-in for ReLU-like activations because ReLU drops about half of a zero-centered signal.',
+        'The goal is not magic randomness. The goal is preserving expected scale so activations and gradients remain numerically usable across depth.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Rectifier_and_softplus_functions.svg', alt: 'Rectifier and softplus activation curves', caption: 'ReLU changes the variance math because half of a zero-mean input distribution is clipped to zero. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rectifier_and_softplus_functions.svg.'},
-        'Xavier initialization (Glorot & Bengio, 2010) sets Var(w) = 2 / (fan_in + fan_out). The denominator averages forward and backward fan to preserve variance in both directions. When using a uniform distribution: weights are drawn from U(-√(6/(fan_in + fan_out)), √(6/(fan_in + fan_out))). When using a Gaussian: std = √(2/(fan_in + fan_out)). This was designed for tanh and sigmoid activations, where the useful region near zero is roughly linear.',
-        'Kaiming initialization (He et al., 2015) sets Var(w) = 2 / fan_in. The factor of 2 compensates for ReLU zeroing out the negative half of the pre-activation distribution. For Leaky ReLU with slope a on the negative side, the factor becomes 2 / (1 + a²). The derivation assumes the biases are zero and the weights are independent, which holds at initialization.',
-        'Orthogonal initialization (Saxe et al., 2014) constructs W so that W^T W = I. This is exact variance preservation for linear networks: the singular values are all 1, so no direction is amplified or suppressed. In practice, orthogonal init is generated by computing the SVD of a random Gaussian matrix and taking the orthogonal factor.',
+        'For a linear layer with fan-in n, a rough variance-preserving choice is Var(w)=1/n. Xavier uses 2/(fan_in+fan_out) to balance forward and backward flow. Kaiming uses 2/fan_in for ReLU because the activation keeps the positive side and zeros the negative side.',
+        'In code, a normal Kaiming draw uses standard deviation sqrt(2/fan_in). A uniform draw uses bounds chosen so the uniform distribution has the same variance.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Consider a single neuron y = Σ wᵢxᵢ with n inputs. If wᵢ and xᵢ are independent with zero mean, then Var(y) = n * Var(w) * Var(x). Setting Var(w) = 1/n gives Var(y) = Var(x). This is exact for linear layers.',
-        'For ReLU, E[max(0, z)²] = Var(z)/2 when z is zero-mean Gaussian, because the positive half carries half the variance. So Var(ReLU(y)) = Var(y)/2. To keep Var(output) = Var(input), we need n * Var(w) * (1/2) = 1, giving Var(w) = 2/n. That is Kaiming initialization.',
-        'Xavier\'s 2/(fan_in + fan_out) comes from averaging the forward constraint (Var(w) = 1/fan_in) and the backward constraint (Var(w) = 1/fan_out). When fan_in = fan_out, both agree. When they differ, the harmonic mean trades off forward and backward variance preservation. The approximation is that tanh ≈ identity near zero, which is accurate when activations are small at initialization.',
+        'The proof sketch uses independence and variance addition. If inputs have variance v and weights have variance a, then the sum of n independent weighted inputs has variance about n*a*v. Setting a=1/n keeps the output variance near v before activation.',
+        'For ReLU, about half the mass becomes zero under the idealized symmetric assumption. Multiplying the weight variance by 2 compensates for that loss. The invariant is expected variance near constant from layer to layer.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Initialization costs O(total parameters) time — one random draw per weight. For a network with millions of parameters, this takes milliseconds. There is zero runtime cost: initialization happens once before training and never again. The storage cost is the weights themselves, which exist regardless of how they are initialized.',
-        'The impact on training is large. Proper initialization can be the difference between a network that converges in 100 epochs and one that does not converge at all. It is the cheapest and highest-leverage intervention in deep learning: no extra compute, no extra memory, no extra hyperparameters beyond choosing the strategy.',
+        'Initialization itself is O(number of weights) because every parameter receives one random value. The runtime cost after that is zero; the chosen scale affects training behavior, not inference complexity.',
+        'The cost of a bad choice is paid through optimization. Exploding activations can overflow or force tiny learning rates. Vanishing activations and gradients make early layers learn slowly. Doubling depth doubles the number of compounding steps, so small scale errors become visible quickly.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Every modern neural network uses some form of careful weight initialization. PyTorch defaults to Kaiming uniform for linear and convolutional layers. TensorFlow/Keras defaults to Glorot (Xavier) uniform. These defaults exist because random initialization with an arbitrary scale was a common source of training failures.',
-        'Residual networks (He et al., 2016) use Kaiming initialization and add skip connections. The skip connections provide an identity path that preserves gradients independently of the learned layers, but the learned branches still need proper init to contribute useful signal from the start.',
-        'Transfer learning and fine-tuning bypass initialization for pretrained layers: the weights start at a known good point. But any new layers (classification heads, adapters, LoRA matrices) still need proper initialization. LoRA specifically initializes one matrix to zero and the other to Kaiming or Gaussian, so the adapter starts as an identity and learns incremental changes.',
+        'Xavier is common with tanh-like or roughly linear regimes, and Kaiming is common with ReLU-family networks. Orthogonal initialization is often used for recurrent or deep linear-style settings where singular values matter.',
+        'Modern frameworks expose these initializers because training stability is a default engineering concern. Residual connections, normalization layers, and optimizer choices reduce the burden, but they do not make initialization irrelevant.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Very deep networks (100+ layers) cannot rely on initialization alone. Even with perfect per-layer variance preservation, small numerical errors compound over many layers. Residual connections are essential: they provide a direct gradient path that bypasses the multiplicative chain. Batch normalization and layer normalization also reduce sensitivity to initialization by re-centering and re-scaling activations at each layer.',
-        'The variance-preservation derivation assumes independent weights, zero biases, and specific activation statistics. In practice, batch normalization, dropout, attention mechanisms, and other components break these assumptions. The formulas still provide good starting points, but they are not exact guarantees for complex architectures.',
-        'For very wide networks approaching the neural tangent kernel regime, initialization interacts with the learning rate and parameterization. Standard parameterization (SP) and maximal update parameterization (μP) prescribe different init scales and learning rates to ensure consistent training dynamics across widths. The simple Kaiming formula may not be optimal when scaling width by orders of magnitude.',
+        'The formulas rely on assumptions: independent weights, roughly independent activations, zero-centered inputs, and a matching activation function. Real networks violate those assumptions with normalization, attention, residual paths, gated activations, embeddings, and weight sharing.',
+        'Initialization also does not fix bad data scaling or an excessive learning rate. If inputs have wildly different magnitudes, the first layer can still receive a broken numerical problem even with a good initializer.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A single hidden layer with fan_in = 784 (MNIST input) and fan_out = 256.',
-        'Xavier (Glorot) Gaussian: std = √(2 / (784 + 256)) = √(2 / 1040) = √0.001923 ≈ 0.0439. Each weight is drawn from N(0, 0.0439²). Xavier uniform: limit = √(6 / 1040) ≈ 0.0760. Each weight is drawn from U(-0.0760, 0.0760).',
-        'Kaiming (He) Gaussian: std = √(2 / 784) = √0.002551 ≈ 0.0505. The extra factor of 2 vs. Xavier compensates for ReLU. Kaiming uniform: limit = √(6 / 784) ≈ 0.0875.',
-        'Check: with Kaiming init, the pre-activation variance at the hidden layer is 784 * 0.0505² ≈ 784 * 0.00255 ≈ 2.0. After ReLU, half the values are zeroed, so the output variance is 2.0 / 2 = 1.0 — matching the input variance. The signal propagates cleanly.',
-        'With a naive std = 1.0: pre-activation variance = 784 * 1.0 = 784. The hidden layer already has variance 784× too large. After two such layers, variance ≈ 784² ≈ 600,000. The network is unusable.',
+        'A ReLU layer has fan-in 100. Kaiming normal uses variance 2/100=0.02 and standard deviation sqrt(0.02), about 0.141. If input variance is 1, the pre-activation variance is about 100*0.02*1=2.',
+        'After ReLU removes about half the distribution, the scale returns near 1 under the simplified derivation. If the same layer used standard deviation 1, the pre-activation variance would be 100 and the next layers would start from an already inflated signal.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Xavier Glorot and Yoshua Bengio, "Understanding the difficulty of training deep feedforward neural networks" (AISTATS 2010) — derived the fan-in/fan-out variance formula for symmetric activations. Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, "Delving Deep into Rectifiers" (ICCV 2015) — derived the ReLU correction factor and showed it enables training of very deep networks. Andrew Saxe, James McClelland, and Surya Ganguli, "Exact solutions to the nonlinear dynamics of learning in deep linear networks" (ICLR 2014) — orthogonal initialization and the theory of learning dynamics in deep linear networks.',
-        'Study next: Vanishing & Exploding Gradients to see the pathology that bad initialization causes. Batch Normalization and Layer Normalization for the runtime approach to scale control. Residual connections for the architectural approach to gradient preservation in very deep networks. LoRA for how careful initialization extends to parameter-efficient fine-tuning.',
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Prerequisites: matrix multiplication (a layer is a matrix-vector product), variance (the quantity being preserved), and the forward pass of a neural network (where weights are applied). Understanding ReLU and tanh from the activation functions topic is essential because the init formula depends on which activation is used.',
-        'This topic unlocks: understanding why deep networks became trainable before residual connections existed (Kaiming init made 30+ layer plain networks feasible), why different frameworks have different default initializations (Xavier vs. Kaiming, uniform vs. Gaussian), why fine-tuning and transfer learning partly bypass the init problem (pretrained weights are already in a good region), and the connection between init scale and learning rate (both control the magnitude of updates relative to the weights).',
-      ],
-    },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you compute the Xavier and Kaiming standard deviations for a layer with fan_in = 512 and fan_out = 128?',
-            'Can you explain why all-zero initialization causes a symmetry problem that random initialization does not?',
-            'Can you explain why ReLU requires a different init formula than tanh?',
-            'Can you explain what happens to activation variance in a 20-layer network if the per-layer variance factor is 1.5?',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Compute the Kaiming std for fan_in = 512: std = √(2/512) = √0.00391 ≈ 0.0625. Now compute Xavier std for the same layer with fan_out = 512: std = √(2/1024) = √0.00195 ≈ 0.0442. Kaiming is larger by a factor of √2 ≈ 1.41. That factor is the ReLU correction.',
-        'Estimate the activation variance after 10 layers with std = 0.1 and fan_in = 100. Per-layer factor: 100 * 0.01 = 1.0 for a linear activation — stable. For ReLU: the factor is 0.5 (half the signal zeroed), so after 10 layers variance ≈ 0.5¹⁰ ≈ 0.001. The network is nearly dead. Now try Kaiming: per-layer factor = 100 * (2/100) * 0.5 = 1.0. Stable, as designed.',
+        'Primary sources: Glorot and Bengio, Understanding the difficulty of training deep feedforward neural networks, at https://proceedings.mlr.press/v9/glorot10a.html, and He et al., Delving Deep into Rectifiers, at https://arxiv.org/abs/1502.01852. For orthogonal initialization, read Saxe et al., Exact solutions to the nonlinear dynamics of learning in deep linear neural networks, at https://arxiv.org/abs/1312.6120.',
+        'Study Backpropagation, Gradient Descent, Activation Functions, Batch Normalization, Residual Networks, and Attention Initialization next. The unifying idea is keeping signal and gradient scales usable while depth grows.',
       ],
     },
   ],

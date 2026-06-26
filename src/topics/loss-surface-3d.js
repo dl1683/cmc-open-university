@@ -125,103 +125,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        "Read the animation as the execution trace for The Loss Landscape, in 3D. A real two-basin surface in WebGL: gradient descent gets trapped, momentum vaults the ridge — computed live, draped in 3D..",
-        {type: "callout", text: "The 3D surface is a controlled slice: it teaches why local slope, basin shape, and optimizer memory can decide different endings."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/loss-surface-3d.gif', alt: 'Animated walkthrough of the loss surface 3d visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why a 3D loss surface matters`,
-      paragraphs: [
-        `A loss surface turns optimization into terrain. The horizontal axes are parameters, and the vertical axis is loss. In real machine learning there may be millions or billions of parameters, so the full surface cannot be drawn. This page chooses two parameters and renders a real surface in 3D so the geometry becomes visible: two valleys, a ridge between them, steep walls in one direction, and a starting point that sends different optimizers to different endings.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg`, alt: `Rosenbrock function surface with a curved optimization valley`, caption: `A classic optimization surface makes the same lesson visible: the route through curvature can dominate the simple height story. Source: Wikimedia Commons, Oleg Alexandrov, public domain.`},
-        `The topic exists because loss curves hide too much. A training chart tells you whether loss went down, but not why the optimizer moved the way it did. A 3D surface shows the missing cause. It makes the phrase "stuck in a basin" literal. It shows why one learning rate can be too large for a steep wall and too small for a flat floor. It also shows why momentum can do something plain gradient descent cannot do: carry motion through a short uphill region after a long downhill run.`,
-      ],
-    },
-    {
-      heading: `The obvious approach`,
-      paragraphs: [
-        `The naive story says gradient descent should follow the steepest downhill direction until it finds a good minimum. That is true only locally. The gradient at one point knows the slope immediately around that point. It does not know that a better valley exists across a ridge. If every legal step is chosen by the current local downhill direction, the optimizer can settle in the first basin that captures it, even when a lower basin is visible to us from outside the problem.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Gradient_descent.svg/250px-Gradient_descent.svg.png`, alt: `Gradient descent path moving across contour lines`, caption: `The contour view shows the local rule: move against the current gradient and hope that local descent reaches a useful basin. Source: Wikimedia Commons, Gradient descent illustration.`},
-        `On this surface, plain gradient descent starts high on the right wall. Its first steps are dominated by the steep y direction, so it drops quickly into the ravine. Once it reaches the floor, the slope becomes gentler, and the path bends toward the shallow right basin. From there, moving toward the deeper left basin would require climbing. Plain gradient descent has no stored motion and no reason to go uphill, so it stops in the shallow minimum. The algorithm has not made a mistake by its own rules. The rules are local.`,
-      ],
-    },
-    {
-      heading: `The core insight`,
-      paragraphs: [
-        `The core insight is that optimization is path-dependent. The final model is not determined only by the lowest point on the surface. It is determined by the starting point, the geometry around the path, the step rule, and the optimizer\'s memory. Two optimizers can see the same gradients at the same locations and still behave differently if one carries velocity from previous gradients.`,
-        `Momentum adds memory. It keeps a running velocity, usually an exponentially decayed sum of recent gradients. When the path has been descending for several steps, velocity accumulates in that direction. If the surface briefly tilts uphill, the velocity can carry the optimizer across, much like a ball rolling over a small rise. Momentum does not know where the deep basin is. It simply changes the dynamics from "move only by current slope" to "move by current slope plus recent motion." On this surface, that difference is enough to cross the ridge.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The surface is computed from one explicit two-parameter function. The x axis is one weight, the y axis is another, and the height is the loss value. The function creates a double well along x, makes the left basin lower than the right basin, and adds steep parabolic walls along y. The renderer samples that formula over a grid and draws the resulting terrain with low-loss regions colored differently from high-loss regions.`,
-        `The optimizer paths are computed from the same formula, not staged by hand. Gradient descent repeatedly subtracts the learning rate times the gradient. Momentum updates a velocity term and subtracts the learning rate times that velocity. The two paths start from the same point. Plain gradient descent uses a larger direct step and settles in the shallow basin after thirty steps. Momentum uses a smaller learning rate, a high momentum coefficient, and more steps, but the stored velocity sends it over the ridge into the deeper basin. The comparison isolates optimizer dynamics because the surface and initialization are identical.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The visual proves three separate points. First, local descent is not global search. The better valley is visible to us because we see the whole surface, but the optimizer only receives local gradients. Second, ravines create conflicting step-size needs. A step size that is safe on a steep wall may be painfully slow on the valley floor, while a step size that moves quickly on the floor may bounce or diverge on the wall. Third, optimizer state changes reachable solutions. Momentum reaches a basin that plain descent does not reach from the same start.`,
-        `The 3D orbit also proves why curvature matters. The shallow basin and deep basin are not just different heights. They have different shapes. Wide basins tolerate small weight perturbations; narrow basins punish them. In real training, this is connected to the flat-minimum generalization story, although the demo should not be overread as a full neural-network landscape. It is a controlled slice that makes the geometry physical enough to reason about.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `Drawing a surface requires evaluating many grid points, which is cheap here because the formula is tiny. For a real model, every grid point may require a full forward pass over a dataset or validation batch. That makes landscape visualization a research and debugging tool, not something used inside every training step. Real optimizers compute the gradient only at the current parameter vector. They do not map the full terrain before moving.`,
-        `Momentum has its own costs. It stores extra state for every parameter and adds another hyperparameter, the momentum coefficient. Too little momentum behaves like plain descent. Too much can overshoot useful basins, oscillate, or amplify instability when the learning rate is high. Adaptive methods such as RMSProp and Adam add more state and scale updates by recent gradient magnitudes. They can move better through ravines but may choose different minima and require careful learning-rate schedules. The right optimizer is a tradeoff among speed, stability, memory, and generalization.`,
-      ],
-    },
-    {
-      heading: `Real uses and limits`,
-      paragraphs: [
-        `Practitioners use loss-surface thinking to debug training runs. A long flat loss curve may indicate a plateau or saddle rather than a finished model. A run that diverges after a few steps may be hitting steep curvature with an excessive learning rate. A model that trains well but generalizes poorly may have landed in a sharp region that is sensitive to small data or weight changes. These diagnoses affect concrete choices: learning-rate warmup, momentum, batch size, weight decay, gradient clipping, and sharpness-aware methods.`,
-        `The same thinking helps when two runs have the same final validation score. The run with smoother loss, lower sensitivity to small weight perturbations, and less seed-to-seed variance is often the more reliable deployment candidate. A team may not render a surface every time, but it can still test the geometry indirectly by perturbing weights, checking gradient norms, comparing restarts, and watching whether a small learning-rate change breaks training. Those checks are practical shadows of the surface shown here.`,
-        `The limit is dimensionality. A two-parameter surface is a slice, not the full object. In high dimensions, a barrier in one slice may be avoidable by moving along another direction. Many critical points are saddles rather than true local minima. Overparameterized networks often have connected low-loss regions that no 2D drawing can show. The right lesson is not that every model has exactly two valleys. The lesson is that optimizer behavior depends on geometry, and geometry is richer than a scalar loss curve.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study gradient descent to understand the local step rule. Study momentum, RMSProp, and Adam to see how optimizer state changes the path. Study loss landscapes and optimization geometry for basins, saddles, ravines, and flat minima. Study learning-rate schedules to understand why a good step size changes during training. Study vanishing and exploding gradients to connect the visible terrain here with the backward signal that deep networks must preserve before an optimizer can use the slope at all.`,
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Measure prediction error with a single number: the loss. MSE (Mean Squared Error): L = (1/n)Σ(yᵢ - ŷᵢ)². Penalizes large errors quadratically — a prediction off by 10 costs 100×, not 10×. Good for regression where outlier errors matter.',
-        'Cross-entropy: L = -(1/n)Σ[yᵢ·log(ŷᵢ) + (1-yᵢ)·log(1-ŷᵢ)]. The standard classification loss. When the true label is 1 and model predicts 0.01: loss = -log(0.01) = 4.6 (harsh). Predicts 0.99: loss = -log(0.99) = 0.01 (gentle). Cross-entropy pushes confident wrong predictions hard, leaves confident correct ones alone.',
-        'The loss surface: plot loss as a function of all parameters. For 2 parameters: a 3D landscape with valleys, ridges, saddle points. For GPT-4 (~1.8T parameters): a surface in 1.8-trillion-dimensional space. Gradient descent walks downhill on this surface. Local minima, saddle points, and flat regions are obstacles. Li et al. 2018 showed: ResNets have smoother loss surfaces than plain networks — skip connections literally flatten the landscape.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Li et al. 2018 (Visualizing the Loss Landscape of Neural Nets — the famous landscape plots). Goodfellow et al. 2015 (Qualitatively Characterizing Neural Network Optimization Problems — early landscape analysis).',
-        'Study next: Gradient Descent (navigating the loss surface), Adam Optimizer (adaptive navigation), Learning Rate Schedules (controlling step size on the surface), Cross-Entropy (the classification loss function), Regularization (reshaping the loss surface).',
-      ],
-    },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        'Linear regression: y = wx + b. Data: (1,2), (2,4), (3,6). True w=2, b=0. Loss surface: L(w,b) = (1/3)[(2-w-b)² + (4-2w-b)² + (6-3w-b)²]. At w=2, b=0: L=0 (global minimum). At w=1, b=1: L = (1/3)[(2-2)² + (4-3)² + (6-4)²] = (0+1+4)/3 = 1.67. At w=3, b=-1: L = (1/3)[(2-2)² + (4-5)² + (6-8)²] = (0+1+4)/3 = 1.67. The surface is a paraboloid (bowl) — convex, single minimum.',
-        'Gradient at (w=1, b=1): ∂L/∂w = (1/3)[2(-1)(1) + 2(-1)(2) + 2(-2)(3)] = -12.67. Points toward w=2: downhill. Neural networks: non-convex loss surfaces with many local minima. But empirically, most local minima have similar loss values (Choromanska et al. 2015) — finding ANY local minimum usually works.',
-      ],
-    },
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Saddle points: in high dimensions, saddle points are exponentially more common than local minima. A saddle point: loss is a minimum along some directions and a maximum along others. Like sitting on a horse saddle — you are at the bottom front-to-back but at the top left-to-right. L(x,y) = x² - y². Point (0,0): ∂L/∂x = 0, ∂L/∂y = 0. It is a critical point. But it is not a minimum — descend along y. SGD escapes saddle points naturally (the noise from mini-batches provides random perturbation). Adam/momentum help too — they accumulate velocity and roll through saddles.',
-        'Loss surface visualization trick (Li et al. 2018): pick two random directions in parameter space. Project the loss onto this 2D plane. Plot as a heatmap or 3D surface. ResNet-56: smooth bowl. Plain-56 (no skip connections): chaotic, with sharp barriers.',
-      ],
-    },
-],
+    {heading: 'How to read the animation', paragraphs: ['Read the surface as a two-parameter loss function. Height is loss, horizontal position is the parameter pair, and each path is computed by an optimizer rule.', {type: 'callout', text: 'The 3D surface is a controlled slice: it teaches why local slope, basin shape, and optimizer memory can decide different endings.'}, 'Plain gradient descent follows local slope into one basin. Momentum carries velocity from previous slopes and can cross a ridge that local descent alone will not cross.', {type: 'image', src: './assets/gifs/loss-surface-3d.gif', alt: 'Animated walkthrough of the loss surface 3d visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    {heading: 'Why this exists', paragraphs: ['A loss surface makes optimization visible. Real models have too many dimensions to draw, so this topic uses two parameters to show basins, ridges, and paths directly.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock function surface with a curved optimization valley', caption: 'A classic optimization surface makes the same lesson visible: the route through curvature can dominate the simple height story. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'}, 'The route matters because two optimizers can start at the same point and land in different basins. A falling loss curve alone does not explain why that happened.']},
+    {heading: 'The obvious approach', paragraphs: ['The obvious story says gradient descent rolls downhill until it finds a minimum. Each step subtracts learning rate times gradient, so the move uses only local slope.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Gradient_descent.svg/250px-Gradient_descent.svg.png', alt: 'Gradient descent path moving across contour lines', caption: 'The contour view shows the local rule: move against the current gradient and hope that local descent reaches a useful basin. Source: Wikimedia Commons, Gradient descent illustration.'}, 'That rule is local, not global. It cannot see a lower valley across a ridge, so it may stop in the first basin that captures the path.']},
+    {heading: 'The wall', paragraphs: ['The wall is path dependence. A lower basin can be nearby, but reaching it may require a short uphill move that plain gradient descent will not choose.', 'Ravines create another wall. A rate safe for a steep wall may crawl on the floor, while a rate that moves well on the floor may bounce on the wall.']},
+    {heading: 'The core insight', paragraphs: ['Optimizer state changes reachability. Momentum stores velocity, a memory of recent gradients, and combines current slope with stored motion.', 'Momentum has no map of the better basin. It crosses the ridge here because earlier downhill movement built enough velocity to survive a short uphill region.']},
+    {heading: 'How it works', paragraphs: ['The surface is sampled from an explicit function of x and y. It creates two wells along x, makes the left well lower, and adds steep curvature along y.', 'Gradient descent subtracts learning rate times gradient. Momentum updates velocity first, then moves by that velocity, so the path can keep moving when the newest gradient resists it.']},
+    {heading: 'Why it works', paragraphs: ['The comparison is controlled because both paths use the same surface and starting point. The changed ingredient is the optimizer update rule.', 'Plain descent stops in the shallow basin because later local downhill directions point into it. Momentum reaches the deeper basin because velocity changes the step from current slope alone to current slope plus recent motion.']},
+    {heading: 'Cost and complexity', paragraphs: ['Drawing this surface is cheap because the formula is tiny. For a real model, a 40 by 40 grid can mean 1,600 extra evaluations over data.', 'Momentum costs one velocity value per parameter and one coefficient to tune. Too much momentum or too high a rate can overshoot, oscillate, or destabilize training.']},
+    {heading: 'Real-world uses', paragraphs: ['This picture maps to training diagnostics. Loss spikes suggest sharp curvature or large steps, long plateaus suggest flat regions or saddles, and seed variation suggests path-sensitive basins.', 'Teams test the same geometry indirectly by perturbing checkpoints, comparing restarts, tracking gradient norms, and changing schedules or momentum to see whether the failure moves.']},
+    {heading: 'Where it fails', paragraphs: ['The picture is a slice, not a full neural-network landscape. In high dimensions, an apparent barrier in two dimensions may be avoidable through another coordinate.', 'Momentum is not always better. It can cross useful ridges, but it can also skip good basins or amplify instability when the learning rate is too high.']},
+    {heading: 'Worked example', paragraphs: ['On the y = 0 slice, the demo function gives loss about 1.48 near x = 1.93 and about 0.49 near x = -2.04. The left basin is lower, but a start near x = 2.9 falls first toward the right basin.', 'Plain descent settles there because crossing toward x = 0 requires climbing a ridge. Momentum can keep moving left after earlier downhill steps build velocity, so the same start can reach the lower basin.']},
+    {heading: 'Sources and study next', paragraphs: ['Study gradient descent for the local rule and momentum for velocity. Read Li et al. 2018 and Goodfellow et al. 2014, then study learning-rate schedules, Adam, Hessian curvature, and loss landscapes.']},
+  ],
 };

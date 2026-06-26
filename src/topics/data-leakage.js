@@ -167,190 +167,103 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Data Leakage & Contamination. The answer key inside the exam: target leaks, split contamination, time travel, and benchmark pollution — and how to catch them..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/data-leakage.gif', alt: 'Animated walkthrough of the data leakage visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why this exists`,
-      paragraphs: [
-        `Data leakage is the evaluation bug that rewards you for being wrong. Information that will not be available at prediction time sneaks into training, validation, or test data. The model scores beautifully because the answer key is already present in the exam. Then the same model fails in production, where the answer key is gone.`,
-        { type: 'callout', text: `Leakage is a chain-of-custody failure: information crosses the prediction boundary before evaluation begins.` },
-        `This page exists because leakage is easy to miss and hard to forgive. Nothing crashes. Cross-validation runs. Metrics improve. Model selection chooses the cheater because it looks best. A team can ship a model with high offline scores and only discover the truth when real users, real patients, real trades, or real customers produce the first honest evaluation.`,
+        'The animation has two views. "Four ways the answer leaks" walks through four distinct leak types: target leakage, split contamination, temporal leakage, and benchmark contamination. Each frame is a matrix showing features, rows, or timeline entries, with red highlights marking the contaminated element. "Detection & defense" then shows the fingerprints that betray leakage and the ordered checklist that prevents it.',
+        'In each matrix, red-highlighted cells are the violation. Compare cells mark items that should be independent but are connected by leaked information. Active cells mark the current focus of the audit. Read each frame by asking: what information crossed a boundary it should not have, and when in the pipeline did the crossing happen?',
+        'Watch the first view to build intuition for the four shapes leakage takes, then watch the second view to learn the systematic defense. The defense checklist is ordered because leakage is almost always a pipeline step executed too early.',
+        {type: 'image', src: './assets/gifs/data-leakage.gif', alt: 'Animated walkthrough of the data leakage visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive approach is to gather all rows, compute all useful features, augment the data, scale everything, split randomly, and train. That pipeline feels clean because every step is common. It is also the pipeline that leaks. A scaler fitted before the split saw validation rows. Augmentation before the split can put near-copies on both sides. A feature computed from the whole table can smuggle future or label information into every fold.`,
-        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Traintest.svg/960px-Traintest.svg.png`, alt: `Training and test sets with different fitted model curves`, caption: `The train-test wall only works if preprocessing, augmentation, grouping, and feature fitting do not cross it. Source: https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets.` },
-        `Another naive approach is to trust the metric because the code is deterministic. Leakage is not usually a nondeterministic bug. It is a chain-of-custody bug. The question is not whether the training loop ran correctly; it is whether each value was legally knowable at the moment the prediction would have been made.`,
+        'A machine learning model is only useful if it predicts well on data it has never seen. To measure that, you hold out a test set, train on the rest, and score the model on the holdout. This works only if the test set is truly unseen -- if no information from it leaked into training. Data leakage is any violation of that separation.',
+        { type: 'callout', text: 'Leakage is a chain-of-custody failure: information crosses the prediction boundary before evaluation begins.' },
+        'Leakage is the most dangerous bug in applied ML because it makes your metrics better, not worse. Nothing crashes. Every test passes. Cross-validation reports high scores. Model selection picks the leaked model because it looks like the best candidate. The team ships it, and the first honest evaluation happens in production, on real users, real patients, or real money. By that point the damage is done.',
+        'This page teaches four distinct ways information leaks, the fingerprints that betray each one, and the pipeline ordering that prevents all of them.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is that every prediction has a knowledge boundary. At prediction time, some facts are allowed and some are not. A lab result returned tomorrow is not allowed for a prediction made today. A treatment chosen after diagnosis is not allowed as a feature for diagnosis. A duplicate of the test image is not allowed in training. A benchmark answer copied into pretraining is not allowed to count as reasoning skill.`,
-        `Leakage prevention is mostly ordering. Deduplicate before splitting. Group by entity before splitting. Split time-series data by time. Fit preprocessing only inside the training side of each fold. Generate augmentations only from training examples. Seal the test set. Audit every feature with the same sentence: would this exact value exist, unchanged, at the moment the model must predict?`,
+        'The standard ML pipeline looks like this: collect data, engineer features, augment, scale, split into train and test, then train. Every individual step is correct. The bug is in the ordering. If you fit a scaler on the full dataset before splitting, the scaler\'s mean and variance encode information about test rows. If you augment before splitting, near-copies of the same original can land on both sides. If you compute a rolling average over an entire time series before splitting, future values leak into past rows.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Traintest.svg/960px-Traintest.svg.png', alt: 'Training and test sets with different fitted model curves', caption: 'The train-test wall only works if preprocessing, augmentation, grouping, and feature fitting do not cross it. Source: https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets.' },
+        'Another common mistake is trusting the metric because the code ran without errors. Leakage is not a runtime bug. It is a logical bug -- the code does exactly what you told it, but you told it to use information that would not exist at prediction time. The question is never "did the pipeline execute correctly?" It is "was every value legally knowable at the moment the prediction would be made?"',
       ],
     },
     {
-      heading: `Target leakage`,
-      paragraphs: [
-        `Target leakage happens when a feature is caused by, computed from, or recorded after the label. The pneumonia example is simple: took_antibiotics predicts pneumonia because antibiotics were prescribed after diagnosis. The model learns treatment policy, not disease. The same pattern appears in fraud labels, churn interventions, collections actions, and hospital outcomes.`,
-        `The fix is a timestamp audit. Every feature needs a time of availability, not just a value. If the feature is updated after the target event, it is illegal for that prediction. If the feature is a summary that includes post-outcome data, it must be recomputed with a point-in-time join. Strong feature importance is not proof of leakage, but strong feature importance plus suspicious timing is an incident.`,
-      ],
-    },
-    {
-      heading: `Split contamination`,
-      paragraphs: [
-        `Split contamination happens when the same item, near-duplicate, or related entity appears on both sides of the train-test wall. An original image in training and a mirrored crop in test is not an honest test. Neither is the same patient in both sets, the same user session split across folds, duplicated web pages across train and validation, or paraphrases of the same question on both sides.`,
-        `The fix is to define the entity before splitting. For medical data, group by patient. For recommendation data, group by user or session when the task requires it. For images, deduplicate and group original assets before augmentation. For text, run near-duplicate detection before folds are assigned. Split first, augment inside the training side only.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `Temporal leakage happens when the model trains on the future or when features are computed using future values. A random split over time-series rows can train on Friday and test on Tuesday. A rolling average computed over the full series can leak tomorrow into yesterday. A customer lifetime spend feature can include purchases made after the prediction date.`,
-        `The fix is to respect the arrow of time. Training data must precede validation data for forecasting and production-like prediction. Feature computation must use only data available before the prediction timestamp. Cross-validation for temporal tasks should use forward-chaining or blocked folds, not a random shuffle that treats time as decoration.`,
-      ],
-    },
-    {
-      heading: `Benchmark contamination`,
-      paragraphs: [
-        `Benchmark contamination is the large-model version of the same bug. Public benchmark questions, answers, solution repositories, forum explanations, and blog walkthroughs can enter pretraining corpora. A model may score well because it has memorized the test item or a close variant. The exam was in the textbook.`,
-        `The defense is imperfect but necessary: deduplicate against known benchmark text, hold out private test sets, rotate fresh evaluations, report decontamination methods, and test on task-specific private data. A famous public benchmark score is useful evidence only when it is paired with contamination analysis and behavior on examples the model could not have memorized.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The four leak matrices prove that contamination crosses boundaries. In target leakage, the label crosses into a feature. In split contamination, the same example crosses the train-test wall. In time travel, future information crosses into the past. In benchmark contamination, the test crosses into the training crawl. Each case has a different surface, but the same shape: information appears where it should be impossible.`,
-        `The defense visual proves that the order of operations is a correctness property. Deduplicate and group first. Split second. Fit preprocessing inside the training data only. Audit timestamps before trusting features. Seal the test set. If those steps happen out of order, a model can pass every unit test while the experiment itself is invalid.`,
-      ],
-    },
-    {
-      heading: `Detection`,
-      paragraphs: [
-        `Leakage often announces itself as performance you did not earn. A hard medical prediction producing 0.99 AUC on the first attempt should trigger an audit. One feature explaining nearly all importance should trigger a timestamp check. A huge offline-production gap should trigger a split and feature lineage review. A language model continuing a benchmark item verbatim should trigger a contamination investigation.`,
-        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Simplified_neural_network_training_example.svg/250px-Simplified_neural_network_training_example.svg.png`, alt: `Simplified neural network training diagram with feature signals feeding classes`, caption: `Feature audits ask which training signals dominate the model and whether those signals would exist at prediction time. Source: https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets.` },
-        `Simple ablations help. Remove the suspect feature and retrain. If performance collapses to a more believable level, inspect how that feature was created. Search for duplicates across splits. Recompute preprocessing inside folds. Run a point-in-time feature build. Use influence or nearest-neighbor tools to find training examples that look too much like test examples.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior (2)`,
-      paragraphs: [
-        `Leak prevention costs engineering discipline more than raw compute. You need dataset versioning, feature definitions with availability times, split manifests, entity ids, reproducible preprocessing pipelines, and review habits that ask data questions before model questions. That work feels slow until it prevents a false launch decision.`,
-        `There are tradeoffs. Grouped splits can reduce the amount of training data. Time-based splits can make validation harder because the future distribution may drift. Private test sets are harder to share and compare. Strict decontamination can remove useful public examples. These costs are real, but they are smaller than optimizing against an invalid exam.`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `Do not delete every strong feature just because it is strong. Some signals are genuinely predictive. The audit question is whether the value is legally available, not whether it is useful. Also do not trust a clean training script if the upstream data snapshot was contaminated. Leakage often lives in joins, labels, ETL timing, augmentation, deduplication, or benchmark collection.`,
-        `A sealed validation set can also wear out. If the team repeatedly peeks, retunes, and chooses models based on the same holdout, that holdout becomes part of the training process. Use nested validation, fresh holdouts, or final test sets with limited access. The longer a benchmark is public, the more suspicious its score should become without contamination controls.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Cross-Validation and Honest Evaluation for split discipline, Leakage-Safe Target Encoding Case Study for high-cardinality categorical features, Point-in-Time Feature Join Index for temporal joins, Feature Store for training-serving consistency, Early Stopping and Patience for validation hygiene, Imbalanced Data: When 99% Is One Class for oversampling hazards, and ROC Curves and AUC for interpreting suspiciously strong scores.`,
-        `Then study Influence: Which Training Data Did This? for forensic example tracing, Saliency Maps and Feature Attribution for suspect-feature ablations, Membership Inference Shadow Model Case Study for train-set participation leakage, LLM Training Data Extraction for memorized text, PII Redaction Token Span Pipeline for sensitive-field removal, and A/B Testing and p-values for the online experiment that may become the first honest test.`,
-      ],
-    },
-      {
       heading: 'The wall',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        'The wall is the prediction boundary: an imaginary line between what the model is allowed to know and what it must predict. Everything on the training side of the wall is legal input. Everything on the test side must be invisible during training. Everything generated after the prediction timestamp must be invisible at prediction time. The wall has one invariant: no information flows from the forbidden side to the allowed side, ever, at any pipeline stage.',
+        'Here is one sequence that breaks the invariant. You have 1,000 patient records. You compute a feature "average lab value for this patient" using all visits including future ones. You split randomly. You train. The model now uses future lab results to predict a past diagnosis. Cross-validation reports 0.95 AUC. In production, where only past visits are available, the same model scores 0.72. The 0.23 gap is exactly the value of the leaked future information.',
+        'Once the wall is broken, every downstream metric is untrustworthy. You cannot fix it by retraining on the same features -- the contamination is in the feature construction, not the model weights. You must rebuild the feature pipeline with point-in-time correctness and re-split from scratch.',
       ],
     },
-
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Every prediction has a knowledge boundary defined by two coordinates: identity (which entities are in train vs. test) and time (what information existed before the prediction moment). Leakage is any violation of either coordinate. Target leakage violates time: a feature is computed from the outcome that has not happened yet. Split contamination violates identity: the same entity appears on both sides. Temporal leakage violates time at the row level: future rows train a model tested on past rows. Benchmark contamination violates identity at scale: test questions appear in the training corpus.',
+        'All four reduce to one sentence: the model saw information it should not have had. The prevention reduces to one discipline: order your pipeline so that every step respects the knowledge boundary. Deduplicate and group by entity first. Split second (by time if temporal). Fit all preprocessing inside the training side only. Audit every feature with the question: "would this exact value exist, unchanged, at the moment I need the prediction?" That single question catches most leaks before they reach a model.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Target leakage works like this: you build a pneumonia predictor with four features -- age, fever, cough severity, and took_antibiotics. The model reports 0.99 AUC, and took_antibiotics carries 96% of the feature importance. The reason is that doctors prescribe antibiotics after diagnosing pneumonia. The feature is a consequence of the label, not a predictor of it. The model learned "patients treated for pneumonia have pneumonia" -- a tautology that scores perfectly in training and is useless at prediction time, when no treatment has been prescribed yet.',
+        'Split contamination works like this: you augment an image dataset (flips, crops, color jitter), then split randomly. Photo #4471 appears in three forms -- the original and a crop land in training, the mirror lands in test. The test is now asking the model to classify an image it has already memorized, just reflected. Accuracy inflates because the test is not testing generalization; it is testing recall.',
+        'Temporal leakage works like this: you have five days of stock data and split randomly. Tuesday lands in the test set, but Wednesday through Friday land in training. The model trained on the future to predict the past. Any feature computed as a rolling window over the full series before splitting injects the same violation more subtly.',
+        'Benchmark contamination works like this: a public benchmark\'s questions, answers, and solution code live on the open web. A large language model\'s pretraining crawl scrapes that web. On evaluation day, the model recites memorized answers. The benchmark score measures memorization, not reasoning. The exam was in the textbook.',
+      ],
+    },
     {
       heading: 'Why it works',
       paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
+        'The defense works because it preserves the knowledge boundary at every pipeline stage. The argument is straightforward: if no information from the test side or from the future crosses into training at any step, then the model\'s test-time performance is an honest estimate of its production performance. Each defense step maintains this invariant for a specific leak type.',
+        'Deduplication and entity grouping before splitting guarantee that no near-duplicate straddles the wall (prevents split contamination). Time-ordered splitting guarantees that training data strictly precedes test data (prevents temporal leakage). Fitting preprocessing inside the training fold guarantees that scalers, encoders, and imputers never see test statistics (prevents a subtle form of target leakage through global statistics). Timestamp-auditing every feature guarantees that no value is computed from post-outcome data (prevents target leakage). Sealing the test set prevents repeated peeking from wearing out the holdout.',
+        'The corner case is preprocessing that seems harmless but leaks. StandardScaler fitted on the full dataset shifts each test value by a mean that includes test rows. The shift is tiny per sample, but across thousands of features and folds, it systematically inflates cross-validation scores. The fix is trivial: fit on training, transform on test. But forgetting this one step is one of the most common leakage sources in practice.',
       ],
     },
-
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Leak prevention costs pipeline discipline, not compute. The main costs are: (1) maintaining feature availability timestamps for every column in your schema, (2) implementing point-in-time joins instead of simple table joins, (3) running deduplication and entity grouping before every split, and (4) fitting preprocessing inside each cross-validation fold separately, which means your scaler runs K times instead of once. For a dataset with F features and N rows split into K folds, the overhead of per-fold fitting is O(K * F * N) instead of O(F * N) -- a constant factor of K, typically 5 or 10.',
+        'Grouped splits reduce effective training set size. If you group by patient and 200 of your 1,000 patients land in test, you train on 800 patients, not 800 rows -- potentially many fewer rows if patients have multiple visits. Time-based splits can make validation harder because the future distribution may drift from the past. Private test sets are harder to share across teams. Strict benchmark decontamination can remove genuinely useful examples. These costs are real, but every one of them is smaller than optimizing against an invalid evaluation and shipping a model that fails on contact with reality.',
+      ],
+    },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
+        'Clinical ML pipelines enforce point-in-time feature construction because the cost of a leaked model in healthcare is a misdiagnosis. A hospital readmission predictor trained with post-discharge lab results will score well offline and fail in the ER, where those labs have not been ordered yet. HIPAA-grade ML platforms now require feature availability metadata as part of the schema.',
+        'Kaggle competitions have been won and then voided because the winning solution exploited a leak in the competition data. The most famous cases involve target-encoded features that were computed using the test labels, or metadata (file creation timestamps, row ordering) that correlated with the target. Competition platforms now run automated leak detection on hosted datasets.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Simplified_neural_network_training_example.svg/250px-Simplified_neural_network_training_example.svg.png', alt: 'Simplified neural network training diagram with feature signals feeding classes', caption: 'Feature audits ask which training signals dominate the model and whether those signals would exist at prediction time. Source: https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets.' },
+        'LLM evaluation labs maintain private benchmark splits and run n-gram overlap decontamination against known test sets. When a model\'s score on a public benchmark jumps but its performance on private tasks does not, contamination is the first hypothesis. The defense is imperfect -- paraphrased answers evade n-gram matching -- but it catches the most blatant cases and forces transparency about what the score actually measures.',
       ],
     },
-
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Do not treat every strong feature as a leak. Some signals are genuinely predictive. Fever at admission is a strong predictor of infection and is legally available at prediction time -- deleting it would hurt the model for no reason. The audit question is always about timing and causality, not about magnitude. A feature with 40% importance is fine if its value exists at prediction time; a feature with 5% importance is illegal if it was computed from the outcome.',
+        'A clean training script does not guarantee clean data. Leakage often lives upstream: in the SQL join that pulls post-outcome rows, in the ETL job that backfills missing values with future data, in the label table that was updated retroactively, or in the augmentation step that ran before the split. Auditing the model code while ignoring the data pipeline is like checking the exam room while ignoring that the answer key was emailed to students last night.',
+        'Sealed test sets wear out. If a team repeatedly evaluates candidate models on the same holdout, tunes hyperparameters to improve that specific holdout score, and selects the winner based on holdout performance, the holdout has become an implicit part of training. The defense is nested validation (tune on an inner holdout, evaluate on an outer one), fresh holdouts rotated periodically, or a final test set with strictly limited access -- used once, for the ship decision.',
+      ],
+    },
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Suppose you are building a 30-day hospital readmission predictor. Your dataset has 10,000 discharge records for 4,000 patients, with 50 features per record.',
+        'Step 1: Timestamp audit. You check every feature\'s availability time. You find that "total_charges" includes charges posted up to 45 days after discharge (billing lag). That feature encodes post-discharge events. You rebuild it as "charges_at_discharge" using only line items posted before the discharge timestamp. This catches target leakage.',
+        'Step 2: Entity grouping. Patient #2071 has 6 discharge records. If you split randomly, 4 might land in train and 2 in test. The model memorizes patient #2071\'s pattern and "predicts" their test records from memory. You group by patient_id and assign entire patients to train or test. This catches split contamination.',
+        'Step 3: Time-ordered split. You sort by discharge date. The first 80% of dates go to training, the next 20% go to test. This prevents training on December to predict October. This catches temporal leakage.',
+        'Step 4: Per-fold preprocessing. Inside each cross-validation fold, you fit StandardScaler on the training portion and transform the validation portion. You fit SMOTE oversampling on the training portion only. You never touch the test set during any of this.',
+        'Step 5: Evaluation. Before the fix, cross-validation reported 0.91 AUC. After the fix, it reports 0.78 AUC. The 0.13 drop is the exact value of the information that was leaking. The 0.78 is the model\'s honest skill. When you deploy, production AUC is 0.76 -- a 0.02 gap instead of a 0.15 gap. The model is worse on paper and better in reality.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'The foundational reference is Kaufman et al., "Leakage in Data Mining: Formulation, Detection, and Avoidance" (2012), which formalized the taxonomy of leak types and introduced the concept of legitimate vs. illegitimate features based on temporal availability. For benchmark contamination specifically, see Jacovi et al., "Stop Uploading Test Data in Plain Text" (2023) and the decontamination methodology sections of major LLM technical reports.',
+        'Study Cross-Validation next to understand how per-fold fitting prevents preprocessing leakage. Study Feature Store design to learn how production systems enforce training-serving consistency. Study ROC Curves and AUC to calibrate your suspicion when a score looks too good. Study Point-in-Time Feature Joins for the SQL patterns that prevent temporal leakage in data warehouses. Study Imbalanced Data to understand why SMOTE applied before splitting is a leak. Study A/B Testing for the online experiment that may become the first honest evaluation after an offline pipeline is cleaned up.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Data Leakage & Contamination moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

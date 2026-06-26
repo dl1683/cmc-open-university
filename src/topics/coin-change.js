@@ -220,7 +220,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Any change-making scenario with non-canonical denominations. Some historical and foreign coin systems are non-canonical; most contest and puzzle settings use non-canonical sets deliberately.',
         'Resource allocation with fixed batch sizes: a factory packs items in boxes of 6, 9, and 20 — find the fewest boxes to ship exactly 50 items. Tiling a board of length n with tiles of fixed sizes using the fewest tiles. Postage: pay an exact amount with the fewest stamps from a limited set of face values.',

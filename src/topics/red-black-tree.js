@@ -141,9 +141,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Every node carries a color label -- BLACK or RED. The animation shows two insertion scenarios that trigger the two different repair strategies.',
-        'In the recolor case, watch the parent-uncle pair. Both are red, so the fix avoids rotation entirely: parent and uncle turn black, the grandparent turns red, and the violation floats upward. Highlighted "swap" and "compare" nodes mark the red parent and red uncle. When the violation reaches the root, the root simply turns black and the repair ends.',
-        'In the rotation case, the uncle is black (a null leaf counts as black). The "swap" highlight marks the red-red chain that triggers a left rotation. The middle value lifts into the grandparent position, the old grandparent drops to its left, and recoloring restores the invariants. Follow the left-to-right layout before and after: the sorted order never changes. Rotations reshape the tree without disturbing the BST contract.',
+        'Each node is a binary-search-tree node plus one color bit. Red marks a node that is glued to a nearby black node for balancing purposes. Black nodes define the counted levels that keep every root-to-leaf path close in length.',
+        'The recolor view shows the red-uncle case. Parent and uncle turn black, grandparent turns red, and the possible violation moves upward. The rotation view shows the black-uncle case, where a local pointer change repairs shape while in-order key order stays unchanged.',
         {type: 'callout', text: 'A red-black tree keeps a BST shallow by enforcing color rules that bound path imbalance, then repairs violations with local recolors and rotations.'},
       
         {type: 'image', src: './assets/gifs/red-black-tree.gif', alt: 'Animated walkthrough of the red black tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
@@ -151,101 +150,81 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A binary search tree gives O(log n) search when it is balanced, but its shape depends entirely on insertion order. Insert 1, 2, 3, 4, 5 in sequence and the tree becomes a right-leaning chain -- a linked list where every operation costs O(n).',
-        'Rudolf Bayer solved this in 1972 with symmetric binary B-trees: binary trees that encode the structure of 2-3-4 trees using color annotations, so they stay balanced regardless of input order. Leonidas Guibas and Robert Sedgewick reformulated the idea in 1978, named it the red-black tree, and distilled the balance guarantee into five clean invariants. The result: a self-balancing BST with guaranteed O(log n) search, insert, and delete, no matter what order the keys arrive.',
+        'A binary search tree, or BST, stores smaller keys to the left and larger keys to the right. It is fast only when its height is small. Sorted inserts such as 1, 2, 3, 4, 5 turn a plain BST into a chain.',
+        'A red-black tree adds local rules that prevent that chain from forming. It does not require perfect balance. It only guarantees that no path becomes more than about twice as long as another, which is enough for worst-case logarithmic operations.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Use a plain binary search tree. When input arrives in roughly random order, a BST stays reasonably balanced -- height is O(log n) on average, every operation walks one root-to-leaf path, and the code is short. No extra metadata, no rotations, no repair logic.',
-        'Textbook examples insert keys like 5, 3, 7, 2, 4, 6, 8 and produce a nicely branching tree. For benign inputs, the plain BST is hard to beat.',
+        'The obvious approach is a plain BST. It is easy to implement, keeps keys sorted, and supports predecessor or range queries. With random insertion order, it often stays reasonably shallow.',
+        'Another tempting approach is to rebuild the whole tree after it becomes ugly. That can restore balance, but it makes individual updates unpredictable. An ordered map used inside a runtime or kernel needs every operation to stay bounded.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Sorted or nearly sorted input destroys the plain BST. Insert 1, 2, 3, ..., n and the tree degenerates into a chain of height n. Search goes from O(log n) to O(n). A million sorted keys means a million comparisons per lookup -- no better than a linked list.',
-        'The plain BST has no way to detect or correct this. It tracks key order but knows nothing about its own shape. It cannot distinguish a deep chain from a wide tree until operations are already slow.',
-        'Perfect balance -- equal-size subtrees at every node -- would fix the shape, but maintaining it requires global restructuring after each insert. The needed rule must be local (repair near the update path), strong (guarantee logarithmic height), and compatible with rotations that preserve sorted order.',
+        'The wall is insertion order. The same set of keys can produce a balanced tree or a linked list depending only on arrival order. A data structure with that weakness cannot promise fast worst-case lookup.',
+        'Perfect balance is too expensive to maintain after each update. The repair rule must be local enough to run along the search path, but strong enough to bound height for every possible sequence.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Red-black trees encode a balanced multi-key tree inside a binary tree. Red links mean two keys belong to the same conceptual node. Black-height, the number of black nodes on a path to a leaf, represents the real balanced depth.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5f/Red-black_trees_and_2%E2%80%933%E2%80%934_trees.svg', alt: 'Correspondence between 2-3-4 tree nodes and red-black tree encodings', caption: 'The 2-3-4 correspondence shows what red links mean: red children are keys glued into the same multi-key node as their black parent. Source: https://commons.wikimedia.org/wiki/File:Red-black_trees_and_2%E2%80%933%E2%80%934_trees.svg.'},
+        'The color rules forbid two red nodes in a row and require equal black-height below each node. Those rules allow some slack, but not enough slack for a linear chain.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A red-black tree is a BST where every node carries one extra bit: a color, red or black. Five invariants govern the coloring. (1) Every node is red or black. (2) The root is black. (3) Every leaf (NIL sentinel) is black. (4) A red node must have two black children -- no two consecutive reds on any path. (5) Every path from a given node down to a descendant NIL contains the same number of black nodes. That count is the black-height.',
-        'Insert follows ordinary BST placement: compare keys, walk left or right, attach at a leaf position. The new node starts red because adding a red node cannot change the black-height of any path. If the parent is black, the tree is still valid and insertion is done.',
-        'If the parent is red, there is a red-red violation. The repair checks the uncle -- the parent\'s sibling. Case 1 (red uncle): recolor parent and uncle black, grandparent red, and repeat the check from the grandparent. No rotation needed. Case 2 (black uncle, inside child): rotate the parent to convert to an outside case. Case 3 (black uncle, outside child): rotate the grandparent, recolor, and stop. Insert needs at most 2 rotations.',
-        'A left rotation around node x moves x down-left and lifts x\'s right child into x\'s position. A right rotation is the mirror. Both preserve in-order traversal: the sorted sequence before and after is identical.',
-        'Deletion is more involved. Removing a black node creates a black-height deficit. The fixup examines the sibling and its children across four symmetric cases, performing at most 3 rotations and O(log n) recolorings to restore all five invariants.',
-      ],
-    },
-    {
-      heading: 'The 2-3-4 tree correspondence',
-      paragraphs: [
-        'A red-black tree is not an arbitrary set of coloring rules. It is a binary encoding of a 2-3-4 tree, and the correspondence explains why the invariants work.',
-        'A 2-3-4 tree is a balanced search tree where each node holds 1, 2, or 3 keys and has 2, 3, or 4 children. It stays perfectly balanced -- every leaf is at the same depth -- because insertions split overfull nodes upward rather than growing the tree downward.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5f/Red-black_trees_and_2%E2%80%933%E2%80%934_trees.svg', alt: 'Correspondence between 2-3-4 tree nodes and red-black tree encodings', caption: 'The 2-3-4 correspondence shows what red links mean: red children are keys glued into the same multi-key node as their black parent. Source: https://commons.wikimedia.org/wiki/File:Red-black_trees_and_2%E2%80%933%E2%80%934_trees.svg.'},
-        'To convert a 2-3-4 node to red-black form: a 2-node becomes a single black node. A 3-node becomes a black node with one red child (the second key). A 4-node becomes a black node with two red children (the outer keys). In every case the black node corresponds to the middle key, and red children are "glued" to it -- they belong to the same 2-3-4 node.',
-        'This is why invariant 4 forbids consecutive reds: two reds in a row would mean a 2-3-4 node with more than 3 keys, which is illegal. It is why invariant 5 requires equal black-height on all paths: black nodes are the 2-3-4 tree levels, and a 2-3-4 tree has equal depth on every path. The recolor case (red uncle) corresponds to splitting a 4-node and pushing the middle key up. The rotation cases correspond to redistributing keys in a 3-node.',
-        'Once you see the 2-3-4 tree hiding inside, every red-black operation has a clear structural meaning.',
+        'Insertion starts like ordinary BST insertion. The new node is placed where the search path ends and is colored red. Red is chosen because adding a red node does not change black-height.',
+        'If the parent is black, the tree is valid. If the parent is red, the repair checks the uncle. A red uncle causes recoloring; a black uncle causes one rotation or two rotations depending on whether the new node is inside or outside.',
+        'A rotation changes parent-child pointers without changing sorted order. In a left rotation, the right child rises and the old parent moves to its left. The in-order sequence remains identical, so the BST contract survives the repair.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Sorted order survives because insertion uses standard BST placement and every rotation preserves the in-order sequence.',
-        'The height bound follows from black-height. A node with black-height b has exactly b black nodes on every downward path to a NIL. Invariant 4 says at most one red node can sit between consecutive black nodes, so the longest path alternates red and black with length 2b, while the shortest (all-black) path has length b. The longest path is at most twice the shortest.',
-        'A subtree with black-height b contains at least 2^b - 1 internal nodes (the all-black, perfectly balanced case). So b <= log2(n + 1), and total height h <= 2 * log2(n + 1). The tree is not as tight as AVL (which guarantees h <= 1.44 * log2(n)), but it is balanced enough for worst-case logarithmic operations.',
-        'Recoloring preserves local black-height: flipping a parent-uncle pair from red to black while flipping the grandparent from black to red keeps the same black count on every path through that region. Rotation plus recoloring fixes the black-uncle case in O(1) pointer changes without disturbing the rest of the tree.',
+        'Search correctness comes from the BST invariant: left keys are smaller and right keys are larger. Rotations preserve that invariant because they only rearrange a local three-part ordered shape. No key crosses to the wrong side of another key.',
+        'The height bound comes from black-height. A path cannot contain two consecutive red nodes, so red nodes can at most double the number of black levels. A subtree with black-height b contains at least 2^b - 1 internal nodes, so b is at most log2(n + 1), and total height is at most 2 log2(n + 1).',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Search: O(log n) time, O(1) space. One root-to-leaf path, same as any BST.',
-        'Insert: O(log n) time. The BST walk is O(log n). Repair walks back up with recoloring (O(log n) worst case) but performs at most 2 rotations, each O(1).',
-        'Delete: O(log n) time. Finding and splicing the node is O(log n). The fixup performs at most 3 rotations and may recolor up to O(log n) ancestors.',
-        'Space: one bit per node for color. Implementations typically pack the color into a pointer\'s low bit or struct alignment padding, so overhead is near zero.',
-        'When n doubles, height grows by about 2. A tree of 1,000 keys has height at most 22. A tree of 1,000,000 keys: at most 40. Doubling the data costs roughly two more comparisons per search.',
-        'Compared to AVL: AVL enforces stricter balance (h <= 1.44 * log2(n)), so AVL searches touch fewer nodes on average. But AVL deletion can require O(log n) rotations versus a constant 3 for red-black. Write-heavy workloads favor red-black; read-heavy workloads favor AVL. For small collections the difference is noise.',
+        'Search, insert, and delete each take O(log n) time because every operation follows one root-to-leaf path plus bounded local repair. Insert performs at most two rotations. Delete repair is harder but still logarithmic.',
+        'Space overhead is one color bit per node. When n doubles, the height bound increases by about two levels, not by n. A tree with 1,000,000 keys has height at most about 40 under the standard bound.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Linux kernel: the Completely Fair Scheduler (CFS) keys a red-black tree by virtual runtime to select the next process in O(log n). The vm_area_struct tree maps virtual memory regions for fast address lookup during page faults. The kernel\'s epoll implementation also uses red-black trees to manage file-descriptor registrations.',
-        'C++ std::map and std::set are red-black trees in both libstdc++ and libc++. The C++ standard mandates O(log n) worst-case insert, find, and erase -- red-black trees meet this with a small, bounded rotation count per operation.',
-        'Java TreeMap and TreeSet are red-black trees. They provide a sorted map with navigable operations (floorKey, ceilingKey, subMap) and guaranteed O(log n) performance.',
-        'The common thread: any runtime or kernel that needs a general-purpose ordered container with worst-case guarantees and frequent mutation reaches for a red-black tree. The bounded rotation count keeps write costs predictable.',
+        'Red-black trees are used for ordered maps and sets where worst-case behavior matters. C++ standard-library maps and Java TreeMap are common examples. They support lookup plus ordered operations such as floor, ceiling, and range iteration.',
+        'Operating systems also use them when mutation must stay predictable. The Linux kernel uses red-black trees in scheduling and memory-management paths because the data stays ordered while inserts and deletes remain bounded.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'For exact-key lookup without sorted order, a hash table is simpler and faster: O(1) expected versus O(log n).',
-        'For disk-backed indexes, B-trees and B+ trees win. They pack hundreds of keys per node to match disk page sizes, so one I/O eliminates a large key range. A binary tree wastes one disk read per comparison.',
-        'For read-heavy in-memory maps at scale, AVL trees give shorter search paths because of stricter balance. The difference is small but measurable when reads dominate writes.',
-        'Implementation complexity is a real tax. Insertion has a manageable number of cases, but deletion must handle black-height deficits through multiple sibling configurations. The color rules are simple; the delete fixup is not. Small pointer mistakes create trees that pass most tests but silently corrupt under specific deletion sequences.',
-        'Cache behavior is poor compared to sorted arrays or B-trees. Each node is a separate heap allocation, and pointer-chasing through scattered memory defeats hardware prefetchers. For small ordered collections, binary search over a sorted array is faster in practice.',
+        'For exact lookup without order, a hash table is usually faster and simpler. For disk-backed indexes, a B-tree is better because wide nodes match storage pages and reduce I/O. For tiny sorted collections, an array plus binary search often wins through cache locality.',
+        'The implementation tax is deletion and testing. Many bugs appear only after a specific color configuration and delete sequence. The theory is compact, but production code must handle sentinel leaves and mirrored cases carefully.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Insert 10, 20, 30 into an empty red-black tree. This short sequence triggers both the root-recolor rule and a left rotation, showing the two core repair mechanisms.',
-        'Insert 10: the tree is empty, so 10 becomes the root. New nodes start red, but invariant 2 requires a black root. Recolor 10 to black. Tree: 10(B).',
-        'Insert 20: 20 > 10, so 20 becomes the right child. 20 is red, parent 10 is black. No red-red violation. Tree: 10(B) with right child 20(R).',
-        'Insert 30: 30 > 10, then 30 > 20, so 30 becomes the right child of 20. Now 30 is red and its parent 20 is red -- a red-red violation. The uncle of 30 is 10\'s left child, which is a NIL (black). Black uncle, outside child (right-right): this is the rotation case.',
-        'Left-rotate around 10: 20 lifts into the root position, 10 drops to 20\'s left child, 30 stays as 20\'s right child. Recolor 20 black (new root) and 10 red. The in-order sequence is still 10, 20, 30 -- sorted order survived the rotation.',
-        'Final tree: 20(B) with left child 10(R) and right child 30(R). Every path from the root to a NIL leaf crosses exactly 1 black node (the root). No red node has a red child. All five invariants hold. Three sorted insertions that would have created a linked list in a plain BST produced a balanced tree of height 2.',
+        'Insert 10, then 20, then 30. The first key becomes root and is recolored black. The second key becomes a red right child of 10, which is valid because its parent is black.',
+        'The third key becomes a red right child of 20. Now 20 and 30 are consecutive red nodes, and the uncle is the black NIL leaf on the left of 10. This is the outside right-right case.',
+        'Left-rotate at 10. The tree becomes 20 as black root with red children 10 and 30. The sorted order is still 10, 20, 30, but the height is 2 instead of a length-3 chain.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Bayer, "Symmetric Binary B-Trees: Data Structures and Maintenance Algorithms" (1972) -- the original structure encoding 2-3-4 trees into binary form. Guibas and Sedgewick, "A Dichromatic Framework for Balanced Trees" (1978) -- named the red-black tree and proved the five-invariant height bound. Cormen, Leiserson, Rivest, and Stein, Introduction to Algorithms, Chapter 13 -- the standard textbook treatment with full pseudocode for insert and delete fixups. Sedgewick, "Left-Leaning Red-Black Trees" (2008) -- a simplified variant restricting red links to left children, cutting implementation cases at the cost of slightly more rotations.',
-        'Prerequisite: study binary search trees if BST insertion and in-order traversal are not yet familiar. Stricter balance alternative: AVL trees enforce a height difference of at most 1 between siblings -- faster search, more rotations on mutation. Disk-oriented generalization: B-trees and 2-3-4 trees, where wide nodes pack many keys per page. Simpler implementation path: left-leaning red-black trees (Sedgewick 2008). Amortized alternative: splay trees, which restructure on every access and give O(log n) amortized cost without storing any balance metadata.',
+        'Primary sources: Rudolf Bayer, Symmetric Binary B-Trees, 1972; Guibas and Sedgewick, A Dichromatic Framework for Balanced Trees, 1978. CLRS chapter 13 gives the standard insert and delete fixups.',
+        'Study next: binary search trees for the ordering invariant, AVL trees for stricter balance, B-trees for page-oriented storage, and splay trees for amortized self-adjusting behavior.',
       ],
     },
   ],

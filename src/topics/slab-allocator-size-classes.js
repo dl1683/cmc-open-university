@@ -234,169 +234,99 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Slab Allocator & Size Classes. A small-object allocation pattern: round requests to size classes, keep free objects inside slabs/spans, and cache hot freelists per thread or CPU..",
+        'Read the animation as small-object allocation through fixed size classes. A size class is a rounded allocation size, and a slab or span is a larger memory region carved into equal slots for one class.',
         {type: "callout", text: "A slab allocator wins by turning the hot path from heap search into class lookup plus free-list pop."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The active item is the request, slot, or free list being touched right now. Found means a reusable slot was returned; visited means the allocator already checked that layer.',
+        'The safe inference rule is class ownership. Once a 72-byte request rounds to the 80-byte class, it should be served by an 80-byte slot, not by a custom heap search.',
       
         {type: 'image', src: './assets/gifs/slab-allocator-size-classes.gif', alt: 'Animated walkthrough of the slab allocator size classes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        "Modern systems allocate huge numbers of small objects: request structs, map entries, timers, socket buffers, AST nodes, queue items, and short-lived strings. Treating every 24-byte, 72-byte, or 128-byte request as a custom heap search wastes time and creates fragmentation.",
+        'Modern programs allocate huge numbers of small objects. Request structs, timers, map nodes, AST nodes, socket buffers, and short-lived strings often repeat the same few sizes.',
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg", alt: "CPU cache hierarchy from small fast cache to larger slower memory", caption: "Allocator fast paths are designed around this hierarchy: hot free lists should stay close to the CPU. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg."},
-        "A slab allocator solves the small-object case by admitting that many requests are almost the same size. It rounds requests into size classes, carves larger memory spans into equal slots, and reuses those slots through fast free lists. The source of memory may still be a buddy allocator or page heap, but the hot path is specialized for small, repeatable shapes.",
+        'A general allocator can search, split, and coalesce arbitrary blocks, but that flexibility is expensive on a hot path. A slab allocator specializes the common small-object case by reusing equal-size slots quickly.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        "The obvious allocator is one heap with one free list or a best-fit tree. It can find a block, split it, return the pointer, and later coalesce free blocks. That generality is useful for varied sizes, but it is expensive for millions of tiny allocations that only need a slot from a small menu of sizes.",
-        "Another obvious answer is a buddy allocator. Buddies are excellent for page-like blocks because splitting and merging powers of two is simple. But a pure buddy policy can waste a 128-byte block on a 72-byte object. Small-object workloads need finer size classes and faster reuse than page-level allocation provides.",
+        'The obvious allocator is one heap with free blocks of many sizes. Allocation searches for a suitable block, maybe splits it, and free later may coalesce adjacent blocks.',
+        'That design is general and useful. It can handle unusual sizes and long-lived blocks without predeclaring every shape.',
+        'A buddy allocator is another reasonable baseline for page-sized memory. It splits powers of two cleanly, but it is too coarse for millions of small 24-byte or 72-byte objects.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "The wall is shape mismatch. A 72-byte request does not need a unique 72-byte hole; it needs any slot large enough and quick to reuse. A general allocator that keeps searching for the perfect fit is spending precision where the program only needs a bounded amount of slack.",
-        "Concurrency is the other wall. If every thread fights over one allocator lock, the lock can cost more than the memory operation. Fast allocators separate the common local path from the rarer central path so most allocations avoid shared contention.",
+        'The wall is paying search and fragmentation costs for requests that are almost identical. A 72-byte request does not need a perfect 72-byte hole; it needs a nearby reusable slot with bounded slack.',
+        'Concurrency adds another wall. If every thread uses one central allocator lock, the lock can dominate the cost of allocating a tiny object.',
+        'The allocator needs a fast local path for common sizes and a slower central path for refill, balancing, and returning memory to the system.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "Round many request sizes into a smaller set of size classes, then keep fixed-size slots for each class. A freed 80-byte slot can serve the next request that rounds to 80 bytes without searching the heap. The allocator trades a little internal slack for a much simpler fast path.",
-        "Slabs, spans, or runs supply slots in batches. A page-level allocator gives the slab layer a larger block; the slab layer carves it into equal objects. Thread or CPU caches keep hot free lists local. Central lists rebalance memory when local caches run dry or grow too large.",
+        'Round requests into a finite menu of size classes. A request for 72 bytes might round to 80 bytes, making every object in that class interchangeable from the allocator point of view.',
+        'Carve larger slabs into equal slots for one class and keep a free list of available slots. Allocation becomes class lookup plus pop; free becomes class lookup plus push.',
+        'The allocator trades internal slack for fast reuse. That trade is worthwhile when sizes repeat and allocation rate is high.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "The size-class view shows the common path. A request is rounded, mapped to a class, and served from a local free list if possible. The key idea is that allocation is no longer a search problem for the common case; it is a table lookup and a pop.",
-        "The slabs-and-caches view shows why the hierarchy exists. Local caches give speed, central lists give sharing, and page-level memory gives large backing chunks. A good allocator moves memory between those layers without making every allocation pay the full coordination cost.",
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        "Allocation starts by mapping the requested size to a class. That mapping may be a lookup table for small sizes and arithmetic for larger classes. The allocator checks a thread-local, CPU-local, or arena-local cache for that class. If a slot is available, it pops the slot and returns it.",
-        "On a local miss, the allocator refills from a central free list, usually in a batch. On a central miss, it obtains a new slab or span from page-level memory and carves it into equal slots. Free usually returns the object to the local cache for its class. If that cache is too full, it flushes a batch back to the central pool.",
-        "If a slab becomes completely empty, the allocator may return its pages to the page heap or eventually purge memory back to the operating system. Different allocators tune that policy differently because returning memory improves footprint but can hurt latency when the same class becomes hot again.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "A program asks for 72 bytes. The allocator maps 72 to an 80-byte class. The thread-local cache for 80-byte objects has a free slot, so allocation is just a pop from that free list. The program receives 80 usable bytes or 72 requested bytes plus allocator-defined slack, depending on the API contract.",
-        "Later the object is freed. The allocator knows the class from metadata, pointer range, page map, or slab header, and returns the slot to the 80-byte free list. The next 72-byte or 80-byte-class request can reuse it immediately. No search for a best-fit heap hole is needed.",
+        'Allocation maps the requested byte count to a size class using a table or simple arithmetic. It then checks a thread-local, CPU-local, or arena-local cache for a free slot in that class.',
+        'On a local hit, the allocator pops one slot and returns it. On a local miss, it refills from a central list, often in a batch that pays one lock acquisition for several future allocations.',
+        'On a central miss, the allocator asks a page heap or buddy layer for a larger span and carves it into equal slots. Free usually returns the slot to a local cache, with overflow batches sent back to the central pool.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The invariant is simple: every object slot inside one slab cache has the same size and alignment. Because the allocator knows the class, it can push and pop slots from a free list without per-object fitting logic. That is the heart of the speedup.",
-        "Batching makes slow paths pay for many future fast paths. One trip to a central list can refill a local cache with several objects, amortizing locks and metadata work across later allocations. The allocator spends coordination only when local supply changes.",
+        'The invariant is that every slot in one slab cache has the same size and alignment. Because of that invariant, the allocator never has to test whether a freed 80-byte-class slot fits the next 80-byte-class request.',
+        'Batching amortizes slow coordination. One central refill can supply 32 local slots, so the next 32 allocations can avoid the central lock if the workload stays in that class.',
+        'Local caches improve cache behavior because recently freed objects are likely to be reused by the same thread or CPU. The hierarchy turns repeated allocation into repeated reuse.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "The common small-allocation path is O(1): map size to class, pop from a free list, and return. Refill and page-heap paths are slower, but they happen less often when batches and caches are tuned well. Free is also usually O(1), though debug modes, quarantine, memory tagging, or security hardening can add work.",
-        "The costs are slack, metadata, and retained memory. A 72-byte request in an 80-byte class carries 8 bytes of internal slack. A local cache can hold idle objects. A slab with one live object may keep an entire page from being returned. More arenas and local caches reduce contention but can increase resident memory.",
-      ],
-    },
-    {
-      heading: 'Design choices',
-      paragraphs: [
-        "Size-class spacing is a policy decision. Tight classes reduce internal fragmentation but increase metadata, central lists, and cache management. Wider classes simplify the allocator but waste more memory inside each rounded allocation. Allocators choose class tables around expected workloads, cache lines, alignment, and page sizes.",
-        "Locality is another policy. Per-thread caches are fast but can hoard memory when many threads become idle. Per-CPU caches can reduce thread explosion but need careful synchronization and migration handling. Arenas reduce global contention but can fragment memory across threads or tenants.",
+        'The common small-allocation path is O(1): map size, pop a free-list node, and return a pointer. Free is usually O(1) for the same reason.',
+        'The memory cost is slack and retention. A 72-byte request in an 80-byte class wastes 8 bytes internally, and a slab with one live object can pin a whole page.',
+        'When thread count doubles, local caches can reduce contention but increase resident memory. The allocator spends memory to buy fewer shared locks and better locality.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "Slab allocation wins for frequent small allocations with repeatable sizes and lifetimes: kernel objects, network buffers, request structs, compiler nodes, runtime objects, cache entries, and server-side data structures. It is especially valuable when the same sizes are allocated and freed repeatedly.",
+        'Kernel allocators use slab-style caches for frequently allocated kernel objects such as dentries, inodes, sockets, and network buffers. The fit is repeated object shapes under high allocation pressure.',
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg", alt: "Intel processor die with visible compute and cache regions", caption: "Small-object allocation is a hardware problem as much as an API problem: pointer chasing, cache locality, and contention decide the real cost. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg."},
-        "Linux SLAB and SLUB organize kernel objects into caches and slabs above page allocation. TCMalloc uses front-end caches, central free lists or transfer caches, and a page heap. jemalloc uses size classes, thread caches, arenas, bins, and extents. The names differ, but the hierarchy is stable: local free lists, central pools, and larger backing memory.",
+        'User-space allocators such as TCMalloc and jemalloc use size classes, local caches, central pools, arenas, and page-level backing memory. The names differ, but the behavior is the same: keep the common path local and fixed-size.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "Size classes do not eliminate fragmentation; they choose a controlled form of it. Rounding creates internal slack, and partially full slabs create page-level fragmentation. A workload with many one-off sizes or long-lived objects that pin mostly empty slabs can still waste memory.",
-        "The fastest allocator on a microbenchmark can be the wrong allocator for a service. Allocation behavior depends on size distribution, object lifetime, thread count, reuse pattern, NUMA placement, security settings, purging policy, and whether latency or memory footprint matters more.",
+        'It fails on workloads with many unusual sizes or poor reuse. Rounding then creates slack without enough repeated allocation to earn it back.',
+        'It fails when mostly empty slabs are pinned by a few long-lived objects. The allocator may report modest live bytes while retaining much more memory from the operating system.',
+        'It also fails when locality assumptions break. Cross-thread frees, NUMA movement, false sharing, quarantine, and security hardening can all change the measured cost.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Worked example',
       paragraphs: [
-        "Watch for retained memory after traffic drops, class imbalance where one size class grows without bound, cross-thread frees that defeat locality, false sharing between adjacent objects, and debug features that change the performance profile. Allocator telemetry should separate requested bytes, allocated class bytes, retained bytes, and returned-to-OS bytes.",
-        "Security hardening also changes the picture. Quarantine, guard pages, canaries, memory tagging, junk filling, and randomization can make allocation safer but slower or larger. A production allocator choice is a systems tradeoff, not just a data-structure benchmark.",
+        'Suppose a 4096-byte slab is assigned to the 80-byte size class. It can hold floor(4096 / 80) = 51 slots, using 4080 bytes and leaving 16 bytes for padding or metadata depending on the allocator layout.',
+        'A program requests 72 bytes. The allocator rounds to 80, pops one slot from the local 80-byte free list, and the internal slack is 8 bytes for that allocation.',
+        'If the local cache refills 16 slots at a time, one central-list refill can serve the next 16 requests without taking the central lock. If only one object remains live in the slab, that 80-byte object can keep the 4096-byte slab from being released.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Primary sources: Linux slab allocator chapter at https://www.kernel.org/doc/gorman/html/understand/understand011.html, Oracle Linux SLUB internals at https://blogs.oracle.com/linux/linux-slub-allocator-internals-and-debugging-1, TCMalloc design at https://google.github.io/tcmalloc/design.html, gperftools TCMalloc notes at https://pages.cs.wisc.edu/~danb/google-perftools-0.98/tcmalloc.html, jemalloc manual at https://jemalloc.net/jemalloc.3.html, and Meta engineering on jemalloc at https://engineering.fb.com/2011/01/03/core-infra/scalable-memory-allocation-using-jemalloc/.",
-        "Study Buddy Allocator Free Lists for page-level backing memory, TLSF Real-Time Allocator Bitmap Index for bounded-time allocation, GPU Memory Pool Fragmentation Ledger for another pooling problem, Generational Arena Slot Map for stable object handles, Linked List and Ring Buffer for free-list mechanics, Hazard Pointers and Epoch Reclamation for safe reclamation, and LRU Cache for object reuse under pressure.",
+        'Primary sources: Linux slab allocator notes at https://www.kernel.org/doc/gorman/html/understand/understand011.html, TCMalloc design at https://google.github.io/tcmalloc/design.html, gperftools TCMalloc notes at https://pages.cs.wisc.edu/~danb/google-perftools-0.98/tcmalloc.html, and the jemalloc manual at https://jemalloc.net/jemalloc.3.html.',
+        'Study buddy allocators for page-level backing memory, free lists and linked lists for slot reuse, TLSF for bounded-time allocation, arenas and slot maps for object lifetime, and hazard pointers or epochs for safe reclamation.',
       ],
     },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Slab Allocator & Size Classes moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

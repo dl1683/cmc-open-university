@@ -235,8 +235,8 @@ export const article = {
           type: 'note',
           text: 'The color states in the animation: active (orange) marks slots being updated, found (green) marks candidates that survived to the output, compare (blue) marks alternative sketches or contrasting behavior, and removed (red) marks evicted or failing entries.',
         },
-      
-        {type: 'image', src: './assets/gifs/heavy-hitters-space-saving.gif', alt: 'Animated walkthrough of the heavy hitters space saving visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/heavy-hitters-space-saving.gif', alt: 'Animated walkthrough of the heavy hitters space saving visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -255,15 +255,14 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first attempt is an exact frequency map backed by a top-k heap. Insert every key, increment its count, and maintain a min-heap of the k largest. It is correct and simple.',
+        'The first attempt is an exact frequency map backed by a top-k heap. For every event, hash the key into a dictionary that maps key strings to integer counts and increment the corresponding entry. Maintain a min-heap of size k over the dictionary values. When a count increases past the heap\'s minimum, swap it in. The result is a perfectly accurate top-k at all times.',
         {
-          type: 'table',
-          headers: ['Approach', 'Memory', 'Discovers keys?', 'Limitation'],
-          rows: [
-            ['Exact frequency map + heap', 'O(distinct keys)', 'Yes', 'Memory grows with cardinality'],
-            ['Count-Min Sketch', 'O(width * depth)', 'No -- needs key list from outside', 'Answers per-key queries, cannot enumerate'],
-            ['Uniform sampling', 'O(sample size)', 'Partially', 'Misses bursty keys; weak identity guarantees'],
-            ['Space-Saving', 'O(k)', 'Yes -- keeps candidate identities', 'Approximate counts with bounded error'],
+          type: 'bullets',
+          items: [
+            'Exact frequency map + heap: O(distinct keys) memory, discovers keys, but memory grows with cardinality.',
+            'Count-Min Sketch: O(width * depth) memory, cannot list keys on its own -- needs an external key list to answer per-key queries.',
+            'Uniform sampling: O(sample size) memory, partially discovers keys, but misses bursty keys and gives weak identity guarantees.',
+            'Space-Saving: O(k) memory, keeps candidate identities directly, but counts are approximate with bounded error.',
           ],
         },
         'The exact map treats every new key as equally deserving. In a high-cardinality stream with millions of distinct keys, memory grows without bound. Sampling helps estimate aggregate behavior but can miss keys that spike briefly. A Count-Min Sketch compresses counts into fixed memory, but the key names have to come from somewhere else. Space-Saving sits in the middle: it spends memory on identities, but only on the identities currently strong enough to compete for a slot.',
@@ -279,6 +278,14 @@ export const article = {
           text: 'The hard case is not a stream with one obvious giant. It is a stream with bursts, churn, and many almost-heavy keys. A new key might be the start of a real incident or a single request from a long tail. The summary must decide online, before seeing the future, while carrying enough error information to avoid pretending approximate counts are exact.',
         },
         'The wall is the identity-memory tradeoff: the structure must spend memory on key names, but only for candidates worth remembering. Rare keys must not permanently occupy slots. True heavy keys must survive churn long enough to become visible.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The insight is competitive eviction with inherited error. Instead of tracking every key or none of them, maintain exactly k counter slots and let keys compete for those slots. When a new key arrives and the table is full, the key with the smallest count loses its slot. The new key inherits the evicted count plus one, and the error field records how much of that inherited count might belong to the predecessor.',
+        'This turns memory into a survival contest. Rare keys arrive once, briefly occupy or fail to occupy a slot, and disappear. A genuinely frequent key keeps reappearing. Even if it gets evicted early, subsequent arrivals reclaim a slot and the counter climbs again. The more dominant a key truly is, the harder it becomes to evict.',
+        'The error field is what makes this honest rather than reckless. Without it, the inherited count would be presented as exact, and a key that replaced a count-50 predecessor would look like it appeared 51 times when it might have appeared once. The error bound says: the true count is somewhere between count minus error and count. That interval is narrow for genuine heavy hitters and wide for noise that recently recycled a slot.',
       ],
     },
     {
@@ -311,13 +318,12 @@ export const article = {
         'The mental model is churn versus persistence. Rare keys fight over the minimum slot, evicting each other. A genuinely frequent key keeps reappearing, increments its counter, and rises above the replacement frontier. Even if evicted early, repeated arrivals bring it back.',
         'The error field makes the approximation honest. For any tracked key, the true count lies in the interval [count - error, count]. If count - error is still above the heavy-hitter threshold, the key is a confirmed heavy hitter. If the interval straddles the threshold, the key is a plausible candidate that may need exact verification.',
         {
-          type: 'table',
-          headers: ['Property', 'Guarantee'],
-          rows: [
-            ['No false negatives above threshold', 'Any key with true frequency > N/k is present in the table'],
-            ['Bounded overcount', 'Reported count >= true count >= count - error'],
-            ['Error bound', 'error <= N/k for every slot'],
-            ['Monotonic counters', 'Counters never decrease; the minimum never shrinks over time'],
+          type: 'bullets',
+          items: [
+            'No false negatives above threshold: any key with true frequency > N/k is present in the table.',
+            'Bounded overcount: reported count >= true count >= count - error.',
+            'Error bound: error <= N/k for every slot.',
+            'Monotonic counters: counters never decrease, and the minimum never shrinks over time.',
           ],
         },
       ],
@@ -326,13 +332,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Time', 'Space', 'What dominates'],
-          rows: [
-            ['Process one event (hash map + scan)', 'O(1) lookup + O(k) min-scan', 'O(k) slots', 'Min-scan; fine for small k'],
-            ['Process one event (Stream-Summary)', 'O(1) amortized', 'O(k) slots + linked list', 'Hash map lookup; pointer chasing'],
-            ['Query top-j candidates (j <= k)', 'O(k log k) to sort, or O(k) with maintained order', 'O(k)', 'Sorting; usually done infrequently'],
-            ['Merge two summaries', 'O(k) per summary', 'O(k) combined', 'Error reconciliation; not trivial'],
+          type: 'bullets',
+          items: [
+            'Process one event (hash map + scan): O(1) lookup + O(k) min-scan, O(k) space. Dominated by min-scan; fine for small k.',
+            'Process one event (Stream-Summary): O(1) amortized time, O(k) slots + linked list. Dominated by hash map lookup and pointer chasing.',
+            'Query top-j candidates (j <= k): O(k log k) to sort, or O(k) with maintained order. Sorting cost; usually done infrequently.',
+            'Merge two summaries: O(k) per summary, O(k) combined. Error reconciliation is not trivial.',
           ],
         },
         'Memory is proportional to retained counters, not distinct keys. A table of 1,000 counters uses kilobytes regardless of whether the stream contains 10,000 or 10 billion distinct keys. Doubling k halves the error bound N/k but doubles memory.',
@@ -344,20 +349,19 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Space-Saving fits any system that asks "what is dominating right now?" and can tolerate approximate answers with bounded error.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Partial map of internet connectivity with many colored network links', caption: 'Heavy hitter summaries help operators find dominant flows inside enormous network streams. Source: Wikimedia Commons, Internet map.'},
         {
-          type: 'table',
-          headers: ['Domain', 'Heavy means', 'Action on candidates'],
-          rows: [
-            ['Network traffic (routers, DDoS)', 'Elephant flows by byte volume', 'Rate-limit, reroute, alert NOC'],
-            ['Search engines', 'Trending query terms', 'Pre-cache results, update suggestions'],
-            ['Observability pipelines', 'Hot error codes or log patterns', 'Page the owner, open investigation'],
-            ['Feature monitoring (ML)', 'Dominant input categories drifting', 'Trigger retraining pipeline'],
-            ['Ad serving', 'Top campaigns by impression volume', 'Budget pacing, fraud check'],
-            ['DNS resolvers', 'Most-queried domains', 'Prefetch, cache warming'],
+          type: 'bullets',
+          items: [
+            'Network traffic (routers, DDoS): "heavy" means elephant flows by byte volume. Action: rate-limit, reroute, alert NOC.',
+            'Search engines: "heavy" means trending query terms. Action: pre-cache results, update suggestions.',
+            'Observability pipelines: "heavy" means hot error codes or log patterns. Action: page the owner, open investigation.',
+            'Feature monitoring (ML): "heavy" means dominant input categories drifting. Action: trigger retraining pipeline.',
+            'Ad serving: "heavy" means top campaigns by impression volume. Action: budget pacing, fraud check.',
+            'DNS resolvers: "heavy" means most-queried domains. Action: prefetch, cache warming.',
           ],
         },
         'Hierarchical Heavy Hitters extend the idea to prefixes -- finding the most common /16 subnet rather than individual IPs. Elastic Sketch separates elephant and mice flows into distinct tables. HeavyKeeper uses count-with-decay to sharpen top-k accuracy. All share the same core idea: spend identity memory only on keys strong enough to justify it.',
@@ -388,6 +392,15 @@ export const article = {
       ],
     },
     {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a stream of 20 events arrives with k = 3 counter slots. The events in order: A, B, C, A, D, A, B, A, E, A, B, F, A, B, A, B, A, B, A, B. Key A appears 10 times, B appears 7 times, and C, D, E, F each appear once.',
+        'After the first three events (A, B, C), the table is full: A=1, B=1, C=1. Event 4 is A again, so A increments to 2. Event 5 is D, a new key. The minimum is B and C tied at 1. Suppose the algorithm picks C. D replaces C with count 2 (old min 1 + 1) and error 1. The table is now A=2, B=1, D=2(err=1).',
+        'Event 6 is A (now 3). Event 7 is B (now 2). Event 8 is A (now 4). Event 9 is E, a new key. The minimum is B at 2. E replaces B with count 3, error 2. Table: A=4, E=3(err=2), D=2(err=1). Event 10 is A (now 5). Event 11 is B, new again -- minimum is D at 2. B replaces D with count 3, error 2.',
+        'The pattern continues: A keeps climbing because it is genuinely dominant. B keeps getting evicted but keeps returning, each time inheriting higher counts. After all 20 events, A holds the top slot with a count near 10 and low error. B holds a slot with a count near 7 but with accumulated error from evictions. The true heavy hitters (A and B) survived the competition. The one-off keys (C, D, E, F) churned through the minimum slot and disappeared.',
+      ],
+    },
+    {
       heading: 'Sources and study next',
       paragraphs: [
         {
@@ -400,18 +413,18 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Count-Min Sketch -- understand sketch-based counting before candidate tracking'],
-            ['Prerequisite', 'Hash Tables -- the lookup index behind every streaming summary'],
-            ['Sibling algorithm', 'Count Sketch: Signed Frequency -- unbiased estimates via sign hashing'],
-            ['Extension', 'Hierarchical Heavy Hitters: Prefix Sketch -- lift identity from keys to prefixes'],
-            ['Extension', 'Elastic Sketch Network Telemetry -- separate elephant and mice flows'],
-            ['Contrast', 'HyperLogLog -- distinct count without storing any keys'],
-            ['Contrast', 'Reservoir Sampling -- uniform samples versus frequency-biased candidates'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Count-Min Sketch -- understand sketch-based counting before candidate tracking.',
+            'Prerequisite: Hash Tables -- the lookup index behind every streaming summary.',
+            'Sibling algorithm: Count Sketch: Signed Frequency -- unbiased estimates via sign hashing.',
+            'Extension: Hierarchical Heavy Hitters: Prefix Sketch -- lift identity from keys to prefixes.',
+            'Extension: Elastic Sketch Network Telemetry -- separate elephant and mice flows.',
+            'Contrast: HyperLogLog -- distinct count without storing any keys.',
+            'Contrast: Reservoir Sampling -- uniform samples versus frequency-biased candidates.',
           ],
         },
+        'For a deeper treatment of the streaming model, start with the Misra-Gries algorithm, which predates Space-Saving and uses a different eviction rule (decrement all counters instead of replacing the minimum). The two algorithms are closely related and share the same worst-case guarantees, but Space-Saving\'s error tracking per slot is more informative in practice.',
       ],
     },
   ],

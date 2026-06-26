@@ -230,8 +230,8 @@ export const article = {
         {type: 'callout', text: 'GK turns deletion into proof state: every retained value carries a rank interval large enough to remember what was discarded.'},
         'Active highlights mark the tuple or operation under inspection. Found highlights mark a query result whose rank interval covers the target. Removed highlights show tuples deleted by compression. Compare highlights show neighboring tuples whose rank intervals constrain the decision.',
         'Watch the rank column. Every tuple carries a range like 6..8 meaning the tuple\'s true rank in the full sorted stream falls somewhere in that window. Compression widens a neighbor\'s window; it never lets a window exceed the epsilon budget.',
-      
-        {type: 'image', src: './assets/gifs/greenwald-khanna-quantile-summary.gif', alt: 'Animated walkthrough of the greenwald khanna quantile summary visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/greenwald-khanna-quantile-summary.gif', alt: 'Animated walkthrough of the greenwald khanna quantile summary visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -261,6 +261,14 @@ export const article = {
         'The wall is certification after deletion. A streaming summary must drop most values to stay small. Once values are dropped, exact ranks are lost. The question becomes: can the summary explain how wrong a returned quantile might be? If it cannot, the answer is a guess with a nice API.',
         'Reservoir samples do not carry rank certificates. Fixed histograms hide rank error inside wide or unlucky buckets. Naive subsampling (keep every kth element) has unbounded rank error on adversarial inputs. The Greenwald-Khanna insight is to attach a rank interval to every retained value, so the summary knows exactly how much uncertainty each deletion introduced.',
         'The wall gets sharper in production monitoring. A team makes deployment decisions on p95 or p99. "This is approximately the 95th percentile" is not enough. The system should say what kind of approximation it provides. GK promises rank error: the returned value\'s true rank is within epsilon * n of the requested rank. It does not promise the returned value is close in magnitude to the exact percentile value.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that deletion can carry a certificate. When GK removes a value from the summary, the neighboring tuple absorbs that deletion as an increase in its gap field g. The delta field records how much rank uncertainty has accumulated. Together, g and delta form a rank interval: the tuple\'s true rank in the full stream is known to lie within a bounded window. Every deletion widens some window, but the invariant guarantees no window ever exceeds the error budget floor(2 * epsilon * n).',
+        'This transforms a lossy compression problem into a bookkeeping problem. Instead of asking "how close is this sample to the truth?" (which has no clean answer after arbitrary deletions), GK asks "how wide is the rank window around each retained value?" That question always has an answer, and the invariant makes the answer checkable. The summary is not a sample -- it is a ranked certificate store.',
+        'The idea generalizes. Every later quantile sketch -- KLL, t-digest, DDSketch -- solves the same problem of tracking uncertainty after deletion, but each one changes which dimension of uncertainty it tracks (rank vs. value) and whether the tracking is deterministic or probabilistic. GK is the clearest instance because it tracks rank uncertainty with a deterministic invariant on every tuple.',
       ],
     },
     {
@@ -309,7 +317,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'GK wins when the product needs a deterministic, auditable rank-error contract. Compliance reporting, SLO verification, one-pass analytics jobs, and embedded telemetry processors benefit from being able to state exactly what the summary promises and prove it holds.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Fourboxplots.svg', alt: 'Four box plot variants comparing distribution summaries', caption: 'Different summaries expose different rank landmarks. GK is useful when those landmarks need a deterministic stream-size bound. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Fourboxplots.svg.'},
@@ -337,6 +345,15 @@ export const article = {
           text: 'Implementation shortcuts break the guarantee. Dropping every kth tuple, compressing by value distance instead of rank condition, or using floating-point comparison around the error budget can produce a small summary with no valid certificate. The tuple fields (v, g, delta) are not decorative metadata -- they are the proof state.',
         },
         'Stream semantics matter too. If the stream mixes tenants, endpoints, or time windows, a quantile answer may be mathematically valid and operationally meaningless. GK answers rank questions over exactly the stream it was fed. It does not fix bad aggregation boundaries.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a monitoring system processes a stream of 1000 response times with epsilon = 0.01. The GK summary will hold at most O((1/0.01) * log(0.01 * 1000)) = O(100 * log(10)) = roughly 230 tuples. The stream produces 1000 values; the summary retains about 23% of them.',
+        'After 1000 insertions, the summary contains sorted tuples like (12ms, g=1, d=0), (47ms, g=3, d=5), (102ms, g=2, d=8), (310ms, g=4, d=6), ..., (4200ms, g=1, d=0). The first and last tuples have delta = 0 because their rank is known exactly (rank 1 and rank 1000). Interior tuples have nonzero delta representing accumulated uncertainty.',
+        'Query p50: the target rank is ceil(0.5 * 1000) = 500. Walk the summary, accumulating gaps. When the running sum of g values reaches around 500, find the tuple whose rank interval [r_min, r_min + delta] overlaps the target. If tuple i has r_min = 496 and delta = 8, then its rank interval is [496, 504], which contains 500. The returned value is v_i, and its true rank in the full stream is guaranteed within epsilon * n = 0.01 * 1000 = 10 positions of rank 500.',
+        'Query p99: the target rank is 990. The same walk finds a tuple near the end of the summary. Because epsilon * n = 10, the returned value\'s true rank is between 980 and 1000. If the distribution has a timeout cliff at rank 985, the returned value might be 200ms or 3000ms depending on which side of the cliff the rank interval lands. GK certifies the rank is close; it does not certify the value is close. That distinction is precisely why DDSketch and t-digest exist for tail-sensitive workloads.',
       ],
     },
     {

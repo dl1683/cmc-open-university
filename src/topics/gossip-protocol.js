@@ -115,8 +115,8 @@ export const article = {
         {type: 'callout', text: 'Gossip trades exact delivery paths for repeated random exposure, so no single sender, edge, or schedule becomes load bearing.'},
         'Redundant messages (hitting an already-informed node) are visible as edges into green nodes. They look wasteful, but they are the reason the protocol tolerates failures: every path is disposable because another path exists.',
         'Switch to the "3 nodes offline" view and watch gossip route around the dead nodes without any failure-handling code. No edge was ever essential.',
-      
-        {type: 'image', src: './assets/gifs/gossip-protocol.gif', alt: 'Animated walkthrough of the gossip protocol visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/gossip-protocol.gif', alt: 'Animated walkthrough of the gossip protocol visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -149,35 +149,22 @@ export const article = {
       ],
     },
     {
-      heading: 'The epidemic dissemination model',
-      paragraphs: [
-        'Gossip protocols borrow directly from mathematical epidemiology. The SIR (Susceptible-Infected-Removed) model from Demers et al. (1987) maps cleanly: uninformed nodes are susceptible, informed nodes actively spreading are infected, and nodes that stop spreading (after enough rounds or enough redundant contacts) are removed.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg/250px-Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg.png', alt: 'SIR epidemic state diagram with susceptible infected and removed states', caption: 'The SIR state machine is the epidemiology analogue behind rumor spreading: susceptible nodes become active spreaders, then leave the active set. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg'},
-        'Let I(t) be the fraction of informed nodes at round t. With fanout k (each informed node contacts k random peers), the growth follows approximately dI/dt = k * I * (1 - I). This is the logistic equation. Early on, I is small and growth is exponential: each round roughly multiplies informed nodes by k. Near saturation, most contacts hit already-informed nodes, so growth slows.',
-        'The crossover from exponential growth to diminishing returns happens around I = 0.5. The first half of the cluster learns fast; the last few nodes take disproportionately long. This tail behavior is why production systems add anti-entropy sweeps on top of rumor spreading.',
-      ],
-    },
-    {
-      heading: 'Push, pull, and push-pull variants',
-      paragraphs: [
-        'In push gossip, informed nodes send the rumor to random peers. This is fast during early spread when few nodes know the fact, because most contacts hit fresh targets. It slows down near saturation when most targets already know.',
-        'In pull gossip, uninformed nodes periodically ask random peers "what do you know?" This is slow during early spread (most peers asked have nothing to share) but fast near saturation (most peers have the fact). Pull also has a practical advantage: the uninformed node controls when it receives data, which simplifies flow control.',
-        'Push-pull combines both: each round, a node both sends what it knows and asks what the peer knows. This converges faster than either variant alone because push covers the early phase and pull covers the late phase. The cost is roughly double the message count per round. Most production systems use push-pull or a close variant.',
-      ],
-    },
-    {
       heading: 'How it works',
       paragraphs: [
         'A node learns a fact (a membership change, a failure suspicion, a config update). It marks the fact as "hot" -- eligible for gossip. Each round on a fixed timer (typically 1 second), the node selects k peers uniformly at random from its membership list and sends all hot facts. Recipients merge the incoming facts with their own state, mark new facts as hot, and begin spreading them in the next round.',
         'Facts expire. A node stops gossiping a fact after it has sent it enough times (a configurable "infection count") or after a TTL expires. Without expiration, old facts consume bandwidth indefinitely. With expiration, the protocol becomes self-limiting: each fact spreads, saturates, and then disappears from the gossip stream.',
         'Message versioning prevents stale facts from overwriting newer ones. Each fact carries a version (incarnation number, timestamp, or logical clock). When a node receives a fact older than its current state, it drops it. When it receives a newer fact, it adopts it and marks it hot. This ordering rule is what prevents a restarted node from resurrecting a dead membership entry the cluster already removed.',
+        'Three variants exist. In push gossip, informed nodes send to random peers -- fast early when most targets are fresh, slow near saturation. In pull gossip, uninformed nodes periodically ask random peers what they know -- slow early but fast near saturation because most peers have the fact. Push-pull combines both: each round a node sends what it knows and asks what the peer knows, covering both phases. Most production systems use push-pull.',
         'Anti-entropy runs separately. Periodically, two nodes exchange full state digests (often Merkle tree hashes) and reconcile differences. This catches facts that rumor spreading missed -- nodes that were down during the rumor, network partitions that isolated a subset, or facts that expired before reaching everyone.',
+        'The SWIM protocol (Das, Gupta, Muthukrishnan, 2002) extends this by combining failure detection with gossip dissemination. Each round, a node pings one random peer. If no response comes, the node asks k_indirect other random peers to ping the suspect (indirect ping). If all indirect pings also fail, the node marks the suspect as "suspect" and starts a suspicion timer. If the suspect responds before the timer expires, it increments its incarnation number to refute future stale suspicions. If the timer expires, the node declares the suspect dead. The key trick: every ping, ping-req, and ack message piggybacks a small buffer of recent membership changes, so failure detection traffic carries dissemination for free.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Convergence follows from the epidemic growth equation. With fanout k = 2, the expected number of newly informed nodes per round is approximately 2 * I(t) * (1 - I(t)) * n. When I(t) is small, growth is exponential with base ~k. After O(log n) rounds, I(t) approaches 1 with high probability.',
+        'Gossip borrows directly from mathematical epidemiology. The SIR (Susceptible-Infected-Removed) model maps cleanly onto gossip: uninformed nodes are susceptible, informed nodes actively spreading are infected, and nodes that stop spreading after enough rounds are removed. Demers et al. (1987) formalized this analogy.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg/250px-Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg.png', alt: 'SIR epidemic state diagram with susceptible infected and removed states', caption: 'The SIR state machine is the epidemiology analogue behind rumor spreading: susceptible nodes become active spreaders, then leave the active set. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg'},
+        'Let I(t) be the fraction of informed nodes at round t. With fanout k, the growth follows approximately dI/dt = k * I * (1 - I). This is the logistic equation. Early on, I is small and growth is exponential: each round roughly multiplies informed nodes by k. Near saturation, most contacts hit already-informed nodes, so growth slows. The crossover happens around I = 0.5. The first half of the cluster learns fast; the last few nodes take disproportionately long.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/SIR_trajectory.png/500px-SIR_trajectory.png', alt: 'SIR trajectory curves showing susceptible infected and removed populations over time', caption: 'The SIR trajectory shows the same shape gossip systems exhibit: fast middle growth and a slow tail near saturation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:SIR_trajectory.png'},
         'Concretely: with n = 1,024 nodes and fanout 2, log_2(1024) = 10 rounds suffice for near-complete coverage. With n = 1,000,000, about 20 rounds. Doubling the cluster adds one round. This is the O(log n) convergence guarantee.',
         'Fault tolerance is structural, not engineered. Suppose 10% of nodes are dead. Each gossip contact has a 10% chance of hitting a dead node, but the remaining 90% of contacts still succeed. The informed population still grows exponentially, just with effective fanout k * 0.9 instead of k. Convergence takes slightly more rounds but the protocol never notices the failures. No rerouting, no tree repair, no failure detection prerequisite.',
@@ -185,33 +172,13 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
         'Per-node cost per round: k messages sent, at most k messages received (in expectation). This is O(1) -- independent of cluster size. A node in a 100-node cluster and a node in a 100,000-node cluster do the same amount of work each round.',
-        'Total messages to saturate: O(n * log n). Each of n nodes gossips for O(log n) rounds, sending k messages per round. With k = 2 and n = 1,000, that is roughly 20,000 messages total. Full broadcast would use 999,000 (n*(n-1)). The savings grow with cluster size.',
+        'Total messages to saturate: O(n * log n). Each of n nodes gossips for O(log n) rounds, sending k messages per round. With k = 2 and n = 1,000, that is roughly 20,000 messages total. Full broadcast would use 999,000 (n * (n-1)). The savings grow with cluster size.',
         'Latency: O(log n) rounds times the gossip interval. With a 1-second interval and 1,000 nodes, convergence takes about 10 seconds. This is acceptable for membership and configuration but far too slow for transaction ordering or leader election.',
-        'Bandwidth: each message carries the hot fact payload. Piggybacking multiple facts into one gossip message amortizes overhead. Cassandra gossip messages carry the full endpoint state (~200 bytes per node) and cap at a few kilobytes. Serf uses compact SWIM-style protocol messages under 1 KB.',
-        'The tail cost dominates. The last 1-5% of nodes may take 2-3x longer than the median node to learn a fact. Production systems track "convergence percentile" -- how many rounds until 99% or 99.9% of nodes know -- rather than average convergence.',
-      ],
-    },
-    {
-      heading: 'SWIM failure detection (Das et al. 2002)',
-      paragraphs: [
-        'The SWIM protocol (Scalable Weakly-consistent Infection-style Process Group Membership) by Das, Gupta, and Muthukrishnan (2002) combines failure detection with gossip dissemination into one protocol. It solves a problem that naive gossip ignores: how does the cluster learn that a node is dead, not just propagate a fact that someone originated?',
-        'SWIM separates failure detection from dissemination. For detection: each round, a node picks one random peer and sends a direct ping. If the peer responds, it is alive. If not, the node asks k_indirect other random peers to ping the suspect on its behalf (indirect ping). If none of the indirect pings get a response, the node marks the suspect as "suspect" and starts a suspicion timer.',
-        'If the suspect responds to any probe (direct or indirect) before the timer expires, the suspicion is cancelled and the node increments its incarnation number to refute future stale suspicions. If the timer expires with no response, the node declares the suspect dead and disseminates that membership change.',
-        'Dissemination piggybacks on the protocol messages. Every ping, ping-req, and ack message carries a small buffer of recent membership changes (joins, leaves, deaths, suspicions). This is gossip-style dissemination with zero extra messages -- the protocol traffic that already exists for failure detection carries the membership updates for free.',
-        'SWIM achieves O(1) message load per node per round (one direct ping plus a bounded number of indirect pings), O(log n) detection time, and false positive rates controllable by the suspicion timeout and indirect ping count. It is the foundation for HashiCorp Serf and, through Serf, for Consul\'s membership layer.',
-      ],
-    },
-    {
-      heading: 'Worked example: 8 nodes, 3 rounds',
-      paragraphs: [
-        'Start with 8 nodes (A through H). Node A learns that node G crashed. Fanout k = 2.',
-        'Round 1: A is the only informed node. A picks 2 random peers: C and F. A sends the rumor to both. Informed set: {A, C, F}. Messages sent: 2. All 2 hit fresh targets.',
-        'Round 2: A, C, and F each pick 2 random peers. A picks D and B -- both fresh, both learn the fact. C picks E and A -- E is fresh and learns; A already knows, so 1 message is redundant. F picks H and C -- H is fresh and learns; C already knows, 1 redundant. Informed set: {A, B, C, D, E, F, H}. Messages sent: 6. Fresh contacts: 4. Redundant: 2.',
-        'Round 3: Seven nodes each pick 2 random peers. Most targets are already informed. The one remaining node (G is dead, so actually all live nodes already know). Saturation reached in 2 rounds for the 7 live nodes. Total messages: 8. A full broadcast from A would have sent 7 messages in one round but required A to know the full membership and made A a bottleneck.',
-        'The key observation: round 1 had 100% efficiency (2/2 fresh). Round 2 had 67% efficiency (4/6 fresh). If a round 3 were needed, efficiency would drop further. This declining efficiency is the cost of the protocol\'s redundancy, and it is exactly what makes the protocol robust -- every "wasted" message was a backup path that happened not to be needed.',
+        'Bandwidth: each message carries the hot fact payload. Piggybacking multiple facts into one gossip message amortizes overhead. Cassandra gossip messages carry the full endpoint state (~200 bytes per node) and cap at a few kilobytes. SWIM-style protocol messages (used by Serf) stay under 1 KB.',
+        'The tail cost dominates. The last 1-5% of nodes may take 2-3x longer than the median node to learn a fact. Production systems track "convergence percentile" -- how many rounds until 99% or 99.9% of nodes know -- rather than average convergence. This tail behavior is why anti-entropy sweeps run alongside rumor spreading.',
       ],
     },
     {
@@ -231,6 +198,16 @@ export const article = {
         'Stale state is a real hazard. If a node restarts with old state and begins gossiping, it can reintroduce facts the cluster already superseded. Incarnation numbers mitigate this (SWIM increments incarnation on restart), but the window between restart and first gossip exchange is vulnerable.',
         'Message overhead grows with the number of concurrent facts. If 100 membership changes happen simultaneously, each gossip message must carry all 100 facts or prioritize which to include. Without backpressure, gossip traffic can spike during cluster-wide events (rolling restart, network recovery after partition).',
         'Security is underspecified in the original model. Gossip trusts every message from every peer. A malicious node can inject false membership claims, spam the cluster with fake facts, or selectively drop messages to partition the informed set. Production systems add message authentication (HMAC), encryption (TLS), and rate limiting, but these are bolted on, not inherent to the protocol.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Start with 8 nodes (A through H). Node A learns that node G crashed. Fanout k = 2.',
+        'Round 1: A is the only informed node. A picks 2 random peers: C and F. A sends the rumor to both. Informed set: {A, C, F}. Messages sent: 2. All 2 hit fresh targets. Efficiency: 100%.',
+        'Round 2: A, C, and F each pick 2 random peers. A picks D and B -- both fresh, both learn the fact. C picks E and A -- E is fresh and learns; A already knows, so 1 message is redundant. F picks H and C -- H is fresh and learns; C already knows, 1 redundant. Informed set: {A, B, C, D, E, F, H}. Messages sent: 6. Fresh contacts: 4. Redundant: 2. Efficiency: 67%.',
+        'Round 3: Seven nodes each pick 2 random peers. Most targets are already informed. G is dead, so all 7 live nodes already know. Saturation reached in 2 rounds for 7 live nodes. Total messages: 8. A full broadcast from A would have sent 7 messages in one round but required A to know the full membership and made A the single bottleneck.',
+        'The declining efficiency is the cost of the protocol\'s redundancy, and it is exactly what makes the protocol robust -- every "wasted" message was a backup path that happened not to be needed. In a SWIM-style system, the fact "G is dead" would also piggyback on every ping and ack message, so the 8 nodes would converge even without dedicated gossip rounds.',
       ],
     },
     {

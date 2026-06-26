@@ -192,17 +192,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The capacity-math view converts context length into resident KV-cache memory. Rows show context tiers, columns compare full KV heads against grouped-query heads, and the plot shows how many live requests fit inside a fixed memory budget.',
         {type: 'image', src: './assets/gifs/kv-cache-concurrency-capacity-model.gif', alt: 'Animated walkthrough of the kv cache concurrency capacity model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why it exists',
-      paragraphs: [
-        'Autoregressive inference looks simple from the outside: send a prompt, receive tokens. Inside the server, every active request leaves behind a growing memory object. Each generated token needs to attend to earlier tokens, so the model stores key and value tensors for those earlier positions in every transformer layer. That resident state is the KV cache.',
+        'The admission-policy view is the server version of the same math. A request enters with a prompt and output budget, the scheduler estimates KV bytes, the ledger decides admit, queue, shrink, or reject, and release events return memory to the pool.',
+      ], },
+    { heading: 'Why this exists', paragraphs: [
+        'LLM concurrency is not just requests per second. A decoder request owns a growing KV cache, which is resident memory needed so future tokens can attend to earlier tokens.',
         {
           type: 'callout',
           text: 'KV cache capacity is a resident-memory promise, not a request-count metric.',
@@ -213,79 +209,54 @@ export const article = {
           alt: 'Transformer architecture diagram with repeated attention blocks',
           caption: 'The repeated attention blocks explain why K and V tensors exist at every layer, not just once per request. Source: Wikimedia Commons, from Vaswani et al. 2017.',
         },
-        'The cache is useful because it prevents the server from recomputing the entire prompt on every decode step. The same cache is also the reason long-context products are hard to host. A GPU can have enough arithmetic capacity to decode more tokens and still be unable to admit another request because high-bandwidth memory is full.',
-        'This topic exists to make that constraint explicit. Concurrency is not just requests per second or tokens per second. For a decoder-only model, concurrency is partly an accounting problem: how many live token histories can the serving pool keep resident while still honoring output budgets, latency promises, and safe recovery paths.',
-      ],
-    },
-    {
-      heading: 'The reasonable first model',
-      paragraphs: [
-        'A reasonable first serving model is to watch GPU utilization, average tokens per second, and average request length. If utilization is low, admit more work. If latency rises, admit less. That approach works for short, uniform chats because compute and memory pressure tend to move together.',
-        'Another reasonable shortcut is to pick a maximum batch size. Batch size is easy to reason about, easy to configure, and visible in dashboards. If a model ran well with 32 short requests yesterday, it is tempting to treat 32 as a stable capacity number.',
-        'Those models are not foolish. They are just incomplete. They treat every request as if it occupies roughly the same amount of resident state. KV cache breaks that assumption because a 32k context can consume the memory footprint of many 1k contexts, and the request can continue growing after it has already been admitted.',
-      ],
-    },
-    {
-      heading: 'Where the naive model breaks',
-      paragraphs: [
-        'The failure is not only that averages hide outliers. The deeper failure is that the server makes promises before it knows the full decode length. A request arrives with a prompt and a maximum output budget. At admission time, the prompt may fit. Ten seconds later, generated tokens have extended the cache, other requests have arrived, and the pool may have promised more resident memory than it can actually hold.',
-        'Paged allocators help, but they do not repeal the arithmetic. PagedAttention-style block management can reduce fragmentation and make allocation more graceful. It cannot make K and V tensors disappear. Grouped-query attention, multi-query attention, KV quantization, prefix reuse, sliding windows, and offload all change the constants or lifetime of cache entries. None of them remove the need for a ledger.',
-        'The wall appears most clearly under mixed workloads. A short chat, a coding-agent trace, a retrieval-augmented answer, and a batch summarization job may all be called one request. Their memory obligations are radically different. If the scheduler admits by request count, the worst users are invisible until the server is already under pressure.',
-      ],
-    },
-    {
-      heading: 'The capacity invariant',
-      paragraphs: [
-        'The invariant is KV bytes = 2 x layers x live tokens x KV heads x head dimension x bytes per element. The factor of 2 is for keys and values. Live tokens include prompt tokens and generated tokens that are still available for attention. KV heads may equal attention heads in multi-head attention, or may be fewer under grouped-query or multi-query attention.',
-        'That formula is a capacity model because every term has an operational meaning. More layers multiply the cache across the depth of the network. More live tokens multiply it across sequence length. More KV heads multiply it across attention state. More bytes per element multiply it across precision. A pool-level budget divided by the per-request reservation gives an upper bound on concurrent requests, before allocator overhead and safety margin.',
-        'A correct ledger also distinguishes current usage from reserved growth. The current prompt cache is not the whole promise. If a request is allowed to generate 2,000 more tokens, the scheduler either reserves space for that growth, enforces a smaller output budget, or accepts the risk of mid-flight eviction, retry, or failure.',
-      ],
-    },
-    {
-      heading: 'Mechanism in a server',
-      paragraphs: [
-        'Admission control starts before the first token is decoded. The scheduler estimates prompt cache bytes, output growth, beam or speculative branches, adapter identity, precision, and any sharing opportunities. It then checks a pool ledger that records live bytes, reserved bytes, free blocks, fragmented blocks, prefix-cache references, and per-tenant or per-product limits.',
-        'If the request fits, the server admits it and begins the prefill and decode lifecycle. During decode, each accepted token extends the cache. When the request finishes, is cancelled, or is evicted, blocks return to the allocator and reference counts on shared prefixes are decremented. If the request does not fit, the server can queue it, route it to another pool, reduce max output, fall back to retrieval or summarization, or reject early with a clear capacity reason.',
-        'The production insight is that KV capacity is a promise, not a vague load signal. A scheduler that says yes has promised to keep the relevant cache state resident or to follow a defined degradation policy. Without that contract, memory pressure turns into surprising OOMs, latency spikes, broken cache reuse, and unpredictable user experience.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The capacity table proves the nonlinearity that request-count thinking hides. The model is unchanged, but moving from a 4k context to a 32k context can collapse concurrency by roughly the same factor as the context increase. The plot adds the second lever: reducing KV heads through grouped-query attention can recover capacity without changing the product surface seen by the user.',
-        'The policy graph proves the system boundary. Capacity math is not useful if it stays in a spreadsheet. It has to sit in the request path, between the incoming prompt and the decode loop. The graph also shows why release events matter: capacity is conserved across admission, growth, and cleanup. Finishing a request is not just a billing event; it is a memory event.',
-        'The levers table proves that every optimization has a tax. Grouped-query attention reduces KV heads but can change quality. KV quantization saves bytes but can perturb outputs. Paged allocators reduce fragmentation but add kernel and bookkeeping complexity. Prefix caching is powerful only for exact compatible prefixes. Sliding windows bound memory by choosing to forget old tokens.',
-      ],
-    },
-    {
-      heading: 'Why the model works',
-      paragraphs: [
-        'The model works because KV cache memory is additive over independent live token histories. If two requests cannot share an exact prefix, their cache entries are separate. If they can share an exact compatible prefix, the shared portion can be reference-counted once and charged differently from each private suffix. Either way, the ledger can express the memory state as a sum of owned and shared blocks.',
-        'Correctness depends on identity. A KV cache entry is reusable only when the token prefix, model weights, adapter state, position scheme, attention variant, precision format, and cache layout are compatible with the computation that will consume it. A false cache hit is worse than a miss because it silently changes the model state. The ledger therefore needs correctness keys as well as byte counts.',
-        'The admission decision is conservative when the reserved upper bound covers the lifetime of the request. It may underutilize memory if many users stop early, but it avoids promising impossible resident state. More advanced schedulers can reclaim unused reservation, use probabilistic output-length estimates, or tier cold cache to slower memory, but they still need a clear accounting rule for when risk is being accepted.',
-      ],
-    },
-    {
-      heading: 'Tradeoffs and uses',
-      paragraphs: [
-        'KV capacity modeling is useful anywhere long-context inference is sold as an interactive product: chat systems, coding agents, document analysis, retrieval-augmented assistants, batch summarizers, and multi-turn tools. It helps decide max context, max output, per-tenant quotas, queue policy, GPU pool sizing, and whether a new model variant is economically viable.',
+        'A server can have enough GPU arithmetic for another request and still lack enough memory to keep that request state alive. This topic exists so capacity is modeled as bytes promised over time, not as a vague utilization graph.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to set a maximum batch size and watch average GPU utilization. If utilization is low, admit more requests; if latency rises, admit fewer.',
+        'This works for short and uniform chats because compute, memory, and request count move together. It breaks when context lengths and output budgets vary by orders of magnitude.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'A 32k-token agent trace can consume the KV memory of many 1k-token chats. If the scheduler counts both as one request, the heavy request stays invisible until allocation fails or decode latency spikes.',
+        'The second wall is growth after admission. A request that fits at prefill may generate 2,000 more tokens, so the server must reserve future cache or define how it will shrink, evict, queue, or fail.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'KV capacity is a ledger. Every live request has current bytes, reserved growth, block ownership, prefix-sharing identity, and a release path.',
+        'The ledger must be conservative enough to prevent impossible promises and precise enough to keep the GPU busy. Cost becomes behavior: queueing, rejection, or shorter output is the visible result of memory arithmetic.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Bytes per request equal 2 x layers x live tokens x KV heads x head dimension x bytes per element. The factor 2 is for keys and values, and live tokens include the prompt plus generated tokens still available to attention.',
+        'Admission estimates prompt bytes and output growth before decode starts. During decode, each accepted token extends the ledger, and when a request ends or is evicted, its blocks return to the allocator and shared-prefix reference counts are decremented.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'The model works because KV memory is additive over live token histories that cannot share exact compatible prefixes. If two requests have different prefixes, adapters, positions, or cache formats, their cache blocks are separate commitments.',
+        'Correctness depends on identity as much as bytes. A false prefix-cache hit silently changes model state, so the ledger needs keys for model weights, tokenizer, adapter, position scheme, precision, and prefix tokens.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'For a 70 GiB KV budget, a request that costs 0.5 GiB allows at most 140 live requests before safety margin. If context grows 8x and the cache becomes 4 GiB, that same budget fits 17 requests, even if token throughput per request looks healthy.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg/330px-AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg',
           alt: 'GPU package with high-bandwidth memory stacks surrounding the processor',
           caption: 'High-bandwidth memory is the scarce resident tier that long-context KV cache consumes. Source: Wikimedia Commons, File:AMD at 28nm GCN Fiji Radeon R9 Nano photo.',
         },
-        'The tradeoff is that strict accounting can make the service feel less flexible. Users may see queueing or output-limit reductions even when raw GPU utilization looks low. That is not necessarily a bug. It may be the correct response to a memory-bound workload. The engineering challenge is to expose product-level policies that match the economics: short interactive chats, long agent traces, and batch jobs should not all receive the same reservation rule.',
-        'Capacity models also shape architecture. A server that repeatedly sees shared system prompts may invest in prefix caching. A server dominated by long private traces may favor grouped-query attention, quantized KV, sliding windows, or offload. A platform with many tenants may need admission control tied to fairness and SLO budgets rather than one global first-come queue.',
-      ],
-    },
-    {
-      heading: 'Failure modes and study next',
-      paragraphs: [
-        'The main failure mode is measuring the wrong bottleneck. Tokens per second can look healthy while long contexts starve concurrency. Free bytes can look healthy while fragmentation prevents useful allocation. Average context can look safe while a heavy tail dominates p99 latency. Cache hit rate can look high while a small number of false hits would be catastrophic.',
-        'Other failures are semantic. Do not reuse KV state across non-identical prefixes, model revisions, adapter states, position encodings, cache formats, or attention implementations. Do not ignore output growth after admission. Do not treat offload as free capacity; it trades memory pressure for bandwidth and latency. Do not let retries hide OOMs, because retries can amplify load and make the pool less stable.',
-        'Study PagedAttention and vLLM for block-based cache management, Multi-Query Attention and Grouped-Query Attention for KV-head reduction, Transformer Inference Roofline for compute-versus-memory limits, Prefix Caching and RadixAttention for exact-prefix reuse, Sliding-Window Attention Context Policy for bounded history, KV Cache Transfer Fabric and KV Cache Tiered Offload Store for distributed cache movement, and LLM Inference Cost Stack Case Study for end-to-end serving economics. Primary sources include PagedAttention and vLLM, Efficiently Scaling Transformer Inference, the JAX inference scaling chapter, Multi-Query Attention, and Grouped-Query Attention.',
-      ],
-    },
+        'Complexity comes from block allocators, prefix sharing, tenant limits, output-length prediction, and tail-risk policy. Paged allocators reduce fragmentation, but they do not remove the need to decide who owns each block and when it can be reclaimed.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Interactive chat, coding agents, document analysis, retrieval-augmented generation, summarization, and multi-tenant model APIs all need KV capacity modeling. The model sets max context, max output, queue policy, per-tenant quotas, and GPU-pool sizing.',
+        'It also guides architecture choices. Shared prompts favor prefix caching, long private traces favor GQA or KV quantization, and bursty tenants need admission policy tied to fairness rather than one global queue.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'The model fails when it treats averages as promises. Average context length, average output length, and average cache hit rate can all look safe while a small heavy tail dominates p99 latency and OOM risk.',
+        'It also fails if offload is counted as free memory. Moving cache to CPU or remote storage trades capacity for bandwidth and latency, so admission policy must account for the slower tier explicitly.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Take a 40-layer model with 8 KV heads, head dimension 128, fp16 values, and a request allowed to reach 8,192 tokens. KV bytes are 2 x 40 x 8,192 x 8 x 128 x 2 = 1,342,177,280 bytes, or 1.25 GiB.',
+        'With a 70 GiB KV budget and a 10 GiB safety margin, usable KV space is 60 GiB. The scheduler can promise at most floor(60 / 1.25) = 48 such requests if it reserves the full token budget.',
+        'If half the requests are only 2,048 tokens, each of those costs about 0.31 GiB. A ledger can mix 80 short requests and 28 long requests in roughly the same 60 GiB, while a fixed request-count limit cannot see that difference.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Sources: PagedAttention and vLLM, Multi-Query Attention, Grouped-Query Attention, and systems work on disaggregated prefill/decode and KV offload. Use the papers to connect the byte formula to real schedulers and allocators.',
+        'Study KV Cache first, then PagedAttention, prefix caching, KV cache quantization, sliding-window attention, transformer inference roofline, and admission control. Before admitting work, price the resident state it will need later.',
+      ], },
   ],
 };

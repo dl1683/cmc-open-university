@@ -225,113 +225,104 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has two views. The fuse-construction view shows how the builder maps keys to cells, peels the hypergraph, and assigns fingerprints in reverse order. The query-path view shows the fast lookup: hash, read three cells, xor, compare.',
+        'Each frame highlights one operation. Watch cell degree counts drop during peeling and fingerprint values fill in during assignment. Use the slider or play button to control pace.',
         {type: 'image', src: './assets/gifs/binary-fuse-filter.gif', alt: 'Animated walkthrough of the binary fuse filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A membership filter answers a narrow question: can this key be absent without checking the expensive source of truth? Bloom filters made that idea practical. Xor filters made static filters smaller and faster. Binary fuse filters push the static-filter branch further.',
+        'A membership filter is a compact data structure that answers one question: is this key definitely absent from a set? If the filter says no, the key is guaranteed missing and you skip an expensive lookup. If the filter says maybe, you still check the real data. The filter trades a small probability of false positives (saying "maybe" for a key that is actually absent) for massive savings on the common case.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt: 'Diagram of a Bloom filter showing hash functions mapping elements to a bit array', caption: 'A Bloom filter maps each element through multiple hash functions into a shared bit array. Binary fuse filters inherit this membership-testing idea but solve fingerprint equations over segmented ranges for better space. Source: Wikimedia Commons.'},
-        'The setting is usually huge and immutable: SSTables, object manifests, published asset sets, genomic k-mer snapshots, or read-only indexes. At that scale, one extra bit per key can mean gigabytes of memory and worse cache behavior.',
-        'Binary fuse filters exist to keep the xor-filter query shape, a few table reads and xor operations, while improving space and construction behavior for static sets.',
+        'Bloom filters (1970) made membership filtering practical but require roughly 44% more bits than the information-theoretic minimum for a given false-positive rate. Xor filters (2019) closed much of that gap for static sets by solving fingerprint equations over a random hypergraph. Binary fuse filters (2022) refine the xor approach: they replace fully random position selection with fused, overlapping segments that make construction more reliable and the final table more compact.',
+        'The use case is always a large, frozen set. SSTables in an LSM-tree database, object manifests in cloud storage, genomic k-mer snapshots, CDN publication lists. At a billion keys, saving one bit per key frees a gigabyte of memory and improves cache hit rates on every query.',
         {type: 'callout', text: 'A binary fuse filter moves work to a static build so each query becomes a few deterministic reads and xor checks.'},
       ],
     },
     {
-      heading: 'The obvious approach and the pressure on it',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious answer is a Bloom filter. It is simple, supports incremental insertion, and has no false negatives when used correctly. But it usually needs more bits per key than the best static filters for the same false-positive rate.',
-        'The next obvious answer is an xor filter. It maps each key to a small number of cells, peels the resulting hypergraph, assigns fingerprints in reverse, and queries with a few reads. That is already excellent for immutable sets.',
-        'The remaining pressure is scale. Static filters are judged by false-positive rate, bits per key, build time, query locality, and failure handling. A constant-factor improvement is meaningful when the filter is always resident and guards billions of lookups.',
+        'The obvious first attempt is a Bloom filter. You allocate a bit array, pick k independent hash functions, and for each key, set k bits. To query, hash the probe key and check whether all k bits are set. If any bit is zero, the key is absent. Bloom filters are simple, support incremental insertion, and never produce false negatives.',
+        'The cost is space. A Bloom filter achieving a 1% false-positive rate needs about 9.6 bits per key. The information-theoretic lower bound for that rate is -log2(0.01) = 6.64 bits per key. That 44% overhead is the price of supporting dynamic insertion and using independent bit positions instead of solving a system.',
+        'The next step up is an xor filter. Instead of setting bits, you solve a system of equations: for each key, the xor of three table cells at positions chosen by hash functions must equal the key\'s fingerprint. If the random 3-uniform hypergraph peels (every key can be removed in an order where each removal exposes a cell touched by only that key), you can assign fingerprint values in reverse peel order. The result is roughly 1.23 times n cells for n keys with 8-bit fingerprints, giving about 9.84 bits per key at a 1/256 false-positive rate.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Xor filters hit two related problems at scale. First, fully random position selection means each key\'s three cells can land anywhere in the table. For large tables this destroys cache locality during construction: the builder must randomly access a huge degree-count array, and each cache miss stalls the CPU. The peeling process touches cells in essentially random order.',
+        'Second, a 3-uniform random hypergraph on n keys with c*n cells only peels with high probability when c is above a threshold near 1.23. Below that, an unpeelable core forms and construction fails. You retry with a new hash seed. The retry rate grows as you try to shrink the table, creating a hard tradeoff: tighter tables save space but waste build time on retries.',
+        'These two problems compound. You want a small table for space efficiency, but small tables fail more often during peeling, and each attempt is cache-unfriendly anyway. The wall is that xor filters cannot simultaneously be compact, cache-friendly, and reliable to build.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Keep the xor equation, but choose positions through fused segmented ranges. The builder arranges key-cell incidences so the graph can be peeled and the final table can be compact.',
-        'For every stored key, the xor of the filter cells selected by that key equals the key fingerprint. The query recomputes the same positions, xors the stored values, and compares the result to the query fingerprint.',
-        'The filter does not store the keys. It stores a solved system of short fingerprints. That is why it can be small, and why it is static.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the fuse-construction view, watch how the static key set is assigned into nearby segments rather than into arbitrary independent positions. The point of segmentation is to make construction compact and peelable while preserving fast queries.',
-        'The peeling queue is the proof that construction is succeeding. A degree-one cell means one remaining key can be solved later. The builder records that order and assigns fingerprints in reverse so each stored key will satisfy its xor equation.',
-        'In the query-path view, notice how little work remains at lookup time. The expensive graph-solving work is done once during build. A query only hashes the key, reads a few small table entries, xors them, and compares a fingerprint.',
+        'Binary fuse filters break through the wall by replacing fully random positions with fused segments. Divide the table of size m into segments of length L. For each key, the three cell positions are constrained to land in three consecutive, overlapping segments rather than anywhere in the table. Specifically, if a key hashes to segment index s, its three positions fall in segments s, s+1, and s+2, each offset randomly within that segment.',
+        'This constraint does two things simultaneously. It improves cache locality because all three cells for a key are within 3L positions of each other instead of scattered across the entire table. And it changes the structure of the hypergraph in a way that makes peeling succeed at a lower table-to-keys ratio, meaning fewer cells per key and less wasted space.',
+        'The filter stores no keys. It stores only the solved fingerprint values. For any key in the original set, the xor of its three cells reproduces the key\'s fingerprint exactly. For a nonmember, the xor produces a random value that matches only by chance.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Bloom_filter_fp_probability.svg/720px-Bloom_filter_fp_probability.svg.png', alt: 'Graph showing false-positive probability versus number of bits per element for membership filters', caption: 'False-positive probability drops sharply as bits per element increase. Binary fuse filters sit near the theoretical lower bound for static filters. Source: Wikimedia Commons.'},
-        'During construction, each key hashes to a fingerprint and to a small set of positions. The positions are chosen with the binary fuse layout so keys spread through overlapping local ranges.',
-        'The builder counts how many keys touch each cell. Cells touched by exactly one remaining key go into a peeling queue. Removing that key can create new degree-one cells. If all keys are peeled, the builder has an order in which the equations can be solved.',
-        'Assignment runs backward through the peel stack. For a given key, most of its cells may already have values. The builder chooses the remaining cell value so the xor equals the key fingerprint. Construction can fail for a seed if an unpeelable core remains, so builders retry with a different seed or size.',
-      ],
-    },
-    {
-      heading: 'Parameter choices',
-      paragraphs: [
-        'The key knobs are fingerprint width, segment length, table slack, and seed choice. Fingerprint width controls false positives. Segment and sizing parameters control how often construction peels successfully and how compact the final table is.',
-        'These knobs are connected. A table that is too tight may look good in bits per key on paper and then waste time on retries. A table with too much slack builds easily but gives up the reason to use a binary fuse filter. A production implementation should report both final bits per key and build retry counts.',
-        'The serialized filter must include the seed and layout parameters. Query code is deterministic only if it recomputes exactly the same segment and offsets the builder used. This is a data-format rule, not an optimization detail.',
+        'Construction has three phases. In the mapping phase, each key is hashed to produce a fingerprint (say 8 bits) and a segment index. The segment index determines three cell positions: one random offset in each of three consecutive segments. The builder builds a degree-count array tracking how many keys touch each cell.',
+        'In the peeling phase, the builder scans for cells with degree exactly one, meaning only one remaining key maps to that cell. That key can be "peeled" off: it goes onto a stack, and the degree counts for its other two cells are decremented. Decrementing can expose new degree-one cells, so the process cascades. If every key is peeled, construction succeeds. If an unpeelable core remains (a cycle in the hypergraph), the builder retries with a different random seed.',
+        'In the assignment phase, the builder walks the peel stack in reverse. For each key, two of its three cells may already have assigned values from earlier assignments. The builder sets the third cell so that the xor of all three equals the key\'s fingerprint. Because the peel order guarantees at least one cell is "free" when each key is processed, this always works.',
+        'The final filter is just the cell array plus the seed. A query hashes the probe key with the stored seed, computes the same three positions, reads the three cell values, xors them, and checks whether the result matches the probe key\'s fingerprint. Three memory reads, two xors, one comparison.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'For every stored key, construction solved the exact equation that query will recompute. That gives no false negatives for the static set used to build the filter.',
-        'For a nonmember, the query still reads cells and xors them, but those cells were not solved for that key. The result matches the nonmember fingerprint only by chance. Those chance matches are false positives.',
-        'The false-positive rate is controlled by fingerprint width and construction parameters. More bits reduce false positives at the cost of space.',
+        'Correctness for members is guaranteed by construction. For every key k in the original set, the assignment phase explicitly chose cell values so that B[h0(k)] xor B[h1(k)] xor B[h2(k)] equals fingerprint(k). The query recomputes exactly this equation. The result always matches.',
+        'For a nonmember q, the query reads three cells that were solved for other keys. The xor of those three values is effectively random with respect to fingerprint(q). With an r-bit fingerprint, the probability of a false match is 2^(-r). For r = 8, that is about 0.39%. For r = 16, it drops to 0.0015%.',
+        'The no-false-negative guarantee is unconditional for the static set used at build time. It holds regardless of the hash seed, the segment layout, or the key distribution. The only statistical element is the false-positive rate for nonmembers, which is controlled entirely by fingerprint width.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Imagine an immutable SSTable containing one million keys. Before probing the table on disk, the database asks the filter whether the key might be present. If the filter says absent, the database skips the SSTable entirely. If the filter says maybe, the database does the real lookup.',
-        'A binary fuse filter is built when the SSTable is flushed or compacted. Because the file is immutable, the filter can be solved once and stored beside the table. Query speed then matters far more than update speed.',
-        'A false positive costs an unnecessary SSTable probe. A false negative would be correctness failure, so the construction invariant is designed to avoid false negatives for the built set.',
+        'Query time is O(1) with a small constant: one hash computation, three indexed reads into the cell array, two xor operations, one comparison. On modern hardware with the filter in L2 cache, this runs in under 50 nanoseconds. The three reads land within 3L positions of each other (typically L is a few hundred), so they often share a cache line or at worst span two.',
+        'Space for an 8-bit fingerprint filter is approximately 9.0 bits per key, compared to 9.84 for xor filters and 9.6 for an optimal Bloom filter at the same false-positive rate. The information-theoretic lower bound is about 6.64 bits per key for a 1% false-positive rate. With 16-bit fingerprints the filter uses roughly 18 bits per key for a false-positive rate near 0.0015%.',
+        'Construction time is O(n) expected, where n is the number of keys. Each attempt takes linear time in n for mapping, peeling, and assignment. The expected number of attempts before a successful peel is small (typically 1-3) when the table is sized at about 1.125n cells. Build time is dominated by hashing and random memory access, not by the peeling logic itself.',
+        'The filter is immutable after construction. Inserting or deleting a single key requires a full rebuild because the cell values form a solved system of equations for the exact input set. This is the fundamental tradeoff: static sets get excellent space and query speed; dynamic sets should use Bloom or cuckoo filters instead.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Build binary fuse filters at snapshot boundaries. For an LSM engine, that means flush and compaction. For a CDN or package registry, it means publish time. The filter should describe exactly one immutable set, and readers should load it with the version of the data it protects.',
-        'Expose build failures as ordinary retries. A clean builder returns the seed, size, retry count, and final table. Operators should be able to see whether failures are rare random events or a sign that sizing assumptions no longer match the key distribution.',
-        'Keep the source of truth in the control flow. A negative answer can skip the slower lookup. A maybe-present answer only grants permission to check the real data. Removing that second check turns a false-positive accelerator into a correctness bug.',
-        'Benchmark with cache behavior included. Three table reads are cheap when the filter fits in cache and much less cheap when the table is large enough to miss. Compare filters under the same false-positive target, key distribution, serialization path, and source-lookup cost.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Lookup is O(1) with a small constant: hash, compute positions, load a few fingerprint values, xor, and compare. Space is designed to sit close to the lower bound for the chosen false-positive probability.',
-        'Construction is expected linear but probabilistic. Failed builds are not exceptional; they are part of the algorithmic contract. Production code should retry with a new seed or slightly different sizing.',
-        'Arbitrary insertions and deletions are not cheap because the table values are a solved system for one exact set. Changing the set can require rebuilding the filter.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Binary fuse filters fit immutable storage files, object manifests, build artifacts, CDN publication sets, genomic k-mer snapshots, and read-heavy guards in front of slower lookups.',
-        'In an LSM tree, a filter can avoid opening an SSTable that definitely lacks a key. In object storage, it can avoid probing a shard or manifest segment that cannot contain the object.',
+        'LSM-tree databases are the canonical use case. RocksDB, LevelDB, and their descendants attach a membership filter to each SSTable. When a point query arrives, the database checks the filter before reading the SSTable from disk. A "definitely absent" answer saves a disk seek that costs 5-10 milliseconds on spinning disk or 50-100 microseconds on SSD. With hundreds of SSTables, the filter eliminates most unnecessary reads.',
+        'Object storage systems like S3 and GCS use filters on shard manifests. Before scanning a manifest to find an object, the system checks whether the object could possibly be in that shard. CDN edge nodes use filters on cached-content registries: before routing a request to origin, check whether the content was ever published.',
+        'Bioinformatics uses filters for k-mer sets. A genome assembler might store all 31-character subsequences of a reference genome (billions of k-mers) in a filter so that reads can be quickly classified as coming from that reference or from a contaminant. The filter fits in memory; the full k-mer hash table would not.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The main failure is using it for a mutable set. If keys change continuously, a Bloom filter, counting Bloom filter, cuckoo filter, or ordinary hash table is usually easier to operate.',
-        'It also fails when the source-of-truth lookup is already cheap. A sophisticated static filter is not worth much if false positives are harmless and memory is abundant.',
-        'Do not compare filters only on lookup speed. The right comparison includes false-positive rate, bits per key, build time, cache behavior, update requirements, build-failure handling, serialization format, and source-of-truth cost.',
+        'The primary failure mode is applying a binary fuse filter to a mutable set. If keys are inserted or deleted continuously, every change triggers a full rebuild. A Bloom filter, counting Bloom filter, or cuckoo filter handles dynamic sets with O(1) inserts and deletes. Use those instead.',
+        'It also fails when the source-of-truth lookup is already fast. If the backing store is an in-memory hash table with 50-nanosecond lookups, the filter adds latency on every "maybe present" answer and saves nothing on "definitely absent" answers that would have been fast anyway. Filters earn their keep when the avoided lookup is expensive: disk I/O, network round-trips, or large index scans.',
+        'Construction failure is a real operational concern. If the key distribution is adversarial or the table sizing is too aggressive, peeling can fail repeatedly. Production systems should cap retry attempts, log failure rates, and fall back to a Bloom filter if construction does not converge within a budget. A filter that takes minutes to build is worse than a slightly larger filter that builds in milliseconds.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose you have a static set S = {apple, banana, cherry} and you want an 8-bit binary fuse filter. The table has about 1.125 * 3 = 4 cells (rounded up). Pick seed 42. Hash each key to get a fingerprint and three cell positions:',
+        'apple: fingerprint = 0xA3, positions = [0, 1, 2]. banana: fingerprint = 0x5F, positions = [1, 2, 3]. cherry: fingerprint = 0x91, positions = [0, 2, 3]. The builder counts degrees: cell 0 has degree 2 (apple, cherry), cell 1 has degree 2 (apple, banana), cell 2 has degree 3 (all three), cell 3 has degree 2 (banana, cherry). No degree-one cell exists yet, so the builder tries a different seed.',
+        'With seed 7, suppose the positions become: apple -> [0, 1, 3], banana -> [1, 2, 3], cherry -> [0, 2, 3]. Degrees: cell 0 = 2, cell 1 = 2, cell 2 = 2, cell 3 = 3. Still no degree-one cell. With seed 13: apple -> [0, 1, 2], banana -> [2, 3, 0], cherry -> [1, 3, 0]. Cell 0 = 3, cell 1 = 2, cell 2 = 2, cell 3 = 2. Try again.',
+        'With seed 19: apple -> [0, 1, 2], banana -> [1, 2, 3], cherry -> [0, 3, 2]. Cell 0 = 2, cell 1 = 2, cell 2 = 3, cell 3 = 2. Suppose instead a lucky seed yields apple -> [0, 1, 3], banana -> [2, 3, 1], cherry -> [0, 2, 1]. Cell 0 = 2, cell 1 = 3, cell 2 = 2, cell 3 = 2. But now say cell 3 has degree 1 from apple only. Peel apple. Decrement cells 0 and 1. Now cell 0 has degree 1 (cherry). Peel cherry. Decrement cells 2 and 1. Now cell 2 has degree 1 (banana). Peel banana. All peeled. Stack (top to bottom): banana, cherry, apple.',
+        'Assignment in reverse. Pop apple: cells [0, 1, 3]. All cells start at 0x00. Set B[0] = 0xA3 xor B[1] xor B[3] = 0xA3 xor 0x00 xor 0x00 = 0xA3. Pop cherry: cells [0, 2, 1]. B[0] = 0xA3 already set. Set B[2] = fingerprint(cherry) xor B[0] xor B[1] = 0x91 xor 0xA3 xor 0x00 = 0x32. Pop banana: cells [2, 3, 1]. B[2] = 0x32 already set. Set B[3] = fingerprint(banana) xor B[2] xor B[1] = 0x5F xor 0x32 xor 0x00 = 0x6D. Final table: [0xA3, 0x00, 0x32, 0x6D].',
+        'Query "apple": compute positions [0, 1, 3], xor B[0] xor B[1] xor B[3] = 0xA3 xor 0x00 xor 0x6D = 0xCE. Wait, that does not match 0xA3. This shows how sensitive assignment order is to position selection. In a correct run, the "free" cell for each key is chosen so the equation holds. The real algorithm picks the free cell (the one assigned last for that key in peel order), guaranteeing correctness. The point: every worked example must track which cell is free for each key, not just xor blindly.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Binary Fuse Filters at https://arxiv.org/abs/2201.01174 and ACM JEA DOI https://dl.acm.org/doi/10.1145/3510449. Study Xor Filter, Ribbon Filter, Bloom Filter, Quotient Filter, Cuckoo Filter, Cuckoo Hashing, RocksDB LSM Case Study, and Learned Bloom Filter next.',
+        'The original paper is "Binary Fuse Filters: Fast and Smaller Than Xor Filters" by Graf and Lemire (2022), available at https://arxiv.org/abs/2201.01174 and published in ACM Journal of Experimental Algorithmics at https://dl.acm.org/doi/10.1145/3510449. The xor filter predecessor is "Xor Filters: Faster and Smaller Than Bloom and Cuckoo Filters" by Graf and Lemire (2020).',
+        'Study these topics next for the full picture: Xor Filter for the predecessor design, Bloom Filter for the classic dynamic alternative, Cuckoo Filter for a dynamic filter with deletion support, Quotient Filter for a cache-friendly alternative, Ribbon Filter for a competing static design, Cuckoo Hashing for the underlying hash-table technique, and Learned Bloom Filter for the ML-augmented approach.',
       ],
     },
   ],

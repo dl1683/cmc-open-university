@@ -129,126 +129,27 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The first view builds a table of family-wise error rates for growing numbers of null tests. Active cells show the current computation. Removed cells (red) flag the rows where the false-positive risk has become unacceptable. The curve that follows plots the same formula continuously so you can see the shape: steep early, asymptotic to 100%.',
-        'The second view applies Bonferroni and Benjamini-Hochberg to a concrete set of p-values. The BH threshold line rises with rank. Found markers (green) are discoveries that survive the correction. Removed markers (red) are results that a naive analysis would celebrate but the correction rejects. At each frame, ask: which error guarantee is this threshold enforcing, and what power is it costing?',
-        'The dashboard frame between them shows a realistic experiment with twenty metrics and one false "win." That frame is the motivation for everything that follows.',
-        {type: 'callout', text: 'Multiplicity spends error budget every time the data gets another chance to produce a lucky-looking result.'},
-      
-        {type: 'image', src: './assets/gifs/multiple-testing.gif', alt: 'Animated walkthrough of the multiple testing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A single hypothesis test at alpha = 0.05 promises a 5% false-alarm rate when nothing is real. That contract is sound for one pre-declared question tested once. It breaks silently when a dashboard, notebook, or screening pipeline asks many questions and reports the best-looking answer.',
-        'The practical settings are everywhere. A product team ships a button-color change and watches twenty metrics. A genomics study tests 20,000 genes. An ML engineer slices validation error by region, device, and cohort. Each individual test keeps its promise; the family of tests compounds false-positive risk until a fake discovery is nearly guaranteed.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions', caption: 'A single-test threshold cuts a tail from one null distribution; repeated tests keep taking tail chances until noise survives. Source: Wikimedia Commons, Inductiveload, public domain.'},
-        {
-          type: 'quote',
-          text: 'The increased number of hypotheses to be tested, each at a prescribed level, inflates the probability of erroneously rejecting some of them beyond any reasonable bound. [...] We suggest controlling the expected proportion of falsely rejected hypotheses -- the false discovery rate.',
-          attribution: 'Yoav Benjamini and Yosef Hochberg, "Controlling the False Discovery Rate," Journal of the Royal Statistical Society B, 1995',
-        },
-        'Benjamini and Hochberg reframed the problem. Instead of demanding zero false positives in a family (an increasingly expensive promise), they proposed bounding the expected fraction of false discoveries among accepted results. That single idea unlocked large-scale screening in genomics, neuroscience, and industry experimentation.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Run every comparison at p < 0.05 and flag anything that clears the bar. This is not stupid -- it is the correct procedure when the analyst truly has one pre-declared question. The threshold is connected to a real guarantee, the logic is simple, and every introductory statistics course teaches it.',
-        'The approach works exactly when two conditions hold: the question was chosen before the data, and only one question is tested. A confirmatory clinical trial with a single primary endpoint fits perfectly. The trouble begins when either condition fails.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'With k independent null tests at alpha = 0.05, the chance of at least one false positive is 1 - (1 - 0.05)^k. Five tests: 22.6%. Twenty tests: 64.2%. One hundred tests: 99.4%. The per-test contract holds perfectly; the family-level contract is shattered.',
-        'The hidden version is worse. The count of tests is often not written down. Trying a metric, then a subgroup, then a time window, then excluding an outlier is a sequence of tests with no official registry. The analyst followed a fork the data suggested, and that fork was another chance for noise to dress up as signal. Researcher degrees of freedom, the garden of forking paths, and p-hacking are all names for the same compounding.',
-        'This is the multiple comparisons crisis in science. Ioannidis (2005) argued that most published research findings are false, and one of the primary mechanisms is exactly this: many comparisons tested, few reported, and the survivors presented as if they were the only question asked. The replication crisis in psychology, cancer biology, and economics traces back in large part to uncorrected multiplicity.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Three corrections dominate practice. Each trades power for a different error guarantee.',
-        'Bonferroni (1936): divide alpha by k and test each p-value against alpha/k. With 20 tests at alpha = 0.05, each must clear p < 0.0025. The proof is the union bound: P(any false positive) <= sum of per-test error rates = k * (alpha/k) = alpha. No independence assumption is needed. The cost is brutal power loss -- real effects need roughly sqrt(k) times the sample size to survive the higher bar.',
-        'Holm (1979): sort p-values smallest to largest. Test the smallest against alpha/k, the next against alpha/(k-1), and so on, stopping at the first failure. All later hypotheses are retained as non-significant. Holm provides the identical FWER guarantee as Bonferroni but rejects at least as many hypotheses. There is no reason to prefer plain Bonferroni over Holm.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Benjamini-Hochberg step-up procedure\nfunction benjaminiHochberg(pValues, q) {\n  const n = pValues.length;\n  // Pair each p-value with its original index, then sort ascending\n  const sorted = pValues\n    .map((p, i) => ({ p, i }))\n    .sort((a, b) => a.p - b.p);\n\n  // Find the largest rank k where p_(k) <= (k/n) * q\n  let cutoff = -1;\n  for (let k = 0; k < n; k++) {\n    const threshold = ((k + 1) / n) * q;\n    if (sorted[k].p <= threshold) cutoff = k;\n  }\n\n  // Reject all hypotheses with rank <= cutoff\n  const rejected = new Array(n).fill(false);\n  for (let k = 0; k <= cutoff; k++) {\n    rejected[sorted[k].i] = true;\n  }\n  return rejected;\n}',
-        },
-        'Benjamini-Hochberg (1995): sort p-values ascending. Draw a rising line where the threshold at rank i is (i/k) * q. Find the largest rank where the p-value falls below its threshold. Accept all ranks up to and including that point. The guarantee is different: among accepted discoveries, the expected fraction of false positives is at most q. This is the false discovery rate (FDR).',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Bonferroni works because the union bound caps total error. If each of k null tests can falsely reject with probability at most alpha/k, the probability that any of them rejects is at most k * (alpha/k) = alpha. The bound can overcount when tests are correlated, making it conservative, but conservatism is the point when any false positive triggers an expensive decision.',
-        'Holm works by spending the same budget more carefully. Once the smallest p-value passes the strictest test (alpha/k), the worst-case first false positive has been handled. The remaining family is smaller, so the next threshold can relax to alpha/(k-1) without exceeding the original FWER budget. The step-down stop rule prevents later results from being interpreted after a weak earlier result.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg', alt: 'Normal distribution cumulative distribution functions', caption: 'The CDF view turns tail area into probability, which is the quantity multiple-testing corrections spend and protect. Source: Wikimedia Commons, Inductiveload, public domain.'},
-        {
-          type: 'diagram',
-          label: 'P-value distribution under null vs alternative hypotheses',
-          text: 'Under H0 (null true):     p-values are Uniform(0,1)\n|####|####|####|####|####|    equal density across [0, 1]\n0   0.2  0.4  0.6  0.8  1.0\n\nUnder H1 (real effect):   p-values pile up near zero\n|################|##|#| |     heavy left skew\n0   0.2  0.4  0.6  0.8  1.0\n\nMixture (some null, some real):\n|############|####|##|#|#|    spike near 0 from real effects\n0   0.2  0.4  0.6  0.8  1.0  + uniform floor from nulls\n\nBH exploits this shape: the rising threshold (i/k)*q\ntracks the expected null contribution at each rank.\nReal signals cluster at low ranks, lifting the cutoff.',
-        },
-        'BH works because true effects produce p-values concentrated near zero, while null hypotheses produce p-values uniformly spread across [0, 1]. When the sorted p-values are compared against the rising line (i/k)*q, genuine signals cluster at low ranks and pull the cutoff upward. A family of pure null p-values rarely generates enough small values to push the cutoff past a few ranks. Under independence (or positive regression dependence), the expected false discovery proportion among rejections stays at or below q.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Computation is negligible. Bonferroni costs O(k) -- one division and k comparisons. Holm and BH cost O(k log k) for the sort. In every practical setting, collecting the data dwarfs the correction arithmetic by orders of magnitude.',
-        'The real cost is statistical power. A stricter threshold means a true effect needs more evidence to be detected. Bonferroni with k = 100 tests requires each p-value below 0.0005, which at fixed sample size converts many genuine effects into non-discoveries. BH recovers power by accepting a controlled impurity: four discoveries with an expected 5% false rate, instead of two pristine ones.',
-        'The governance cost is hardest. Someone must define the family before looking at results, record which metric is primary, and separate confirmatory from exploratory analysis. A notebook full of after-the-fact choices cannot be repaired by any formula. The formula needs an honest count of every chance the analyst gave to noise.',
-        {
-          type: 'table',
-          headers: ['Method', 'Error controlled', 'Power', 'Independence required?', 'Best for'],
-          rows: [
-            ['Bonferroni', 'FWER <= alpha', 'Lowest -- divides alpha by k', 'No', 'Few tests, any false positive is costly'],
-            ['Holm step-down', 'FWER <= alpha', 'Strictly better than Bonferroni', 'No', 'Same as Bonferroni, no reason not to upgrade'],
-            ['Benjamini-Hochberg', 'FDR <= q', 'Much higher than FWER methods', 'Yes (or PRDS)', 'Large screens with follow-up validation'],
-            ['Benjamini-Yekutieli', 'FDR <= q', 'Lower than BH, higher than Bonferroni', 'No', 'Correlated tests where BH assumptions fail'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Use FWER control (Holm) when one false positive triggers an expensive irreversible decision. Drug approval by the FDA requires FWER control over co-primary endpoints. Ship/no-ship decisions on a product launch where the wrong call costs engineering quarters belong here. Security alerts that page a human at 3 AM belong here. The cost of a false alarm is concrete and high.',
-        'Use FDR control (BH) when discovery volume matters and follow-up exists. Genomics screens 20,000 genes and needs a workable shortlist for wet-lab validation. Feature mining over hundreds of signals needs candidates for the next experiment. Anomaly triage in production logs needs a prioritized list, not a single verdict. A small, bounded impurity is the right bargain when downstream review catches the fakes.',
-        'Use pre-registration when the real question is known in advance. Declare one primary metric before the experiment starts; judge the launch decision on it alone at full alpha; label everything else exploratory. No correction needed, full power preserved, forking paths fenced off. This is the cheapest and most powerful "correction" -- discipline applied to the question rather than to the arithmetic.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Corrections can be too conservative when applied without judgment. If one primary endpoint was honestly chosen before the experiment, correcting it jointly with every diagnostic chart wastes power on a problem that does not exist. If a hundred exploratory charts were inspected after the fact, pretending only one test happened is worse -- the correction is too lenient. The boundary between confirmatory and exploratory work must be part of the design, not a narrative added after results appear.',
-        'Corrections do not fix biased data. Confounding, data leakage, bad randomization, optional stopping, and broken measurement can produce small p-values that are meaningless under any multiplicity rule. A beautifully corrected analysis of a confounded experiment is still wrong. The correction controls the rate of false discoveries from sampling noise; it says nothing about systematic errors.',
-        'BH can be mismatched to dependence structure. Its standard proof requires independence or positive regression dependence on each null (PRDS). Correlated metrics, repeated-measures designs, overlapping cohorts, and adaptive analysis plans can violate these assumptions. Benjamini-Yekutieli (BY) provides FDR control under arbitrary dependence, but at a further power cost. Permutation-based FDR or hierarchical testing may be more appropriate for complex dependence.',
-        {
-          type: 'note',
-          text: 'No correction can recover from a poorly defined family. If the analyst decides which tests belong to the family after seeing results, the correction is applied to a gerrymandered set and its guarantee is void. The family must be declared before the data are examined.',
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Bonferroni, C. E. (1936). "Teoria statistica delle classi e calcolo delle probabilita." The original union-bound argument for dividing alpha across a family of tests.',
-            'Holm, S. (1979). "A simple sequentially rejective multiple test procedure." Scandinavian Journal of Statistics. The step-down improvement that dominates Bonferroni for the same FWER guarantee.',
-            'Benjamini, Y. and Hochberg, Y. (1995). "Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing." Journal of the Royal Statistical Society B. The foundational FDR paper.',
-            'Benjamini, Y. and Yekutieli, D. (2001). "The Control of the False Discovery Rate in Multiple Testing under Dependency." Annals of Statistics. FDR control without independence assumptions.',
-            'Ioannidis, J. P. A. (2005). "Why Most Published Research Findings Are False." PLoS Medicine. The paper that brought the multiple comparisons crisis to broad scientific attention.',
-          ],
-        },
-        'Prerequisite: study A/B Testing and p-values for the single-test contract that multiplicity breaks. Study Statistical Power and Sample Size to understand why stricter thresholds cost sample size. Extension: study Causal Graphs, Confounding, and Simpson\'s Paradox to separate planned causal questions from subgroup fishing. For the ML version, study Cross-Validation and Honest Evaluation and Data Leakage -- they teach the same law in a different language: every time the evaluation signal influences a choice, the signal is being spent.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'The first view shows what happens when a family of null tests all use alpha = 0.05. Alpha means the false-positive probability for one test when the null hypothesis is true, and a false positive means reporting an effect that is not real. Removed cells mark cases where family-level risk has become too high; the correction view shows thresholds that stop a dashboard from giving noise repeated chances.',
+      {type: 'callout', text: 'Multiplicity spends error budget every time the data gets another chance to produce a lucky-looking result.'},
+      {type: 'image', src: './assets/gifs/multiple-testing.gif', alt: 'Animated walkthrough of the multiple testing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+    ]},
+    { heading: 'Why this exists', paragraphs: [
+      'A hypothesis test decides whether data are surprising under a baseline claim called the null hypothesis. With alpha = 0.05, one valid test falsely rejects a true null about 5 percent of the time. Multiple testing exists because real analysis often checks many metrics, genes, cohorts, or subgroups, giving randomness many chances to pass the threshold.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions', caption: 'A single-test threshold cuts a tail from one null distribution; repeated tests keep taking tail chances until noise survives. Source: Wikimedia Commons, Inductiveload, public domain.'},
+    ]},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is to run every test at p < 0.05 and report every result that clears the bar. A p-value is the probability, under the null model, of seeing data at least this extreme. That rule is correct for one pre-declared question, but it breaks when one decision is made after scanning many questions.']},
+    { heading: 'The wall', paragraphs: ['The wall is compounding error. With k independent null tests, the chance of at least one false positive is 1 - (1 - 0.05)^k, not 0.05. For 20 tests the chance is 1 - 0.95^20 = 64.2 percent, so every test can keep its own promise while the family almost guarantees a fake win.']},
+    { heading: 'The core insight', paragraphs: ['The core insight is that the unit of error control must match the unit of decision. If the decision is made after looking across twenty metrics, the guarantee must cover the twenty-metric family. Family-wise error rate controls the chance of any false discovery, while false discovery rate controls the expected fraction of false discoveries among accepted results.']},
+    { heading: 'How it works', paragraphs: ['Bonferroni divides alpha by the number of tests, so 20 tests at alpha = 0.05 require p < 0.0025. Holm sorts p-values and uses a step-down version of the same family-wise guarantee. Benjamini-Hochberg sorts p-values, compares rank i to (i / k) * q, and accepts through the largest rank that passes, controlling false discovery rate instead of any-false-positive risk.']},
+    { heading: 'Why it works', paragraphs: [
+      'Bonferroni works because the probability of any bad event is at most the sum of the probabilities of the bad events. If each of 20 null tests gets at most 0.0025 false-positive probability, the family gets at most 20 * 0.0025 = 0.05. Benjamini-Hochberg works from sorted p-value behavior: null p-values are roughly uniform, while real effects pile up near zero.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg', alt: 'Normal distribution cumulative distribution functions', caption: 'The CDF view turns tail area into probability, which is the quantity multiple-testing corrections spend and protect. Source: Wikimedia Commons, Inductiveload, public domain.'},
+    ]},
+    { heading: 'Cost and complexity', paragraphs: ['Computation is cheap. Bonferroni is O(k), while Holm and Benjamini-Hochberg sort k p-values and cost O(k log k). The real cost is power: stricter thresholds need stronger evidence, so fixed sample sizes miss more true effects.']},
+    { heading: 'Real-world uses', paragraphs: ['Use family-wise error control when one false positive is expensive, such as safety decisions, drug approvals, or ship-or-stop calls. Use false discovery rate when discovery volume matters and follow-up can filter candidates, such as gene screens, anomaly triage, feature mining, and exploratory science.']},
+    { heading: 'Where it fails', paragraphs: ['Corrections do not fix biased data, confounding, leakage, broken randomization, or optional stopping. They also fail when the family is chosen after looking; if an analyst inspects one hundred cuts and corrects only the three that looked promising, the guarantee is void. The family must be defined before the data guide the analysis.']},
+    { heading: 'Worked example', paragraphs: ['A team tests 20 independent metrics for a feature that truly has no effect. The chance of no false positives is 0.95^20 = 0.358, so the chance of at least one fake win is 1 - 0.358 = 0.642, or 64.2 percent. Bonferroni changes the per-test bar to 0.05 / 20 = 0.0025, so a p = 0.04 metric no longer qualifies.']},
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: Bonferroni on union-bound correction, Holm 1979 on the sequentially rejective procedure, Benjamini and Hochberg 1995 on false discovery rate, Benjamini and Yekutieli on dependency, and Ioannidis on false research findings. Study p-values, statistical power, confidence intervals, causal inference, cross-validation, and data leakage next.']},
   ],
 };

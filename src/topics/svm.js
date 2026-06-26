@@ -308,12 +308,19 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        { type: "callout", text: "An SVM is a boundary chosen by the closest points, not by the average point." },
-        "The 'hard margin' view shows eight 2D points from two classes. A decision boundary appears as a solid line; two dashed lines mark the margin — the widest gap the SVM can place between the classes. Support vectors are highlighted: these are the points sitting exactly on the margin boundaries.",
-        "The 'soft margin (C)' view adds two noisy points that break separability. Watch how the boundary shifts with different C values: high C (strict) bends the boundary to chase outliers; low C (relaxed) keeps a wide margin and accepts some misclassifications. Each violating point pays a penalty proportional to how far it crosses the margin.",
-        "The 'kernel trick' view starts with 1D data that no single threshold can split. The feature map lifts each point x to (x, x²), and a line in the lifted space becomes a curve in the original. The final frame shows how the RBF kernel produces circular boundaries without computing explicit coordinates in infinite-dimensional space.",
-      
-        {type: 'image', src: './assets/gifs/svm.gif', alt: 'Animated walkthrough of the svm visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {
+          type: 'callout',
+          text: 'An SVM is a boundary chosen by the closest points, not by the average point.',
+        },
+        'Read the SVM animation as a search for a decision boundary, which is a rule that assigns a point to one class or the other. The hard-margin view highlights support vectors, the training points that sit closest to the boundary and therefore pin it in place.',
+        'The soft-margin view adds slack, which means some points may violate the margin or even cross the boundary for a penalty. The kernel view shows a feature map, a transformation that makes curved separation look linear in a higher-dimensional space.',
+        {
+          type: 'image',
+          src: './assets/gifs/svm.gif',
+          alt: 'Animated walkthrough of the svm visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
@@ -324,33 +331,29 @@ export const article = {
           alt: 'Three separating hyperplanes, where only one maximizes the margin between two classes.',
           caption: 'The maximum-margin picture shows why the SVM prefers the separator with the widest street, not merely any separator that fits the training set. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Svm_separating_hyperplanes_(SVG).svg.',
         },
-        'Classification needs a decision boundary. Many boundaries correctly separate training data, but most of them barely clear some points and will fail on new data. A boundary that passes close to training examples is fragile — one shifted measurement flips the prediction.',
-        'The SVM asks: among all boundaries that correctly classify the training set, which one has the most room to spare? Maximizing that room — the margin — produces a classifier that tolerates small perturbations in the data. Vapnik and Chervonenkis formalized this idea in 1963 as statistical learning theory. Cortes and Vapnik published the modern soft-margin SVM in 1995, adding the C parameter and kernel trick that made SVMs practical for real problems.',
-        'The result is a classifier defined entirely by a few critical training points (the support vectors), equipped with formal generalization guarantees, and extensible to nonlinear boundaries through the kernel trick. For a decade before deep learning took over, SVMs were the dominant method for text classification, image recognition, and bioinformatics.',
+        'Classification often has many boundaries that fit the training data. A support vector machine exists because the boundary that barely clears the data is fragile, while the boundary with the widest empty gap has room for future points to move without changing class.',
+        'The empty gap is the margin. Maximizing the margin turns a vague preference for robustness into a concrete optimization problem over the boundary weights.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious classifier is logistic regression: compute a weighted sum of features, squeeze through a sigmoid, get a probability. It works, it is fast, and the coefficients are interpretable. But logistic regression minimizes prediction error across all points equally — a correctly classified point far from the boundary gets the same structural influence as one near the boundary.',
-        'Another obvious approach is the nearest-neighbor rule: classify by the label of the closest training example. This adapts to any shape, but it stores the entire training set and is sensitive to noise in individual points.',
-        'Both approaches ignore a geometric question: how wide is the gap between the classes? Logistic regression may find a boundary that separates the data but hugs one class too tightly. The SVM asks that question directly.',
+        'A reasonable first classifier is logistic regression, which learns a weighted sum of features and converts the score into a probability. It is fast and useful, but every point keeps exerting pressure on the fitted boundary even when it is already far from the decision edge.',
+        'Another reasonable approach is nearest neighbor, which stores examples and labels a new point by the closest stored point. It can represent curved regions, but it memorizes noise and has no idea of a margin.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Logistic regression is driven by the likelihood of all points. Points far from the boundary still contribute gradient, pulling the boundary toward arrangements that are globally likely but not necessarily robust. When a few outliers or noisy points sit near the gap, the boundary can shift to accommodate them, sacrificing margin.',
-        'Nearest neighbors fail differently: they memorize noise. A single mislabeled point near the boundary contaminates a region of the feature space. There is no concept of margin at all — the boundary is just the Voronoi diagram of the training set.',
-        'The wall is that most classifiers optimize the wrong objective for robustness. Minimizing training loss or maximizing likelihood does not directly maximize the gap between classes. The SVM formulation changes the objective: maximize margin width, subject to correct classification.',
+        'The wall is that fitting the observed labels is not the same as choosing a stable boundary. If two lines both classify the training set correctly, ordinary accuracy cannot tell which one leaves more safety space around the closest examples.',
+        'Nonlinear data adds a second wall. A straight boundary cannot separate points arranged as an inner cluster and an outer ring, even when the pattern is obvious to a human.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The maximum-margin hyperplane. Among all hyperplanes that separate the training data, pick the one where the closest point from either class is as far away as possible. This closest point is a support vector.',
-        'Formally: find w and b that minimize ½‖w‖² subject to yᵢ(w·xᵢ + b) ≥ 1 for all i. The margin width is 2/‖w‖, so minimizing ‖w‖² maximizes the margin. The constraint says every point must be at least distance 1/‖w‖ from the boundary on its correct side.',
-        'Only the support vectors matter. If you remove any training point that is not a support vector, the optimal hyperplane does not change. The solution is sparse: in a dataset of thousands, perhaps dozens of points define the boundary. This sparsity is not a design choice — it falls out of the optimization.',
+        'Choose the separating hyperplane with the largest margin. A hyperplane is the line, plane, or higher-dimensional flat surface defined by w dot x plus b equals zero.',
+        'Only the closest training points can constrain that widest margin. Those points are support vectors; removing a non-support vector leaves the same solution, while moving a support vector can move the boundary.',
       ],
     },
     {
@@ -362,75 +365,51 @@ export const article = {
           alt: 'Kernel trick example mapping circularly arranged points into a higher-dimensional space with a separating plane.',
           caption: 'The kernel trick keeps the linear separator in feature space while the original input space sees a curved boundary. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Kernel_trick_idea.svg.',
         },
-        'Hard margin: set up a quadratic program — minimize ½‖w‖² subject to yᵢ(w·xᵢ + b) ≥ 1. The Lagrangian dual turns this into: maximize Σαᵢ − ½Σαᵢαⱼ yᵢyⱼxᵢ·xⱼ, subject to αᵢ ≥ 0 and Σαᵢyᵢ = 0. Points with αᵢ > 0 are the support vectors. The decision function is f(x) = sign(Σαᵢyᵢxᵢ·x + b).',
-        'Soft margin: add slack variables ξᵢ ≥ 0 and change the objective to minimize ½‖w‖² + CΣξᵢ, subject to yᵢ(w·xᵢ + b) ≥ 1 − ξᵢ. A point with ξᵢ = 0 is correctly classified outside the margin. A point with 0 < ξᵢ < 1 is inside the margin but on the correct side. A point with ξᵢ ≥ 1 is misclassified. The C parameter trades margin width against total violation: large C demands accuracy, small C demands margin.',
-        'Kernel trick: notice the dual form only uses dot products xᵢ·xⱼ. Replace every dot product with a kernel function K(xᵢ, xⱼ) = φ(xᵢ)·φ(xⱼ) that computes the inner product in a higher-dimensional space without ever computing φ. The polynomial kernel K(x, z) = (x·z + 1)^d maps to all monomials up to degree d. The RBF kernel K(x, z) = exp(−γ‖x−z‖²) maps to infinite dimensions. The SVM in lifted space draws a hyperplane; projected back, that hyperplane becomes a curve.',
+        'For hard-margin SVM, the optimizer minimizes one half times ||w|| squared while requiring every labeled point to score at least 1 on its correct side. Because the margin width is 2 divided by ||w||, minimizing ||w|| maximizes the gap.',
+        'Soft-margin SVM adds slack variables for violations and a penalty C. Large C makes violations expensive and narrows the model around outliers; small C makes violations cheaper and preserves a wider margin.',
+        'The dual form uses only dot products between training points. A kernel replaces that dot product with K(x,z), which acts like a dot product after a feature map without explicitly building the mapped coordinates.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Vapnik-Chervonenkis theory provides the guarantee: a classifier with larger margin has lower VC dimension, which bounds the gap between training and test error. Maximizing the margin is directly minimizing a capacity measure. Unlike logistic regression, where generalization relies on regularization added after the fact, margin maximization is the built-in generalization mechanism.',
-        'The convex optimization ensures the solution is unique (for hard margin) or globally optimal (for soft margin). There are no local minima — the quadratic program has a single valley. The KKT conditions force most αᵢ to zero, which is why only support vectors survive.',
-        'Kernels work because Mercer’s theorem guarantees that any positive semi-definite kernel corresponds to a dot product in some feature space. The SVM does not need to know what that space looks like. It only needs to evaluate K(xᵢ, xⱼ) between pairs of training points, which costs O(n²) kernel evaluations instead of operating in a potentially infinite-dimensional space.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Four points: A = (1,1) class −1, B = (2,1) class −1, C = (4,4) class +1, D = (5,3) class +1. Find the maximum-margin hyperplane.',
-        'By symmetry and inspection, the boundary passes midway between the closest opposing points B = (2,1) and C = (4,4). Midpoint: (3, 2.5). The direction perpendicular to BC is (2,3), so w = (2,3). Normalizing: ‖w‖ = √13. The boundary equation: 2x + 3y + b = 0. Plugging in the midpoint: 2(3) + 3(2.5) + b = 0, so b = −13.5.',
-        'Check support vectors. B: 2(2) + 3(1) − 13.5 = −6.5. C: 2(4) + 3(4) − 13.5 = 6.5. Both have |w·x + b| = 6.5. Rescale so support vectors score ±1: divide w and b by 6.5 to get w = (0.308, 0.462), b = −2.077. Margin = 2/‖w‖ = 2/√(0.308² + 0.462²) = 2/0.555 ≈ 3.6 units.',
-        'Verify non-support vectors. A: 0.308(1) + 0.462(1) − 2.077 = −1.307. Since |−1.307| > 1, point A is farther from the boundary than the support vectors — it does not constrain the margin. D: 0.308(5) + 0.462(3) − 2.077 = 1.849 > 1. Same. Only B and C are support vectors.',
+        'The correctness claim for the fitted classifier is geometric. If every training point satisfies y times score at least 1, then all points are on the correct side of the boundary and outside the margin strip.',
+        'The optimization is convex, so solving it does not depend on lucky initialization. The Karush-Kuhn-Tucker conditions force non-support-vector coefficients to zero, which is why prediction depends only on the support vectors.',
+        'A valid kernel works because it corresponds to an inner product in some feature space. The SVM is still finding a linear separator there; the curved boundary appears only when that separator is viewed back in the original input space.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Training solves a quadratic program. The standard SMO (Sequential Minimal Optimization) algorithm runs in O(n²) to O(n³) time depending on the data, where n is the number of training points. Each iteration selects two variables to optimize jointly, evaluating kernel values. Memory for the kernel matrix is O(n²), which becomes the bottleneck for large datasets.',
-        'Prediction is O(s × d) where s is the number of support vectors and d is the feature dimension (or one kernel evaluation per support vector). Fast SVMs are sparse: if only 5% of training points are support vectors, prediction costs 5% of a brute-force scan.',
-        'Doubling the training set roughly quadruples training time. This is why SVMs struggle with datasets beyond ~100k points without approximations. LIBSVM and LIBLINEAR are the standard solvers. For linear kernels, LIBLINEAR solves in O(n × d), competitive with logistic regression. For nonlinear kernels, approximate methods like random Fourier features or Nystroem approximation can reduce cost.',
+        'Training with a nonlinear kernel usually needs many pairwise kernel evaluations, so time is commonly between O(n^2) and O(n^3) for n training points. The kernel matrix can take O(n^2) memory, which becomes the practical limit before the math becomes confusing.',
+        'Prediction costs one kernel evaluation per support vector. If 2,000 of 40,000 training points become support vectors, each prediction must compare the new point with those 2,000 retained examples.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Text classification: bag-of-words features are high-dimensional and sparse, the exact regime where linear SVMs excel. Spam filters, sentiment classifiers, and document categorizers used SVMs throughout the 2000s. The sparsity of support vectors keeps the model small even with million-dimensional feature spaces.',
-        'Bioinformatics: gene expression data has thousands of features (genes) and few samples (patients). SVMs with RBF or string kernels can find complex patterns without overfitting because the margin controls capacity. Protein fold recognition, cancer subtype classification, and drug-target interaction prediction all used SVMs before deep learning alternatives matured.',
-        'Handwriting recognition: the MNIST digit task was an SVM benchmark for years. With polynomial or RBF kernels, SVMs reached ~1% error before convolutional networks pushed below 0.5%. SVMs remain competitive on small-data image tasks where training a deep network is impractical.',
+        'Linear SVMs work well for sparse text features because a document may have millions of possible words but only a few active ones. The margin objective gives strong baselines for spam filtering, document tagging, and small labeled corpora.',
+        'Kernel SVMs are useful when the dataset is modest and the boundary is nonlinear. They have been used in bioinformatics, handwriting recognition, and other settings where engineered features are available but labels are limited.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Scale. The O(n²) to O(n³) training cost and O(n²) kernel matrix memory make SVMs impractical for millions of training points without approximation. Modern datasets in vision, language, and recommendation systems are orders of magnitude beyond this threshold.',
-        'Probability output. SVMs produce a signed distance, not a probability. Platt scaling can fit a sigmoid to the margins post-hoc, but this is a patch, not a native capability. When calibrated probabilities are essential — for ranking, thresholding, or combining with other models — logistic regression or neural networks give probabilities directly.',
-        'Feature engineering. SVMs with RBF kernels can capture nonlinearity, but they do not learn hierarchical features. A deep network discovers edges, then textures, then objects; an SVM needs the features handed to it. On raw pixels, audio waveforms, or text tokens, neural networks have displaced SVMs almost entirely.',
-        'Kernel selection. The kernel and its hyperparameters (γ for RBF, degree for polynomial, C for margin) must be chosen by grid search or cross-validation. The wrong kernel can completely fail. Neural networks also have hyperparameters, but architectures transfer across problems more readily than kernel choices.',
+        'SVMs fail at large training scale when a kernel matrix is too expensive to build or store. Millions of examples push teams toward linear solvers, approximate kernels, gradient-boosted trees, or neural networks.',
+        'They also fail when calibrated probabilities are the primary output. The raw SVM score is a signed distance, so probability estimates require an extra calibration step such as Platt scaling.',
       ],
     },
     {
-      heading: 'SVM vs. logistic regression vs. neural networks',
+      heading: 'Worked example',
       paragraphs: [
-        'Logistic regression and linear SVM both draw a hyperplane. The difference is the loss: logistic regression uses log-loss, which penalizes every point by its confidence; the SVM hinge loss ignores points beyond the margin. On separable data the SVM finds the maximum-margin boundary while logistic regression finds the maximum-likelihood boundary, which is not the same thing.',
-        'Neural networks generalize the idea: stack many linear classifiers with nonlinear activations to learn hierarchical features and arbitrary decision boundaries. An SVM with an RBF kernel can also draw arbitrary boundaries, but it cannot learn intermediate representations. When data is plentiful and raw, neural networks dominate. When data is scarce, features are pre-engineered, or interpretability of the boundary matters, SVMs remain relevant.',
-        'Rule of thumb: fewer than 10,000 points with good features → try SVM. More than 100,000 points with raw features → try neural networks. Need probability calibration and coefficient interpretation → logistic regression. These are starting points, not rules.',
+        'Use the animation hard-margin line w = (1, 1) and b = -5.5. The point p0 = (3, 4) has score 1*3 + 1*4 - 5.5 = 1.5, and n2 = (1, 3) has score 1*1 + 1*3 - 5.5 = -1.5 before rescaling.',
+        'Divide w and b by 1.5 so those closest points score +1 and -1. The new ||w|| is sqrt(2) / 1.5, so the margin width is 2 / (sqrt(2) / 1.5), about 2.12 units. A point such as (4, 6) scores far above +1, so it does not decide the boundary.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Vapnik and Chervonenkis 1963 introduced the foundations of statistical learning theory and the concept of VC dimension. Boser, Guyon, and Vapnik 1992 presented the kernel SVM at COLT. Cortes and Vapnik 1995 published the soft-margin formulation in Machine Learning. Platt 1998 introduced SMO, the efficient SVM solver. Scholkopf and Smola 2002, Learning with Kernels, is the comprehensive reference.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Logistic Regression — the linear classifier SVM improves on by maximizing margin instead of likelihood.',
-            'Extension: Kernel Methods — the broader family of algorithms that use the kernel trick (kernel PCA, kernel ridge regression, Gaussian processes).',
-            'Alternative: Random Forest — an ensemble method that handles nonlinearity without kernels, scales to large datasets, and is less sensitive to hyperparameters.',
-            'Contrast: K-Means — unsupervised clustering that also places boundaries in feature space, but without labels.',
-            'Destination: Neural Networks — when you need learned features, hierarchical representations, or very large-scale classification.',
-          ],
-        },
+        'Study Cortes and Vapnik 1995 for soft-margin SVMs, Boser, Guyon, and Vapnik 1992 for kernel training, and LIBSVM or LIBLINEAR for practical solvers. Next study logistic regression for the linear baseline, kernel methods for the dot-product trick, and neural networks for learned representations.',
       ],
     },
   ],

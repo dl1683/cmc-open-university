@@ -236,92 +236,52 @@ const legacyArticle = {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Permutation tests exist for the moment when you want a significance test but do not want to lean on a fragile distribution formula. Instead of assuming a t distribution, normality, equal variances, or a large-sample approximation, the test builds the null distribution directly from the observed data.',
+    { heading: 'How to read the animation', paragraphs: [
+        'Read each shuffle as one possible world where the group labels have no effect. Active rows are relabeled samples, and the histogram is the distribution of statistics produced by those relabelings.',
+      ], },
+    { heading: 'Why this exists', paragraphs: [
+        'A permutation test is a significance test built by relabeling the observed data. It exists for cases where a formula feels less trustworthy than the actual randomization design.',
         { type: 'callout', text: 'A permutation test makes the null hypothesis physical: if labels mean nothing, shuffle them and count how extreme reality looks.' },
-        'The question is simple: if the treatment labels did not matter, how unusual would the observed difference be? A permutation test answers by repeatedly shuffling labels, recomputing the statistic, and seeing where the real statistic falls among the shuffled worlds.',
-        'This makes the method especially valuable pedagogically. A p-value stops being a mysterious table lookup and becomes a count: among the worlds where labels are irrelevant, how many produced a statistic at least this extreme?',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to compare two sample means and look up a p-value in a standard test. That is efficient and often right. It can also hide assumptions about sampling, variance, shape, and test statistic behavior.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to compare two sample means and use a standard t-test. That can be efficient and correct when the sample size, variance behavior, independence, and statistic choice match the test assumptions.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg',
           alt: 'Normal distribution probability density functions',
           caption: 'Formula-based tests often start from a theoretical sampling curve; permutation tests build the reference curve by relabeling the observed data. Source: Wikimedia Commons, Inductiveload, public domain.',
         },
-        'Another tempting approach is to eyeball the difference. That fails because noisy samples produce differences even when no real effect exists. A permutation test gives the noise a concrete shape by asking what differences appear when the labels are made irrelevant.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'Under the null hypothesis of no treatment effect, the group labels are exchangeable. If treatment did nothing, the observed outcomes could have been assigned to treatment or control in many equally plausible ways. Shuffling labels simulates those equally plausible assignments.',
-        'The statistic can be a mean difference, median difference, rank statistic, regression coefficient, accuracy gap, or any quantity the study cares about. The permutation test is a wrapper around the statistic: it asks whether the observed statistic is extreme under label exchangeability.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'First compute the observed statistic using the real labels. Then shuffle the labels while keeping the outcome values fixed. For each shuffle, recompute the statistic. The shuffled statistics form the null distribution expected if labels carried no information.',
-        'The p-value is the fraction of shuffled statistics at least as extreme as the observed statistic, with the tail direction chosen before looking at results. For a two-sided test, count values whose absolute distance from the null center is at least as large as the observed distance.',
-        'Small datasets may allow exact enumeration of every possible label assignment. Larger datasets use Monte Carlo permutations. More permutations give a finer p-value resolution, but the method remains conceptually the same.',
-        'Many implementations add one to the numerator and denominator for Monte Carlo tests: (extreme + 1) / (permutations + 1). That avoids reporting an impossible p-value of zero when a finite random sample simply did not happen to generate a more extreme shuffle.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The shuffle view proves that the test is not inventing a theoretical curve. It builds a reference distribution from the data itself under the rule that labels are exchangeable. Every bar in the histogram is a possible world where the null is true.',
-        'The observed-statistic marker proves the p-value idea. If the real marker lies deep in the tail of the shuffled distribution, the real labeling produced a difference that label noise rarely produces. If it lies near the center, the data are compatible with no label effect.',
-        'The visual should also make sample size visible. With tiny samples, there may be only a small number of distinct label assignments, so the null distribution is chunky. That chunkiness is not a rendering flaw; it is the real resolution of the design.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The test works when exchangeability is valid. If labels were randomly assigned and the null says labels do not affect outcomes, then relabeling creates outcomes that are just as plausible as the observed labeling. The shuffled distribution is therefore the right reference for the statistic.',
-        'It is powerful because it separates the statistic from the null generator. You can test a statistic that is awkward to analyze algebraically, as long as you can compute it and the permutation scheme matches the study design.',
-        'This is why the method is often called randomization inference when the labels came from an actual random assignment. The randomness used by the test is not imaginary; it mirrors the assignment mechanism that made treatment and control comparable in the first place.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'The cost is computation. If each statistic is cheap, thousands of permutations are easy. If the statistic requires fitting a model, each permutation may be expensive. Exact tests can become impossible when the number of label assignments is huge.',
-        'The tradeoff is assumption shape. Permutation tests avoid some parametric assumptions, but they add a design assumption: the data are exchangeable under the null. If the sampling design has blocks, pairs, clusters, time order, or repeated users, the permutation must respect that structure.',
-        'There is also a resolution tradeoff. With 999 random permutations, the smallest practical p-value is about 0.001 if using the plus-one correction. If a study needs very small p-values, it needs many more permutations or an exact combinatorial calculation.',
-        'For exact tests, the number of assignments grows combinatorially. A balanced ten-row example has only choose(10, 5) assignments, but a balanced hundred-row experiment has an astronomical number. That is why Monte Carlo permutation is the usual production tool.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Permutation tests are useful for A/B experiments, small samples, non-normal outcomes, robust statistics, rank-based comparisons, model-evaluation differences, and classroom demonstrations of p-values. They make the null distribution visible.',
-        'They are especially good when the test statistic is custom. If a product team cares about the median change, a trimmed mean, a fairness gap, or a strange but predeclared utility metric, permutation can test that exact statistic instead of forcing the question into a canned formula.',
-        'They also help debug surprising results. If a normal-theory test and a permutation test disagree sharply, that is a signal to inspect skew, outliers, unequal variance, dependency, or a statistic whose sampling behavior is not close to the textbook approximation.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The biggest failure is shuffling labels that should not be shuffled. Paired studies must shuffle signs or swap within pairs. Clustered studies must permute clusters. Time series may need block permutations or a different design. Breaking the dependency structure creates fake certainty.',
-        'Another failure is choosing the statistic after trying many options. The test is honest only if the analysis plan is honest. If you search many statistics and report the smallest p-value, you need multiple-testing correction or a new validation set.',
-        'A third failure is confusing statistical extremeness with practical importance. A tiny effect can be significant with enough data. A large-looking effect can be too uncertain to trust. Report the observed effect size alongside the permutation p-value.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Bootstrap Confidence Intervals for resampling aimed at uncertainty intervals rather than null tests. Study A/B Testing and p-values for experiment framing, Multiple Testing for many comparisons, Randomization Inference for design-based causal logic, and Cross-Validation for model evaluation workflows.',
-        'A useful exercise is to run the same dataset through a t-test and a permutation test, then plot the permutation histogram. The goal is not to memorize which test is better, but to see which assumptions are doing work in each answer.',
-        'Then repeat the exercise with paired data and force yourself to choose a valid permutation scheme. That step teaches the real skill: matching the shuffle to the design instead of treating permutation as a universal button.',
-      ],
-    },
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'Formula tests become fragile when assumptions are hard to defend. Tiny samples, skewed data, outliers, custom statistics, and paired designs can make the theoretical sampling curve a poor description of the experiment.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Under the null hypothesis of no treatment effect, labels are exchangeable. Exchangeable means the labels could be reassigned among the observed outcomes without changing the probability of the data under the null.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'First compute the observed statistic, such as treatment mean minus control mean. Then pool the outcomes, shuffle the labels, split the data into groups of the original sizes, and recompute the statistic.',
+        'Repeating this process builds the null distribution. For a two-sided test, count shuffled statistics whose absolute value is at least as large as the observed absolute value.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'If labels were randomly assigned and the null says labels have no effect, then every legal relabeling is a possible assignment the experiment could have produced. The shuffled distribution is therefore the right reference distribution for the chosen statistic.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'One Fisher-Yates shuffle over N observations is O(N), plus the cost of recomputing the statistic. K random permutations cost O(KN) for simple statistics, or O(K) times the model-fitting cost for expensive statistics.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Permutation tests fit A/B experiments with small samples or non-normal outcomes. They also fit product metrics where the chosen statistic is a median, trimmed mean, quantile, fairness gap, or other metric without a clean formula.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'The main failure is invalid exchangeability. Shuffling individual rows in time series, repeated-user logs, matched pairs, or clustered experiments destroys dependence and can create fake confidence.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Control ticket counts are [12, 15, 9, 14, 11], with mean 12.2. New-workflow counts are [18, 21, 16, 14, 19], with mean 17.6, so the observed mean difference is 5.4 tickets per day.',
+        'After 200 deterministic shuffles in the animation, 3 shuffled differences are at least as extreme as 5.4 in absolute value. The displayed p-value is 3 / 200 = 0.015, meaning 1.5 percent of sampled null relabelings matched or exceeded the observed gap.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Study Fisher randomization tests for the design-based origin of the method, then read Good, Permutation Tests, and Ernst 2004 for a practical review. The method is also closely related to randomization inference in causal experiments.',
+        'Study A/B Testing and p-values, Bootstrap Confidence Intervals, Multiple Testing, and Cross-Validation for paired model-comparison workflows.',
+      ], },
   ],
 };
+

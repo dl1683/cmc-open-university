@@ -1,4 +1,4 @@
-﻿// Logistic regression: the straight line that learned to gamble. A weighted
+// Logistic regression: the straight line that learned to gamble. A weighted
 // sum scores the evidence, a sigmoid turns the score into a probability,
 // and gradient descent drags the decision boundary into place — for real,
 // in this file, no faked numbers.
@@ -155,149 +155,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "The 'boundary learn' view shows 10 emails as dots on a plane: x-axis is exclamation marks, y-axis is ALL-CAPS words. Spam dots cluster in the upper right; ham dots cluster in the lower left. A line (the decision boundary where p=0.5) appears and rotates over training epochs. Each dot's label shows the model's current predicted probability of spam.",
+        'Read each dot as one email with two features: exclamation marks on the x-axis and all-caps words on the y-axis. The line is the decision boundary where the model predicts p = 0.5 for spam. Compare highlights are currently misclassified examples, and the probability labels show how confident the model is.',
         {type: 'callout', text: 'A logistic model is a linear evidence score plus one calibrated bend: the boundary is flat, but the output is a probability.'},
-        "Watch three things per frame: (1) the boundary angle — it rotates toward the true separating direction as weights update; (2) the per-point probability labels — points far from the boundary approach 0 or 1 while borderline points hover near 0.5; (3) the loss number — it should decrease each epoch. Highlighted dots in the 'compare' color are currently misclassified.",
-        "The 'sigmoid up close' view plots the sigmoid curve and the cross-entropy loss curve. The sigmoid shows how raw evidence scores map to probabilities, with saturation in the tails. The loss curve shows why confidently wrong predictions are punished far more than uncertain ones — the penalty is -log(p), which climbs steeply toward infinity as the assigned probability of the true class approaches zero.",
-      
-        {type: 'image', src: './assets/gifs/logistic-regression.gif', alt: 'Animated walkthrough of the logistic regression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/logistic-regression.gif', alt: 'Animated walkthrough of the logistic regression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Logistic regression exists because many decisions need a probability score, not just a label. A fraud system, ad click model, spam filter, medical triage tool, or churn model needs to rank cases by risk, choose thresholds, explain feature effects, and calibrate confidence. A hard yes/no rule is usually too crude.',
-        'The model is intentionally simple. It computes a weighted sum of features, turns that evidence score into a probability with the sigmoid curve, and learns the weights from labeled examples. The result is a linear decision boundary with a probabilistic interpretation.',
+        'Many decisions need a probability, not only a class label. Fraud review, spam filtering, churn prediction, medical triage, moderation, and ad ranking all need scores that can be thresholded by cost. Logistic regression exists to turn linear evidence into a bounded probability.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/88/Logistic-curve.svg', alt: 'Logistic sigmoid curve mapping evidence scores into probabilities', caption: 'The logistic curve shows the probability bend that turns a linear score into bounded confidence. Source: Wikimedia Commons, Qef, public domain.'},
-        'That simplicity is the point. Logistic regression is often the baseline a more complex model must beat. It trains quickly, predicts cheaply, handles sparse features well, and gives coefficients that can be inspected as changes in log-odds. When it fails, the failure is usually informative.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is a hand-written threshold: if an email has more than three exclamation marks, call it spam. That kind of rule is brittle. It ignores combinations of evidence, cannot learn relative feature strength from data, and produces no honest probability for downstream tradeoffs.',
-        'Another obvious approach is ordinary linear regression on labels 0 and 1. That gives scores, but it can predict values below 0 or above 1, and squared error is poorly matched to classification confidence. A probability model needs outputs in the interval from 0 to 1 and a loss that punishes confident wrong answers strongly.',
-        'Logistic regression keeps the linear evidence score but changes the output and loss. The sigmoid maps any real number to a probability. Cross-entropy measures how surprised the model should be by the true label. The pair gives clean gradients and a convex training problem for the basic model.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'The core insight is log-odds. Logistic regression assumes the log-odds of the positive class are a linear function of the features. If z = w * x + b, then sigmoid(z) is the probability. A one-unit feature increase changes the log-odds by that feature weight, holding other features fixed.',
-        'The p = 0.5 boundary is where z = 0. On one side, the weighted evidence favors the positive class. On the other side, it favors the negative class. Distance from the boundary becomes confidence because the sigmoid moves probabilities toward 0 or 1 as z becomes more negative or positive.',
-        'This is why the model is interpretable but limited. It can say how each feature shifts linear evidence. It cannot discover a curved boundary unless you provide transformed features, interaction terms, splines, buckets, or other representation work.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The model starts with weights and a bias. For an example x, it computes z = w1*x1 + w2*x2 + ... + b. The sigmoid function 1 / (1 + exp(-z)) turns z into p, the predicted probability of the positive class. The prediction rule can be p >= 0.5, but production systems usually choose thresholds based on cost, recall, precision, or capacity.',
-        'Training minimizes cross-entropy. For a positive example, the loss is -log(p). For a negative example, the loss is -log(1 - p). This loss barely penalizes confident correct predictions, penalizes uncertainty moderately, and punishes confident wrong predictions heavily.',
-        'With sigmoid plus cross-entropy, the gradient has a simple form: prediction error times feature value. If p is too high for a negative example, the model pushes weights downward in proportion to that example’s features. If p is too low for a positive example, it pushes upward. Gradient descent repeats this until the boundary and probabilities fit the training data.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The boundary-learning view proves that a linear probability model can be trained by error-driven movement of a line. At the start, every point receives 0.5. As training proceeds, wrongly placed or uncertain points steer the weights. The boundary rotates and shifts until spam-like examples sit on the high-probability side and ham-like examples sit on the low-probability side.',
-        'The late epochs prove an important subtlety. Once every toy point is classified correctly, cross-entropy still rewards sharper confidence. On perfectly separable data, weights can keep growing without regularization because 0.999 is still better than 0.99 for the correct class. Correct labels do not automatically mean well-behaved probabilities.',
-        'The sigmoid close-up proves how scores become probabilities. Around z = 0, the curve is steep and small evidence changes matter. In the tails, the curve saturates. The log-loss view then proves why overconfident mistakes are dangerous: assigning 0.05 probability to the true class costs far more than being unsure.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works because many risk signals combine roughly additively on the log-odds scale. In spam detection, each exclamation mark, all-caps word, suspicious domain, or phrase can shift evidence toward spam. In credit risk or churn, each feature can shift evidence toward the event. The model is simple, but the feature set can be rich.',
-        'It also works because the training objective is convex for the basic model. There is one global basin rather than a maze of local minima. That makes optimization reliable and diagnostics clearer. If the model performs poorly, the problem is usually representation, data quality, leakage, class imbalance, or the linear assumption, not a mysterious optimization failure.',
-        'Finally, it works well with sparse high-dimensional data. Text, ads, user IDs, query terms, and categorical features can produce millions of mostly zero features. Logistic regression with regularization or online optimizers can handle that scale efficiently.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'For N examples, d features, and E epochs, batch training costs O(E * N * d). Prediction costs O(d) for dense features or O(number of nonzero features) for sparse inputs. Storage is one weight per feature plus a bias. That makes the model cheap enough for real-time scoring and large sparse systems.',
-        'The tradeoff is bias. A linear boundary is stable and readable, but it cannot represent feature interactions unless you create them. If exclamation marks matter only when combined with a suspicious sender, the basic model will miss that interaction unless a feature encodes it. Tree models and neural networks can learn richer interactions automatically, but they cost more and are harder to inspect.',
-        'Regularization is usually necessary. L2 keeps weights small and stable. L1 can drive weak features to zero. Without regularization, separable data can push weights toward infinity and correlated features can make coefficients unstable. Regularization is not just overfitting prevention; it is part of making the probability model usable.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Teams use logistic regression anywhere a transparent probability score is valuable: credit risk, churn, spam, fraud, medical triage, moderation queues, ad click prediction, search ranking features, and operational alert scoring. It is especially strong when the data is sparse, the baseline must be reliable, and the organization needs to explain why a score moved.',
-        'It is also useful as a calibration and evaluation anchor. ROC Curves & AUC compares how well the scores rank positives above negatives. Precision, Recall & the Confusion Matrix turns the scores into concrete errors after a threshold is chosen. Calibration & Reliability Diagrams checks whether a displayed 80% behaves like 80% in reality.',
-        'In production systems, logistic regression often sits inside larger stacks. It may score candidates before a neural reranker, provide a simple fallback, or serve as an interpretable benchmark. A complex model that cannot beat a well-regularized logistic baseline probably has a data or evaluation problem.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The line is both the strength and the limit. If the classes need a curve, interactions, or a tree-shaped rule, the model underfits unless you add better features. Nonlinear feature engineering can help, but at some point another model class may be the honest answer.',
-        'Probability output is not automatically calibrated. Small datasets, class imbalance, label noise, leakage, distribution shift, and over-regularization can all produce probabilities that look precise but are wrong. Treat sigmoid output as a model score until calibration has been checked on held-out data.',
-        'Interpretability can also be overstated. A coefficient is readable when features are stable, independent enough, and measured consistently. With correlated features, missingness artifacts, or leakage, a coefficient may explain the training data without explaining the world. Cross-validation, ablations, and feature audits are still required.',
+        'The obvious approach is a hand rule, such as marking an email as spam if it has more than three exclamation marks. That rule is readable, but it ignores how features combine and gives no calibrated probability. A score of barely suspicious and a score of almost certainly spam need different actions.',
+        'Another obvious approach is linear regression on labels 0 and 1. It can learn weights, but its predictions can fall below 0 or above 1. A probability model needs a bounded output and a loss that treats confident wrong classification as very expensive.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Linear regression on 0/1 labels fits a line through the labels, but the line extends past both ends of the probability interval. A patient with extreme symptoms might get a predicted probability of 1.4 or -0.3. Those numbers are meaningless as probabilities and make threshold selection arbitrary. Worse, squared error treats a prediction of 0.9 versus 1.0 the same as 0.4 versus 0.5 — but in classification, the first pair is fine and the second pair is a dangerous mistake. The loss function does not match the task.',
-        'A threshold rule like "if w*x + b > 0, predict class 1" fixes the output to a hard label but throws away confidence. A fraud alert at score 0.51 and score 0.99 both say "fraud," but the first should probably go to a human reviewer while the second should be auto-blocked. Without calibrated probabilities, you cannot set cost-sensitive thresholds, rank cases by risk, or combine the model with downstream decisions.',
-        'Logistic regression solves both problems at once. The sigmoid function maps any real number to the interval (0, 1), giving a valid probability. Cross-entropy loss replaces squared error with a loss that punishes confident wrong answers on a logarithmic scale — assigning 0.01 to a true positive costs -log(0.01) = 4.6, while assigning 0.40 costs only 0.92. The loss surface stays convex, so gradient descent finds the global minimum without getting trapped.',
+        'The wall is that raw linear scores are not probabilities. If z = w*x + b is 4.0, the class may be likely, but z itself is not 400% probability. If z is -2.0, it is not negative probability.',
+        'Squared error is also mismatched to classification confidence. Predicting 0.49 for a true positive and 0.01 for a true positive are both wrong, but the second mistake is much worse in a risk system. The model needs a probability curve and a log loss that punishes overconfidence.',
       ],
     },
     {
-      heading: 'The decision boundary as a hyperplane',
+      heading: 'The core insight',
       paragraphs: [
-        'The decision boundary is where the sigmoid outputs exactly 0.5, which happens when z = w*x + b = 0. In two dimensions, that equation defines a line. In three dimensions, a plane. In d dimensions, a hyperplane — a flat (d-1)-dimensional surface cutting the feature space in half.',
-        'Every point on one side of the hyperplane has z > 0, so the sigmoid predicts p > 0.5 (positive class). Every point on the other side has z < 0, giving p < 0.5 (negative class). The weight vector w is perpendicular to the boundary and points toward the positive side. The bias b shifts the boundary away from the origin. Distance from the boundary determines confidence: a point far on the positive side gets p near 1.0, while a point right on the boundary gets p = 0.5.',
-        'The animation shows this concretely. In the spam example, w1 controls how much exclamation marks push toward spam, w2 controls ALL-CAPS words, and b sets the baseline. The boundary line where w1*x1 + w2*x2 + b = 0 rotates and shifts until spam dots sit on the high-probability side. With 100 features, the same geometry holds — just in 100 dimensions, where the boundary is a 99-dimensional hyperplane invisible to human eyes but mathematically identical.',
+        'Logistic regression assumes log-odds are linear in the features. It computes z = w1*x1 + w2*x2 + ... + b, then maps z through the sigmoid function 1 / (1 + exp(-z)). The result is a probability between 0 and 1.',
+        'The boundary is still flat because p = 0.5 happens exactly when z = 0. The sigmoid does not bend the boundary; it bends confidence away from the boundary. That is why the model is interpretable and limited at the same time.',
       ],
     },
     {
-      heading: 'Maximum likelihood and cross-entropy',
+      heading: 'How it works',
       paragraphs: [
-        'Training asks: which weights make the observed labels most probable? For each positive example, the model should assign high p. For each negative, high (1-p). The likelihood of the full dataset is the product of these per-example probabilities. Maximizing that product is equivalent to minimizing the negative log-likelihood, which is cross-entropy: L = -[y*log(p) + (1-y)*log(1-p)], averaged over examples.',
-        'Cross-entropy inherits its shape from information theory. -log(p) measures surprise: if you assign probability p to the event that happened, your surprise is -log(p) nats. A correct confident prediction (p = 0.95) costs 0.05 — almost no surprise. An uncertain prediction (p = 0.5) costs 0.69 — one bit of surprise, the entropy of a fair coin. A confident wrong prediction (p = 0.05 for a true positive) costs 3.0 and climbs toward infinity. The asymmetry is the point: the loss makes overconfident mistakes the most expensive error.',
-        'Paired with the sigmoid, this loss gives a remarkably clean gradient. The derivative of the loss with respect to each weight reduces to (p - y) * x_j: prediction error times feature value. No exotic chain rule, no second-order terms. When the model predicts p = 0.8 for a true negative (y = 0), the error is 0.8, and each feature of that example pushes its weight downward by 0.8 * x_j. This simplicity is one reason logistic regression scales to millions of features in production.',
+        'For each example, the model computes a weighted sum, applies sigmoid, and gets p for the positive class. Training uses cross-entropy: -log(p) for a positive example and -log(1 - p) for a negative example. The loss is small for confident correct predictions and large for confident wrong predictions.',
+        'With sigmoid plus cross-entropy, the gradient for each weight is (p - y) times the feature value. If p is too high for a negative example, the weight moves down in proportion to that feature. If p is too low for a positive example, the weight moves up.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works when evidence combines roughly additively on the log-odds scale. Each feature shifts the score toward or away from the positive class, and the sigmoid translates that score into confidence. Rich feature engineering can make a simple linear model surprisingly strong.',
+        'The basic optimization problem is convex, so gradient descent is not searching through many local traps. If the model fails, the cause is usually representation, data quality, class imbalance, leakage, calibration, or the linear boundary assumption. That makes logistic regression a useful baseline and diagnostic tool.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'For N examples, d features, and E training passes, dense batch training costs O(E*N*d). Prediction costs O(d), or O(nonzero features) for sparse data. Storage is one weight per feature plus one bias.',
+        'When data doubles, training work roughly doubles for the same number of passes. When feature count doubles, both training and prediction work roughly double unless sparsity keeps most features zero. Regularization adds small overhead but changes behavior by keeping weights finite and reducing overfit.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Logistic regression is useful when teams need fast scoring, inspectable weights, and probabilities that can be calibrated. It is common in spam, fraud, credit risk, churn, alerting, moderation queues, ads, and search-ranking features. It often serves as the baseline that more complex models must beat.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A neural network stacks many weighted sums and nonlinear bends; logistic regression is the single-output baseline version. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the real boundary is curved or depends on interactions the features do not express. If two weak signals matter only together, the basic model misses that unless an interaction feature is added. Trees and neural networks can learn richer shapes, but they cost more and are harder to inspect.',
+        'It also fails when probabilities are taken on faith. Class imbalance, leakage, distribution shift, label noise, and over-regularization can make sigmoid outputs poorly calibrated. A displayed 0.8 should be checked against held-out outcomes before it drives product decisions.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Two features: x1 = tumor size (cm), x2 = age (decades). Three patients: A = (1.0, 3.0, benign), B = (3.0, 5.0, malignant), C = (2.0, 4.0, malignant). Start with w1 = 0, w2 = 0, b = 0. Every patient gets z = 0, p = 0.5. Cross-entropy loss per example: -log(0.5) = 0.693. Average loss: 0.693.',
-        'Compute gradients. For patient A (y=0): error = p - y = 0.5. Contribution to gradient: dL/dw1 += 0.5 * 1.0, dL/dw2 += 0.5 * 3.0, dL/db += 0.5. For B (y=1): error = 0.5 - 1 = -0.5. dL/dw1 += -0.5 * 3.0, dL/dw2 += -0.5 * 5.0, dL/db += -0.5. For C (y=1): error = -0.5. dL/dw1 += -0.5 * 2.0, dL/dw2 += -0.5 * 4.0, dL/db += -0.5. Totals (divided by 3): dw1 = -0.50, dw2 = -1.17, db = -0.17.',
-        'Update with learning rate 0.5: w1 = 0 - 0.5*(-0.50) = 0.25, w2 = 0 - 0.5*(-1.17) = 0.58, b = 0 - 0.5*(-0.17) = 0.08. Now check patient A: z = 0.25*1.0 + 0.58*3.0 + 0.08 = 2.07, p = 0.89. That is wrong — the model is too confident that A is malignant. But after more epochs the boundary shifts. At convergence the line w1*x1 + w2*x2 + b = 0 separates benign from malignant, with each weight encoding how much that feature contributes to malignancy evidence.',
-      ],
-    },
-    {
-      heading: 'Regularization: L1 and L2',
-      paragraphs: [
-        'On separable data, logistic regression has a problem: the weights grow without bound. If the classes are perfectly split, pushing w1 from 10 to 100 makes the sigmoid steeper and the loss slightly lower, and nothing stops the march toward infinity. Regularization adds a penalty term to the loss that punishes large weights.',
-        'L2 regularization (ridge) adds lambda * sum(w_j^2) to the loss. This pulls every weight toward zero proportionally to its magnitude. The effect: correlated features share weight instead of one grabbing all of it, and the model generalizes better to unseen data. L2 never forces a weight to exactly zero — it shrinks all of them smoothly. Most production logistic regression uses L2 by default.',
-        'L1 regularization (lasso) adds lambda * sum(|w_j|) to the loss. The L1 penalty has a kink at zero that can push weak features to exactly zero weight, producing a sparse model. With 10,000 features where only 200 matter, L1 finds a compact model automatically. The tradeoff: L1 is less stable when features are correlated — it picks one and zeros the others arbitrarily. Elastic net combines both: lambda1 * L1 + lambda2 * L2, getting sparsity from L1 and stability from L2.',
-      ],
-    },
-    {
-      heading: 'Logistic regression vs. other classifiers',
-      paragraphs: [
-        'SVM with a linear kernel also finds a separating hyperplane, but maximizes the margin — the distance from the boundary to the nearest training points. Logistic regression maximizes likelihood, which cares about all points, not just the ones near the boundary. SVMs give no calibrated probability without extra work (Platt scaling). Logistic regression gives probabilities natively. When you need ranked scores or cost-sensitive thresholds, logistic regression is usually the better starting point. When the margin matters more than calibration, SVM can generalize better on small data.',
-        'A single-layer neural network with one sigmoid output and cross-entropy loss IS logistic regression. Adding hidden layers lets the network learn nonlinear feature combinations that logistic regression cannot represent. The cost: the loss surface becomes non-convex (many local minima), training is slower, the model is harder to interpret, and overfitting requires careful regularization (dropout, weight decay, early stopping). Logistic regression is the right choice when the features are already good or the data is too small for a deep model to learn useful representations.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A neural network stacks many weighted sums and nonlinear bends; logistic regression is the single-output baseline version. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
-        'Softmax regression generalizes logistic regression to K classes. Instead of one sigmoid producing p(class 1), softmax produces K probabilities that sum to 1. For two classes, softmax reduces to logistic regression exactly. For multi-class problems like digit recognition or language identification, softmax is the standard output layer — and the gradient still has the same clean (p - y) * x form, just extended to vectors.',
+        'Use two features for one email: x1 = 4 exclamation marks and x2 = 3 all-caps words. Let weights be w1 = 0.8, w2 = 0.6, and bias b = -3.0. The evidence score is z = 0.8*4 + 0.6*3 - 3.0 = 2.0, so sigmoid(2.0) is about 0.88 spam probability.',
+        'If the true label is ham, y = 0 and the prediction error p - y is 0.88. The gradient contribution for w1 is 0.88*4 = 3.52 and for w2 is 0.88*3 = 2.64, so gradient descent reduces both weights. The model learns that this pattern was less spam-like than it predicted.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Cox 1958 introduced logistic regression for binary outcomes. Berkson 1944 proposed the logit model. Bishop 2006, Pattern Recognition and Machine Learning, Chapter 4 gives a clear derivation of the sigmoid, cross-entropy, and iteratively reweighted least squares. Hastie, Tibshirani, Friedman 2009, Elements of Statistical Learning, Chapters 4 and 18 cover regularization paths and high-dimensional logistic regression.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite gaps: Gradient Descent — the optimizer that actually moves the weights; understand learning rate, convergence, and the convexity advantage logistic regression enjoys.',
-            'Natural extension: Softmax & Temperature — generalizes the sigmoid to K classes; the probability vector that powers multi-class classification and language model outputs.',
-            'Production counterpart: SVM — the margin-maximizing alternative; compare when you need geometric separation rather than calibrated probabilities.',
-            'Deeper model: Neural Network Forward Pass — stack logistic regression units into layers; each neuron is a sigmoid (or ReLU) applied to a weighted sum, and the network learns its own features.',
-          ],
-        },
+        'Read Cox 1958 on binary regression and a modern treatment such as Bishop, Pattern Recognition and Machine Learning, Chapter 4. Then compare logistic regression with linear regression so the bounded probability and cross-entropy loss are concrete.',
+        'Study gradient descent, cross-entropy, calibration, ROC and AUC, precision and recall, regularization, softmax regression, and neural network forward passes. The next exercise is to compute z, sigmoid(z), loss, and one gradient update for a two-feature example.',
       ],
     },
-],
+  ],
 };

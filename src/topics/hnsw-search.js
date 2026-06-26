@@ -139,155 +139,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Each dot is a stored vector, and each edge is a neighbor link in the index graph. The query vector moves through the graph by comparing distances. Upper layers make long jumps; the bottom layer spends work locally.',
+        {type: 'image', src: './assets/gifs/hnsw-search.gif', alt: 'Animated walkthrough of the hnsw search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'HNSW, short for Hierarchical Navigable Small World, is a graph index for approximate nearest-neighbor search. Given a query vector, it tries to find nearby stored vectors without comparing the query with every vector in the collection.',
+        'Nearest-neighbor search asks for stored vectors closest to a query under cosine, dot-product, or L2 distance. Exact scan is simple but expensive over millions of high-dimensional embeddings. HNSW exists to get high recall without comparing against every vector.',
         {type: 'callout', text: 'HNSW wins by making vector search navigable: sparse upper layers find a neighborhood, dense lower layers spend work locally.'},
-        'The brute-force baseline is exact and simple: compute the distance from the query to every stored vector, then sort or select the closest k. That is fine for thousands of vectors. It is too expensive for interactive search over millions of high-dimensional embeddings unless you can spend large amounts of hardware on exact scan.',
-        'HNSW trades exactness for speed. It builds a multi-layer proximity graph, uses sparse upper layers for long moves, descends into denser layers for local search, and returns a high-recall candidate set that can be reranked if the application needs more precision.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is exact k-nearest-neighbor scan. Store vectors in an array, compute distance from the query to every row, and keep the closest k. It is correct and easy to test.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The reasonable first attempt is exact kNN. Keep the vectors in an array, compute cosine, dot product, or L2 distance for every row, and return the closest results. It has excellent correctness and terrible scaling: query time grows with corpus size times vector dimension.',
-        'A second attempt is to cluster the space and search only the closest cluster. That can work, but it adds training, partition-boundary misses, and extra tuning. HNSW takes a different route: keep the data as a graph of local neighborhoods, then navigate the graph from far away to nearby.',
-        'The wall is that nearest-neighbor search has no sorted one-dimensional order to exploit. You need a structure that makes large parts of the space unlikely without pretending high-dimensional geometry is a simple array.',
+        'Exact scan costs O(n*d), where n is vector count and d is dimension. With 10,000,000 vectors of dimension 768, one query needs 7.68 billion coordinate operations. High-dimensional vectors also lack a sorted order that binary search can exploit.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core idea is a layered proximity graph. The bottom layer contains every vector and many short-range neighbor links. Higher layers contain exponentially fewer vectors and longer-range links. Search starts from an entry point in the top layer, greedily moves toward the query, then drops down and repeats with finer links.',
+        'Build a layered proximity graph. The bottom layer contains all vectors and local links, while upper layers contain fewer vectors and longer links. Search starts high, moves toward the query, descends, and refines locally.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/86/Skip_list.svg', alt: 'Skip list diagram with multiple forward-pointer levels', caption: 'HNSW uses a layered search idea similar in spirit to skip lists. Source: Wikimedia Commons, Skip list.'},
-        'This is why HNSW is often compared to a skip list. A skip list adds sparse express lanes over a sorted list. HNSW adds sparse express layers over a metric neighborhood graph. The analogy is useful, but not perfect: HNSW search is approximate and depends on vector geometry, graph quality, and candidate-set width.',
       ],
-    },
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The top row is the sparse highway layer. Only a few stored vectors have copies there, and the edges are long. When the active node moves across the highway, the search is using a cheap long-range comparison to get into the right neighborhood.',
-        'The vertical edge is the descent. It does not move to a different vector; it moves to the same vector in a denser layer. That state change matters because the algorithm is trading stride length for precision.',
-        'The bottom row is the base graph where every vector lives. The animation shows a single greedy route so the navigation idea is easy to see. Real HNSW uses a candidate set on the base layer, controlled by efSearch or ef, so it can explore more than one promising local path before returning top-k results.',
-        'The visited nodes are the cost you paid. The found node is the best answer along this route, not a mathematical proof that every other vector is farther away. HNSW is fast because it avoids most comparisons; it is approximate because avoided comparisons can hide a better point.',
-      
-        {type: 'image', src: './assets/gifs/hnsw-search.gif', alt: 'Animated walkthrough of the hnsw search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Construction inserts vectors one at a time. Each new vector receives a random maximum layer, with high layers becoming rare. The index searches from the current entry point to find neighbors for the new vector, then links the vector into each layer up to its maximum. A neighbor-selection heuristic keeps links useful instead of simply connecting to the closest points that may all sit in one tiny cluster.',
+        'Construction inserts vectors one by one with random maximum layers. Insertion searches from the entry point, finds neighbors, and links the new vector into each allowed layer. Querying greedily descends upper layers, then uses a candidate queue on the bottom layer controlled by efSearch.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between labeled nodes', caption: 'At query time, HNSW follows graph edges toward vectors that are closer to the target. Source: Wikimedia Commons, Directed graph.'},
-        'Querying starts from the entry point at the highest layer. Upper layers usually use greedy descent: move to a neighbor if it is closer to the query, stop when no neighbor improves the distance, then drop down. At the bottom layer, the algorithm keeps a dynamic candidate list and a result set. It expands candidates until the remaining frontier cannot improve the current top-k under the search budget.',
-        'The key knobs have engine-specific names and defaults. In pgvector, m controls max connections per layer and defaults to 16, ef_construction controls the construction candidate list and defaults to 64, and hnsw.ef_search controls query candidate width and defaults to 40. In hnswlib, M and ef_construction are set at index initialization, while ef controls query-time accuracy versus speed.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'HNSW works when the graph has navigable small-world structure. Long links get the search near the query quickly. Short links refine the result locally. Random layer assignment keeps upper layers sparse without needing training. The bottom-layer candidate set recovers from some greedy mistakes by exploring multiple nearby options.',
-        'The correctness claim is deliberately weaker than exact search. HNSW does not prove that the returned neighbor is globally nearest in all cases. It gives a measured recall-latency tradeoff. Raising efSearch explores more candidates and usually improves recall at higher latency. Raising construction effort usually improves graph quality at higher build cost.',
+        'It works when the graph has navigable small-world structure. Long links quickly reach a promising neighborhood, and dense local links refine the answer. The guarantee is recall at a chosen budget, not exact nearest-neighbor proof.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the top-right query, the search enters the highway at a left-side vector, hops across the sparse layer toward a vector closer to the query, then drops to the base layer. The highway step avoids checking every base node on the way across the space.',
-        'Once on the base layer, local edges take over. The search compares nearby graph neighbors, moves closer when a neighbor improves the distance, and stops when the candidate budget is exhausted or no candidate can beat the current result. On the tiny animation, touching a few of ten nodes is the visible win. At production scale, the same principle can turn millions of possible comparisons into hundreds or thousands of candidate checks, depending on recall target and data.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Exact scan costs O(n * d) distance work for n vectors of dimension d. HNSW adds an index so live query work is usually far below n, but there is no worst-case guarantee worth selling as exact logarithmic search. Bad geometry, poor parameters, adversarial data, or strict filters can force much more work.',
-        'Memory is roughly vector storage plus graph links, often described as O(n * M) edges with upper-layer and metadata overhead. Larger M improves connectivity and recall but uses more memory. Larger ef_construction improves build quality but slows build and insert. Larger efSearch improves query recall but raises latency.',
-        'Updates are not free. Inserts are supported by many engines, but they must link into an existing graph. Deletes may be tombstoned or handled lazily, and many deletes can degrade graph quality or waste memory until rebuild. Filtered search is a separate problem: if metadata filters remove most candidates after graph search, recall and result count can collapse unless the engine uses filter-aware strategies.',
+        'Query cost is visited candidates times dimension, plus graph bookkeeping. Memory is vector storage plus about O(n*M) graph links. Larger M, efConstruction, and efSearch usually improve recall but raise memory, build time, or latency.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'HNSW wins for low-latency semantic search, recommendation candidate retrieval, duplicate detection, image similarity, code search, and RAG retrieval when memory is available and high recall matters. It is popular because it needs no training phase, handles incremental insertion better than many partitioned indexes, and exposes understandable knobs.',
+        'HNSW fits semantic search, recommendations, duplicate detection, image similarity, code search, and RAG retrieval when memory is available and high recall matters. It often returns candidates for an exact or learned reranker.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes and edges', caption: 'Embedding systems often feed HNSW with vectors produced by neural models. Source: Wikimedia Commons, Colored neural network.'},
-        'It is a strong default when the corpus fits in memory or mostly in memory, vectors are reasonably well behaved, and the product can tolerate approximate recall followed by reranking. It pairs well with exact rerank over the returned candidates and with a recall-latency ledger that chooses efSearch by route.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Do not use HNSW when the contract requires exact nearest neighbors and you cannot rerank or fall back to exact search. Do not expect it to rescue bad embeddings, wrong distance metrics, or inconsistent vector normalization. The index can only navigate the geometry it is given.',
-        'HNSW is also a poor fit when memory is tight, filters are highly selective, delete rates are high, data changes constantly, or cold-start build time is unacceptable. IVF, product quantization, disk-backed graph search, brute-force GPU scan, or hybrid filtered indexes may fit those constraints better.',
+        'Do not use HNSW when exact nearest neighbors are required without fallback. It is also weak when memory is tight, deletes are frequent, filters are highly selective, embeddings are poor, or distance metrics are inconsistent. The graph can only navigate the geometry it receives.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Malkov and Yashunin, "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs," https://arxiv.org/abs/1603.09320; hnswlib docs and parameters at https://github.com/nmslib/hnswlib; pgvector HNSW docs at https://github.com/pgvector/pgvector; and Faiss HNSW implementation docs at https://faiss.ai/cpp_api/struct/structfaiss_1_1IndexBinaryHNSW.html.',
-        'Study Embeddings and Similarity before tuning distance metrics, RAG Pipeline for the retrieval application loop, Skip List for the layered-navigation analogy, Graph BFS for graph traversal basics, Product Quantization and ScaNN for alternative ANN strategies, Filtered Vector Search Bitset Gates for metadata filters, and ANN Recall-Latency Pareto Ledger for measuring efSearch instead of guessing it.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'Suppose n=1,000,000 vectors and d=768. Exact scan performs 768,000,000 coordinate operations per query before selection. At 100 queries per second, that is 76.8 billion coordinate operations per second.',
+        'If HNSW visits 400 candidates, distance work is 400 * 768 = 307,200 coordinate operations. Raising efSearch to 1,000 raises work to 768,000 operations and usually improves recall. The cost knob is visible: more visited nodes buys better recall and higher latency.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Read Malkov and Yashunin on HNSW, then compare hnswlib, pgvector, and Faiss parameter docs. Study embeddings, cosine similarity, skip lists, graph search, product quantization, IVF, filtered vector search, ANN recall measurement, and reranking next.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why HNSW (Vector Search at Scale) moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

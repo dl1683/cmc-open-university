@@ -149,14 +149,14 @@ export const article = {
           text: 'loss\n  |  \\                        ___--- val loss (overfitting)\n  |   \\    ___----------___--\n  |    \\  /\n  |     \\/  <-- the turn (best val epoch)\n  |      \\\n  |       \\___\n  |           \\____          train loss (always falling)\n  |                \\______\n  +-----------------------------------> epoch',
           label: 'Train vs validation loss: the curves diverge at the turn',
         },
-      
-        {type: 'image', src: './assets/gifs/early-stopping.gif', alt: 'Animated walkthrough of the early stopping visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/early-stopping.gif', alt: 'Animated walkthrough of the early stopping visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Training loss is loyal to the training set, not to the problem. A flexible model can keep reducing its loss on seen examples indefinitely -- first by learning real patterns, then by memorizing noise, mislabeled points, and rare coincidences. The optimizer cannot tell the difference. It only knows the objective went down.',
-        'The validation curve is the outside witness. It measures whether current weights transfer to data the optimizer never touched. When training loss falls while validation loss rises, extra epochs buy a better memory of the training set and a worse model for future data. Early stopping is the discipline of believing the validation curve before the last epoch.',
+        'The validation curve is the outside witness. It measures whether current weights transfer to data the optimizer never touched. When training loss falls while validation loss rises, extra epochs buy a better memory of the training set and a worse model for future data. Early stopping is the discipline of believing the validation curve over the last epoch.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Overfitting_svg.svg/330px-Overfitting_svg.svg.png', alt: 'Training error falling while validation error bottoms out and rises', caption: 'The validation minimum is the decision point: training can keep improving while generalization gets worse. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Overfitting_svg.svg.'},
         {
           type: 'quote',
@@ -169,7 +169,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The first reasonable attempt is to pick a fixed epoch budget. Train for 50 or 100 epochs because a previous model used that schedule or because the compute budget says so. This works when the task, dataset size, optimizer, and architecture are all stable -- the optimal stopping epoch does not move much between runs.',
-        'The second reasonable attempt is a tripwire: stop the first time validation loss increases. That is closer to the right idea but fragile in practice. Validation curves wobble. A small held-out set can spike from minibatch noise. Learning-rate warmup can create temporary bumps. A rule that fires on one bad epoch quits long before the true minimum, potentially with triple the loss of the best reachable model.',
+        'The second reasonable attempt is a tripwire: stop the first time validation loss increases. That is closer to the right idea but fragile in practice. Validation curves wobble from minibatch noise, small held-out sets, and learning-rate warmup. A rule that fires on one bad epoch quits long before the true minimum, potentially with triple the loss of the best reachable model.',
       ],
     },
     {
@@ -188,6 +188,13 @@ export const article = {
             ['Patience-based', 'Stop after k epochs without improvement', 'Trades k extra epochs for noise immunity'],
           ],
         },
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Do not decide when to stop. Decide how long to wait for better evidence before admitting the best is behind you. The patience counter transforms the stopping problem from a prediction (guess the right epoch in advance) into a detection (notice when improvement has ceased). The checkpoint makes the detection retroactive: even though training runs k epochs past the true best, the weights you keep are from the best epoch, not the last one.',
+        'This reframing is why patience-based stopping works where the tripwire and fixed budget fail. The tripwire asks "did it get worse this epoch?" -- a question noise answers incorrectly half the time. The fixed budget asks "have I trained long enough?" -- a question that depends on unknowable details of the loss surface. Patience asks "has anything improved in the last k epochs?" -- a question that becomes more reliable as k grows, at a bounded cost of k extra epochs.',
       ],
     },
     {
@@ -233,7 +240,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Early stopping is the right default for supervised learning runs where the optimal epoch count is unknown: fine-tuning pretrained models, tabular gradient boosting (XGBoost and LightGBM both have built-in early stopping rounds), computer vision training, and any project where training can continue long after validation peaks. It is especially effective when the cost of one extra validation pass is small compared with the cost of wasted training epochs.',
         'The same principle scales beyond a single run. Successive halving, Hyperband, and practical sweep systems abandon configurations whose intermediate validation evidence is poor. Early stopping is that resource-allocation rule applied inside one training run; Hyperband is the same rule applied across many runs. The instinct -- stop funding work the evidence has stopped supporting -- is most of what "compute-efficient ML" means.',
@@ -256,6 +263,16 @@ export const article = {
             'restore_best_weights=False: several frameworks historically defaulted this to False, so the callback stops late AND keeps the worst weights.',
           ],
         },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Setup: a 3-layer MLP with 120K parameters is trained on 8,000 labeled images (6,400 train, 1,600 validation) for a 10-class classification task. The optimizer is Adam at lr=0.001. Without early stopping, training runs for 80 epochs. Early stopping uses patience=5 and min_delta=1e-4.',
+        'Without early stopping: training loss drops smoothly from 2.30 at epoch 1 to 0.04 at epoch 80. Validation loss falls from 2.28 to a minimum of 0.41 at epoch 32, then climbs steadily to 0.78 by epoch 80. The final model has a validation accuracy of 74.2%. Total compute: 80 epochs of training plus 80 validation passes.',
+        'With early stopping: the same run reaches the same validation minimum of 0.41 at epoch 32. The patience counter ticks: epoch 33 (wait=1, val=0.42), epoch 34 (wait=2, val=0.43), epoch 35 (wait=3, val=0.41 -- but not below 0.41 minus min_delta, so no reset), epoch 36 (wait=4, val=0.44), epoch 37 (wait=5, val=0.45). The counter hits 5 at epoch 37 and training stops. The checkpoint from epoch 32 is restored.',
+        'The result: validation accuracy is 82.6% (epoch-32 weights) instead of 74.2% (epoch-80 weights). Training ran 37 epochs instead of 80 -- a 54% compute reduction. The 5 extra epochs past the best (epochs 33-37) cost 6.25% of the total budget and bought certainty that epoch 32 was genuinely the peak, not a noise blip. If patience had been 10, training would have stopped at epoch 42, costing 10 extra epochs but still saving 38 compared with the full run.',
+        'The min_delta threshold earns its keep at epoch 35. Validation dipped to 0.4102 -- below the raw best of 0.4100 -- but not by 1e-4. Without min_delta, this floating-point wiggle would have reset the counter, extending training by 5 more epochs for no real improvement. With it, the counter correctly kept ticking.',
       ],
     },
     {

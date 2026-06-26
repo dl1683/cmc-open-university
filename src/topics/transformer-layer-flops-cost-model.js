@@ -201,101 +201,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Transformer Layer FLOPs Cost Model. A decoder-layer cost primer: why dense projections scale like n d^2, attention scales like n^2 d, and long context changes the bottleneck..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type: "callout", text: "A FLOPs model is useful only when it names the tensor shape. Dense terms grow with tokens times width squared; attention terms grow with token pairs times width."},
-      
-        {type: 'image', src: './assets/gifs/transformer-layer-flops-cost-model.gif', alt: 'Animated walkthrough of the transformer layer flops cost model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why this exists`,
-      paragraphs: [
-        `Transformer inference sounds like one cost until you try to make a serving decision. Then the word hides several different bills: dense matrix multiplies, attention over token pairs, KV-cache reads, activation movement, batching overhead, and queueing. A simple FLOPs model is useful because it separates the arithmetic shape before hardware details enter the argument.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png`, alt: `Transformer encoder-decoder architecture diagram.`, caption: `The architecture diagram gives each cost term a home: projections, attention, feed-forward blocks, residual paths, and normalization all live inside the repeated layer. Source: Wikimedia Commons, Llion Jones, CC BY 4.0.`},
-        `This article focuses on one decoder layer. Let n be the number of prompt tokens and d be the model width. For a common dense transformer block with Q, K, V, output projection, and a feed-forward layer about four times wider than d, a rough forward-pass estimate is 24 n d^2 + 4 n^2 d. The constants are not universal, but the split is durable.`,
+        'The tables split one decoder layer into dense terms and pairwise attention terms. Dense terms scale with tokens times width squared, while attention terms scale with token pairs times width.',
+        'The plot fixes model width d and grows context length n. Watch the dense curve rise linearly and the attention curve bend upward quadratically as long context makes token pairs dominate.',
+        {type: 'callout', text: 'A FLOPs model is useful only when it names the tensor shape. Dense terms grow with tokens times width squared; attention terms grow with token pairs times width.'},
+        {type: 'image', src: './assets/gifs/transformer-layer-flops-cost-model.gif', alt: 'Animated walkthrough of the transformer layer flops cost model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The common shortcut is to say attention is quadratic and stop there. That is partly true and often misleading. Attention has an n^2 term, but a normal decoder layer also has several n d^2 terms. When d is large and n is modest, the dense projections and MLP can dominate arithmetic. When n becomes very large, the pairwise term catches up and then passes them.`,
-        `The second shortcut is to treat FLOPs as latency. FLOPs describe arithmetic work, especially in training and prompt prefill. Cached decode often waits on bytes: model weights, KV cache pages, memory bandwidth, kernel launch overhead, and scheduler decisions. A FLOPs model is the first map, not the whole serving system.`,
+        'Transformer cost sounds singular until serving decisions force you to separate prompt length, model width, attention pairs, MLP width, KV cache, and bytes moved. A layer FLOPs model gives the first clean accounting before hardware effects enter.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png', alt: 'Transformer encoder-decoder architecture diagram.', caption: 'The architecture diagram gives each cost term a home: projections, attention, feed-forward blocks, residual paths, and normalization all live inside the repeated layer. Source: Wikimedia Commons, Llion Jones, CC BY 4.0.'},
+        'For a common dense decoder layer, a rough forward-pass formula is 24 n d^2 + 4 n^2 d. The constants vary by architecture, but the split between per-token dense work and pairwise attention work is the durable lesson.',
       ],
     },
     {
-      heading: `The core split`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Dense work treats tokens mostly independently. Q, K, V, the attention output projection, and the MLP multiply each token representation by learned matrices. That is why their leading terms look like n d^2: more tokens means more rows, and wider models mean much larger matrices.`,
-        `Attention is different. A query token compares against keys from other tokens, then uses those scores to mix values. In a full causal prompt, each new token can attend to many previous tokens, so the number of relationships grows with token pairs. That is where n^2 d comes from. The formula is not a theorem about every architecture; it is a clean way to separate per-token dense work from pairwise attention work.`,
+        'The obvious shortcut is to say attention is quadratic and stop. That is true about the n^2 term, but it hides that QKV projections, output projection, and the MLP can dominate when d is large and n is modest.',
+        'The second shortcut is to treat FLOPs as latency. FLOPs explain arithmetic, but cached decode can be limited by memory bandwidth and KV-cache residency rather than raw operation count.',
       ],
     },
     {
-      heading: `The rough formula`,
+      heading: 'The wall',
       paragraphs: [
-        `A rough forward pass for one layer is 6 n d^2 for QKV, 2 n d^2 for the output projection, 16 n d^2 for a 4d feed-forward block, 2 n^2 d for QK scores, and 2 n^2 d for attention-value mixing. Added together, that gives 24 n d^2 + 4 n^2 d.`,
-        `The important move is not memorizing 24 and 4. Different model families change multipliers with gated MLPs, grouped-query attention, mixture-of-experts, sparse attention, or sliding windows. The important move is asking which term a design decision actually changes. Quantization changes bytes and sometimes dense throughput. Windowing changes the attention pair count. Prefix caching changes repeated prompt work.`,
+        'Without a shape-aware model, teams optimize the wrong term. FlashAttention helps attention IO, grouped-query attention reduces KV bytes, quantization reduces bytes per weight, and mixture-of-experts changes active MLP work.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Example_of_a_naive_Roofline_model.svg/330px-Example_of_a_naive_Roofline_model.svg.png', alt: 'Naive roofline chart showing memory and compute limits.', caption: 'The FLOPs formula tells you arithmetic shape; a roofline adds the missing hardware question of whether those FLOPs are fed by enough byte reuse. Source: Wikimedia Commons, Tanzima, CC BY-SA 4.0.'},
+        'Long context is the visible failure case. At short context, width-squared dense work can dominate; at very long context, token-pair work can overtake it even when the model weights are unchanged.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The core insight',
       paragraphs: [
-        `The first matrix separates dense rows from attention rows. QKV, output projection, and MLP are per-token matrix work. QK and AV are pairwise attention work. The optimizer matrix then prevents category errors: FlashAttention improves attention IO and materialization, grouped-query attention mainly reduces KV-cache size and bandwidth during serving, and mixture-of-experts changes which feed-forward experts run.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Example_of_a_naive_Roofline_model.svg/330px-Example_of_a_naive_Roofline_model.svg.png`, alt: `Naive roofline chart showing memory and compute limits.`, caption: `The FLOPs formula tells you arithmetic shape; a roofline adds the missing hardware question of whether those FLOPs are fed by enough byte reuse. Source: Wikimedia Commons, Tanzima, CC BY-SA 4.0.`},
-        `The plot fixes d at 4096 and grows n. Dense terms rise linearly with n. Attention rises quadratically. Setting 24 n d^2 equal to 4 n^2 d gives n = 6d, so the crossover is around 24k tokens for d = 4096. A 4k chat, a 32k agent run, and a 128k document prompt are different workload shapes, not just bigger versions of the same request.`,
+        'Dense work multiplies each token row by learned matrices, giving n d^2 terms. Attention compares token rows to token rows and mixes values over pairs, giving n^2 d terms.',
+        'Setting 24 n d^2 equal to 4 n^2 d gives n = 6d. For d = 4096, the rough arithmetic crossover is about 24,576 tokens.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'How it works',
       paragraphs: [
-        `The model works because transformer layers are built from repeated matrix products whose shapes are visible. Multiplying n token vectors by d-by-d matrices creates n d^2 style work. Multiplying queries against keys creates a token-by-token score matrix, so the number of interactions grows like n^2. This is the same kind of reasoning used in basic algorithm analysis, but with tensor dimensions instead of list lengths.`,
-        `The formula also explains why a fixed model can change bottlenecks as product behavior changes. If users mostly send short prompts, model width and dense throughput matter. If agents keep appending long histories, attention pairs and KV-cache capacity become visible. If traffic repeats the same system prompt, prefix reuse can matter more than raw arithmetic.`,
+        'Q, K, and V projections cost about 6 n d^2 FLOPs, and the output projection costs about 2 n d^2. A 4d feed-forward block costs about 16 n d^2, so dense terms sum to about 24 n d^2.',
+        'Attention scores QK^T cost about 2 n^2 d, and applying weights to values costs another 2 n^2 d. Together they contribute about 4 n^2 d, which becomes large when n grows past the width scale.',
       ],
     },
     {
-      heading: `Serving phases`,
+      heading: 'Why it works',
       paragraphs: [
-        `Training, prefill, and decode use the same layer but not the same accounting. Training processes many tokens and stores activations for backward pass. Prefill consumes the prompt in parallel and strongly exposes prompt FLOPs. Decode generates one token at a time while reusing old K and V vectors, so it often exposes memory bandwidth and cache movement rather than pure arithmetic.`,
-        `This distinction matters in system design. A faster prefill kernel can lower time to first token for long prompts. A better KV-cache layout can increase concurrent decode capacity. Continuous batching can improve GPU utilization while many users decode. A single FLOPs number cannot tell those stories unless it is tied to the phase being measured.`,
+        'The model works because tensor dimensions determine multiply counts. Multiplying an n by d activation matrix by a d by d weight matrix creates n rows times d squared work.',
+        'Attention creates an n by n score matrix. Each pairwise score and value mix touches d-sized vectors, so token pairs times width gives the n^2 d term.',
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Every lever has a cost. Windowed attention bounds the pair count but may remove useful distant context. Retrieval keeps n smaller but depends on chunking, ranking, and citation discipline. Prefix caching helps repeated prompts but adds cache lookup, invalidation, and memory pressure. Quantization improves memory traffic and capacity but can hurt quality if applied carelessly.`,
-        `Grouped-query and multi-query attention reduce KV-cache footprint by sharing keys and values across query heads, but they change architecture assumptions. Mixture-of-experts can reduce active feed-forward work per token while adding routing, load balancing, expert placement, and communication costs. The formula helps by making each tradeoff name the term it attacks.`,
+        'For n = 4096 and d = 4096, dense work is about 24 * 4096 * 4096^2, or 1.65 trillion FLOPs per layer. Attention is about 4 * 4096^2 * 4096, or 0.27 trillion FLOPs.',
+        'If n doubles from 4096 to 8192, dense work doubles but attention work quadruples. That behavior is why long-context features need a cost model, not only a maximum context length in a product spec.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Use this model during early sizing. It helps estimate whether a long-context feature is likely to be a kernel problem, a cache policy problem, or a product-context problem. It also helps compare two ideas that sound similar. A request router, a prefix cache, a sliding window, and a bigger GPU all improve different parts of the serving stack.`,
-        `It is especially useful when a team is tempted to buy context length as if it were free. Long context can be valuable, but the cost curve is not linear once full attention dominates. The correct question is not "can the model accept this many tokens?" The correct question is whether those tokens are worth their arithmetic, memory, and latency cost.`,
+        'Use this model to size long-prompt features, compare prefix caching against bigger GPUs, and explain why document-scale prompts are not just longer chats. It turns architecture choices into named cost terms.',
+        'It is also a review tool for optimization claims. A method should say whether it changes dense FLOPs, attention pairs, bytes moved, KV cache size, or scheduling behavior.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Do not use this as a benchmark replacement. Real latency includes memory bandwidth, tensor parallel communication, request queueing, p99 tail effects, cache fragmentation, scheduler policy, network transfer, and framework overhead. A layer can have modest FLOPs and still be slow if decode is memory-bound or if cache pages are scattered.`,
-        `Also avoid treating FlashAttention as if it removes the mathematical n^2 relationship. It changes how attention is computed and stored so the GPU does less wasteful memory movement. That is a major win, but it does not make every very long context cheap. The same caution applies to any single optimization: it improves one part of the stack, not the whole serving problem.`,
+        'The formula is not a benchmark. It excludes kernel efficiency, memory bandwidth, tensor-parallel communication, queueing, cache fragmentation, and framework overhead.',
+        'It also changes with architecture. Gated MLPs, grouped-query attention, multi-query attention, mixture-of-experts, sparse attention, and sliding windows alter constants or terms, so the formula must be adapted before making decisions.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Worked example',
       paragraphs: [
-        `Use d = 4096 and n = 4096. Dense work is about 24 * 4096 * 4096^2, or 1.65 trillion FLOPs per layer. Attention work is about 4 * 4096^2 * 4096, or 0.27 trillion FLOPs per layer. At this context length, dense terms still dominate arithmetic.`,
-        `Now raise n to 32768 with the same model width. Dense work grows 8x to about 13.2 trillion FLOPs, but attention grows 64x to about 17.6 trillion FLOPs. The model did not change; the prompt shape changed which term owns the bill.`,
-        `This is why long-context product choices cannot be judged from a short-prompt benchmark. The same layer can look dense-dominated in chat and attention-dominated in agent traces or document analysis.`,
+        'With d = 4096 and n = 4096, dense work is about 1.65 TFLOPs per layer and attention is about 0.27 TFLOPs. Dense arithmetic is roughly six times larger at this context length.',
+        'With the same d and n = 32768, dense work rises to about 13.2 TFLOPs, but attention rises to about 17.6 TFLOPs. The model did not change; the prompt length changed which term owns the arithmetic bill.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study The Transformer Block and Attention Mechanism to connect each term to layer structure. Then read Transformer Inference Roofline, KV Cache, Grouped-Query Attention, FlashAttention Case Study, Prefix Caching & RadixAttention, Sliding-Window Attention Context Policy, KV Cache Concurrency Capacity Model, LLM Continuous Batching, Prefill/Decode Disaggregation Case Study, and LLM Inference Cost Stack Case Study.`,
-        `Primary sources worth reading are Attention Is All You Need at https://arxiv.org/abs/1706.03762, the JAX scaling book chapters on transformer and inference math at https://jax-ml.github.io/scaling-book/transformers/ and https://jax-ml.github.io/scaling-book/inference/, Efficiently Scaling Transformer Inference at https://arxiv.org/abs/2211.05102, and FlashAttention at https://arxiv.org/abs/2205.14135.`,
+        'Primary sources: Vaswani et al., Attention Is All You Need; Pope et al., Efficiently Scaling Transformer Inference; and the JAX Scaling Book transformer and inference chapters. FlashAttention is the key source for IO-aware attention costs.',
+        'Study the Transformer block, attention, transformer inference roofline, KV cache, grouped-query attention, prefix caching, sliding-window attention, continuous batching, and prefill/decode disaggregation next.',
       ],
     },
-],
+  ],
 };
-

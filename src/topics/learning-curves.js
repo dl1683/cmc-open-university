@@ -150,128 +150,59 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation has two views. "The learning-curve diagnosis" plots training accuracy (blue) and validation accuracy (orange) against training-set size for two patients: one with high variance, one with high bias. Watch the gap between curves and the level where they settle. The prescription matrix at the end maps each shape to a treatment.',
-        '"The bias-variance anatomy" dissects total error into bias-squared, variance, and noise, then sweeps model complexity to show the classical U-curve and the modern double-descent extension. Active markers highlight the current diagnostic signal. Found markers show conclusions the curve has already proven. Compare markers show the second curve that gives the diagnosis its meaning.',
-        'At each frame, ask three questions: which curve moved, what that movement means about the model, and whether the gap grew or shrank. The gap is the entire diagnostic.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The learning-curve view plots training accuracy and validation accuracy against training-set size. Training accuracy measures fit to examples the model saw, while validation accuracy measures transfer to examples it did not train on.',
+        'The bias-variance view shows the same diagnosis as an error ledger. Active markers show the current signal, compare markers show the curve that gives it meaning, and found markers show the diagnosis the plot has already earned.',
+        'Read the gap, the level, and the trend. A large shrinking gap means variance, low fused curves mean bias, and high fused curves mean the remaining error may be noise or measurement.',
         {type: 'callout', text: 'A learning curve is a budget test: the gap says whether more data, more capacity, or better measurement is the next move.'},
       
-        {type: 'image', src: './assets/gifs/learning-curves.gif', alt: 'Animated walkthrough of the learning curves visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A model is stuck at 86% validation accuracy and the team is arguing. One engineer wants more labeled data (three months, two annotators). Another wants a bigger architecture (retraining cost, latency risk). A third wants stronger regularization (might crush performance further). All three interventions are expensive, and two of the three will make the problem worse depending on the actual failure mode. Without a diagnostic, the team picks by seniority or by whichever budget happens to be available.',
-        'A learning curve is the cheapest diagnostic in supervised learning. Retrain the same model on growing slices of the data you already have -- 50 examples, then 100, 200, 400, 800, 1600 -- and plot training accuracy against validation accuracy. The shape of those two curves tells you whether the model is starved for data (high variance), too weak to fit the pattern (high bias), or already near the noise floor (ship it). The plot prescribes before anyone spends the budget.',
+        {type: 'image', src: './assets/gifs/learning-curves.gif', alt: 'Animated walkthrough of the learning curves visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: [
+        'A model stuck at 86 percent validation accuracy can fail for opposite reasons. It may be too flexible for the available data, too weak to express the pattern, or close to the irreducible noise floor.',
         {type: 'image', src: 'https://scikit-learn.org/0.16/_images/plot_learning_curve_001.png', alt: 'Learning curves for a Naive Bayes classifier showing training and cross-validation scores converging.', caption: 'The training-validation gap is the signal: the red curve falls, the green curve rises, and the remaining distance diagnoses variance or ceiling. Source: scikit-learn documentation, BSD License.'},
-        'The cost is a handful of extra training runs on data you already own. The payoff is avoiding months of wasted labeling or weeks of architecture redesign aimed at the wrong failure mode.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The reasonable first attempt is to look at one number: validation accuracy. If it is too low, try the intervention that worked last time -- usually "get more data" because more data is the default advice in every ML textbook. Teams that do not plot curves often cycle through interventions by gut feel, treating machine learning as alchemy rather than diagnosis.',
-        'This fails because one number cannot distinguish between two opposite diseases. A model at 74% validation accuracy could be a powerful model starved for data (high variance -- more data will help) or a weak model that has already converged (high bias -- more data will not help at all). The single-number approach cannot tell you which, so teams waste entire quarters collecting labels for a model whose ceiling is set by its architecture, not its data.',
-        'The wall is that the treatment for high variance is the opposite of the treatment for high bias. Regularizing a high-bias model pushes its ceiling lower. Giving a high-variance model more capacity makes it memorize harder. You need two curves, not one number.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The deeper wall is that bias and variance are invisible in a single evaluation. You cannot see variance from one training run -- variance is the spread across different training samples. You cannot see bias from training accuracy alone -- bias is the gap between your hypothesis class and the true function. Learning curves make both visible by varying the one thing you can control cheaply: training-set size.',
-        {
-          type: 'bullets',
-          items: [
-            'High bias: training accuracy is low, validation accuracy is low, the gap is small, and more data barely moves the fused curves.',
-            'High variance: training accuracy is high, validation accuracy is low, the gap is large, and more data can lift validation while shrinking the gap.',
-            'Low noise floor: both curves settle high and close together, so the next gain likely needs a better task, metric, or data source rather than another routine tuning pass.',
-            'Treatment rule: add capacity for bias, add data or regularization for variance, and stop spending when both curves are high and flat.',
-          ],
-        },
-        'The comparison is the entire diagnostic. Read the gap, read the level, read the trend. Each signal points to one disease. Applying the wrong treatment makes the patient sicker.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Choose several training-set sizes spaced to reveal the trend. The animation uses 50, 100, 200, 400, 800, and 1600. For each size, sample a training subset, train the model with the same hyperparameters, score on the training subset, and score on a held-out validation set. Plot both scores against training-set size. For reliability, repeat each size with different random samples and average, or use k-fold cross-validation at each size.',
-        {
-          type: 'code',
-          language: 'python',
-          text: 'from sklearn.model_selection import learning_curve\nimport numpy as np\n\n# Generate learning curves with 5-fold CV at each size\nsizes, train_scores, val_scores = learning_curve(\n    estimator=model,\n    X=X_train, y=y_train,\n    train_sizes=np.linspace(0.1, 1.0, 6),  # 10% to 100%\n    cv=5,                                   # 5-fold at each size\n    scoring="accuracy",\n    n_jobs=-1,\n    shuffle=True,\n    random_state=42,\n)\n\n# Mean and std across folds\ntrain_mean = train_scores.mean(axis=1)\ntrain_std  = train_scores.std(axis=1)\nval_mean   = val_scores.mean(axis=1)\nval_std    = val_scores.std(axis=1)\n\n# Plot\nimport matplotlib.pyplot as plt\nplt.fill_between(sizes, train_mean - train_std, train_mean + train_std, alpha=0.1)\nplt.fill_between(sizes, val_mean - val_std, val_mean + val_std, alpha=0.1)\nplt.plot(sizes, train_mean, "o-", label="training")\nplt.plot(sizes, val_mean, "o-", label="validation")\nplt.xlabel("Training set size")\nplt.ylabel("Accuracy")\nplt.legend()\nplt.title("Learning Curve")\nplt.show()',
-        },
-        'The validation set must be honest. If preprocessing, feature selection, or hyperparameter tuning sees validation data, the curve lies. Cross-validation at each training size adds reliability but does not remove the need for separation. The clean setup: training subsets grow, the validation protocol stays fixed, and no information about the validation examples leaks into any training step.',
-        {
-          type: 'diagram',
-          label: 'Three learning curve shapes',
-          text: 'Accuracy\n  |                                         \n  |  ____________________________  <-- training (ideal)\n  | /  __________________________ <-- validation (ideal)\n  |/  /\n  | /   Ideal: both curves high, gap small\n  |/\n  +-----------------------------------> Training set size\n\nAccuracy\n  |  ________________________________ <-- training (overfit)\n  |\n  |        ___________  \n  |       /            <-- validation (still climbing)\n  |      /\n  |  GAP = VARIANCE\n  +-----------------------------------> Training set size\n\nAccuracy\n  |\n  |   \\___________\n  |   /            \\_____ <-- training (underfit)\n  |  /  _________________ <-- validation (fused, low)\n  | /  /\n  |   CEILING = BIAS\n  +-----------------------------------> Training set size',
-        },
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Learning curves work because training error and validation error are driven by different forces. Training error measures how well the model fits the examples it saw. Validation error measures whether that fit transfers to unseen data. A model with excess capacity can always drive training error toward zero by memorizing, but memorized noise does not transfer -- so validation error stays high. That gap is variance made visible.',
-        'The key invariant: as training-set size grows, variance shrinks (more data constrains the model toward the true pattern) while bias stays constant (a linear model cannot learn a curved boundary no matter how much data it sees). This is why the two diseases respond to different treatments. More data attacks variance by averaging out noise across samples. More capacity attacks bias by expanding the hypothesis class. Regularization trades a little bias for a lot of variance reduction.',
-        'The formal decomposition is: expected error = bias-squared + variance + irreducible noise. In practice you rarely compute each term exactly, but the learning curve reveals which term dominates. If the gap is large and narrowing, variance dominates. If both curves are fused and low, bias dominates. If both curves are fused and high, you may be near the noise floor -- the irreducible part that no model can fix.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'A learning curve costs k * m training runs, where k is the number of cross-validation folds and m is the number of training-set sizes. For a cheap model (logistic regression, small random forest), m = 10 sizes with k = 5 folds finishes in minutes. For an expensive model (large neural network), m = 4 sizes with k = 1 (single held-out split) may be all you can afford. Even a rough curve with three points is more informative than no curve.',
-        'Performance follows power-law scaling in many settings. Validation error often drops as error = a * n^(-alpha) + noise_floor, where n is training-set size and alpha is typically between 0.1 and 0.5 depending on the task and model class. This means each doubling of data buys a fixed percentage improvement until you approach the noise floor. Kaplan et al. (2020) showed that large language models follow remarkably clean power laws across data size, model size, and compute budget simultaneously -- loss scales as a power law in each resource when the others are held fixed, with exponents around 0.076 for data and 0.095 for parameters.',
+        'Each cause has a different treatment, and the treatments can conflict. Learning curves exist so teams spend labeling, architecture, and regularization budget on the failure mode they actually have.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to look at one validation score and try the intervention that usually helps. Many teams default to more data because more data often sounds safest.',
+        'One score cannot tell whether more data will help. A low validation number can mean high variance, high bias, data leakage, label noise, or the wrong metric.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'The wall is that bias and variance require opposite moves. A high-variance model needs more data, stronger regularization, or less capacity; a high-bias model needs more capacity, better features, or weaker regularization.',
+        'A single endpoint hides the trend. The curve at 1,600 examples may be flat, still climbing, or misleading because the validation pipeline leaked information from training.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Vary training-set size while holding the model and validation protocol fixed. The changing gap between training and validation separates sample sensitivity from model ceiling.',
+        'Cost becomes visible as a slope. If validation rises sharply when data doubles, labels still have runway; if both curves are fused and low, more of the same data is unlikely to move the ceiling.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Choose training sizes such as 50, 100, 200, 400, 800, and 1,600 examples. For each size, train the same model, score it on the training subset, and score it on a held-out validation set or through cross-validation.',
+        'Repeat sampling when possible and plot means with uncertainty bands. The validation protocol must stay fixed, and preprocessing or feature selection must not see validation examples.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'Training score and validation score respond differently to data. A memorizing model scores high on training data but poorly on validation data, and the gap shrinks as more examples constrain it.',
+        'A weak model scores poorly even on training data, so adding more examples does not help much. That is bias: the hypothesis class cannot express the pattern under the current features and architecture.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'A learning curve costs k x m training runs, where k is the number of folds and m is the number of training sizes. For cheap models, 5 folds across 10 sizes is routine; for expensive neural models, three sizes on one validation split may still be enough to avoid blind spending.',
         {type: 'image', src: 'https://scikit-learn.org/0.16/_images/plot_learning_curve_002.png', alt: 'Learning curves for an SVM classifier with a training score near one and a validation score that rises with more data.', caption: 'The SVM curve shows a high-capacity model with validation still climbing, which is the kind of shape that justifies more data. Source: scikit-learn documentation, BSD License.'},
-        {
-          type: 'note',
-          text: 'Neural scaling laws (Kaplan 2020, Hoffmann/Chinchilla 2022) extended learning curves from a diagnostic tool to a planning tool. By fitting the power-law exponents on small runs, teams extrapolate how much data and compute a larger model will need before committing millions in training cost. The Chinchilla result showed that most large models were undertrained relative to their size -- a learning-curve diagnosis at planetary scale.',
-        },
-        'Data efficiency varies dramatically across domains. Vision models with strong augmentation can reach useful accuracy with hundreds of labeled examples. Language models follow steep power laws but need billions of tokens to saturate. Tabular models with good features often plateau early. The exponent alpha tells you how efficiently the model converts data into performance -- a steep curve (high alpha) means each new example teaches a lot; a shallow curve (low alpha) means diminishing returns set in early.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Learning curves earn their keep whenever labeling is expensive and the question is "should we collect more?" Medical imaging teams use them before commissioning another round of radiologist annotations. Fraud detection teams plot them to decide whether more transaction logs or better feature engineering will move the needle. Search ranking teams use them to compare whether a larger model or more click data has more runway left.',
-        'They are also the primary tool for comparing model families at fixed data budgets. Plot learning curves for logistic regression, a random forest, and a neural network on the same dataset. The model whose validation curve is still climbing steeply at your current data size has the most to gain from more labels. The model whose curves have fused at a low ceiling is the wrong hypothesis class for this problem.',
-        {
-          type: 'bullets',
-          items: [
-            'Label budgeting: plot the curve before paying for another annotation round.',
-            'Model selection: the model with the steepest validation climb at your data size has the most headroom.',
-            'Regularization tuning: if the gap is large, try stronger regularization before collecting data.',
-            'Scaling law extrapolation: fit the power law on small runs to predict large-run performance.',
-            'Debugging data pipelines: a flat or declining validation curve can reveal label noise, leakage, or distribution mismatch.',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Learning curves assume that the data distribution is stable. If the distribution shifts between the small and large training subsets -- because data was collected over time and the world changed -- the curve conflates data scaling with distribution drift. A model that improves with more data might be learning a newer pattern, not generalizing better.',
-        'They can mislead when validation is contaminated. Duplicate examples across train and validation splits, preprocessing that sees the whole dataset, or hyperparameter tuning on the validation set all make the gap appear smaller than it is. The curve diagnoses the system you actually measured. If the measurement pipeline leaks, the diagnosis is wrong.',
-        'The single-endpoint trap is common: a model at 86% looks promising, but the curve might be flat (no more headroom) or steep (still climbing fast). Always read the trend, not the last point. Double descent adds another wrinkle -- past the interpolation threshold where the model can memorize all training data, validation error can improve again. The classical U-shaped complexity curve still governs underparameterized models, but very large neural networks live on the far side of the peak. Know which regime you occupy before trusting the old rules.',
-        'Finally, learning curves cannot diagnose problems that live outside the model: wrong evaluation metric, misspecified task, mislabeled ground truth, or missing input features. The curve tells you whether more data or more capacity will help with the current setup. It does not tell you whether the setup itself is asking the right question.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Hastie, Tibshirani, Friedman. "The Elements of Statistical Learning" (2009), Chapter 7 -- the canonical treatment of bias-variance decomposition and model selection.',
-            'Kaplan et al. "Scaling Laws for Neural Language Models" (2020) -- power-law relationships between loss and data size, model size, and compute for transformers.',
-            'Hoffmann et al. "Training Compute-Optimal Large Language Models" (Chinchilla, 2022) -- showed most LLMs were undertrained for their parameter count, a scaling-law diagnosis.',
-            'scikit-learn documentation: sklearn.model_selection.learning_curve -- the standard implementation used in the code example above.',
-          ],
-        },
-        'Study Cross-Validation first -- a learning curve is only as honest as its validation protocol. Then study Regularization (L1, L2, dropout) to understand the interventions the curve prescribes. Logistic Regression and Decision Trees are good test beds for generating your own high-bias and high-variance patients. For the modern extension, study double descent and neural scaling laws to see how learning curves behave past the classical interpolation threshold.',
-        'The best exercise: train three models on the same dataset (a deliberately weak linear model, an unconstrained deep model, and a tuned middle-ground model), plot learning curves for each, write the diagnosis before changing anything, then apply the matching treatment and measure again. That loop -- diagnose, prescribe, treat, re-measure -- is the skill the plot is designed to build.',
-      ],
-    },
+        'Many domains follow power-law-like improvement, where each doubling of data buys a smaller but measurable gain until noise dominates. The curve turns cost into a forecast: how much validation improvement does another data collection round probably buy.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Learning curves guide label budgeting in medical imaging, fraud detection, search ranking, speech, and tabular prediction. They answer whether to collect labels, engineer features, change model class, or stop because the metric is near its ceiling.',
+        'They also compare model families at the same data budget. A small model whose validation curve is flat and low has less future value than a larger model whose curve is still climbing with more data.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'Learning curves fail when the validation setup is contaminated. Duplicates across train and validation, preprocessing over the full dataset, or tuning on the validation set make the gap look smaller than it is.',
+        'They also fail under distribution drift. If early data and later data come from different worlds, the curve mixes data quantity with changed data quality, and the diagnosis may point to the wrong treatment.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Model A has training accuracy 100, 99, 98, 96, 95, 94 percent as data grows from 50 to 1,600 examples. Validation accuracy moves 62, 68, 74, 79, 83, 86 percent, so the gap falls from 38 points to 8 points while validation keeps climbing.',
+        'That is high variance with data runway. More data, stronger regularization, dropout, or a smaller model can help, and buying another labeling round has evidence behind it.',
+        'Model B has training accuracy 78, 76, 75, 74.5, 74, 74 percent and validation accuracy 65, 70, 72, 73, 73.5, 74 percent. The curves fuse at 74 percent, so collecting ten times more similar data is unlikely to fix the ceiling; the next move is features, capacity, or task definition.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Sources: Hastie, Tibshirani, and Friedman on bias-variance; scikit-learn learning_curve documentation; Kaplan et al. on neural scaling laws; Hoffmann et al. on compute-optimal training. Treat scaling laws as planning tools built from the same curve-reading habit.',
+        'Study cross-validation, regularization, dropout, logistic regression, decision trees, double descent, data leakage, and calibration. The skill is to diagnose before changing the model.',
+      ], },
   ],
 };

@@ -1,4 +1,4 @@
-ï»¿// Linear scan register allocation: map many virtual registers to a small
+// Linear scan register allocation: map many virtual registers to a small
 // physical register file using live intervals, active sets, and spills.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -54,7 +54,7 @@ function* liveIntervals() {
   yield {
     state: intervalGraph('Register allocation starts from virtual registers'),
     highlight: { active: ['ssa', 'live', 'intervals', 'e-ssa-live', 'e-live-intervals'], compare: ['machine'] },
-    explanation: `${topic.title} bridges the gap between compiler IR, which pretends there are many virtual registers, and a real CPU with a small physical register file â€” a core ${topic.category} problem.`,
+    explanation: `${topic.title} bridges the gap between compiler IR, which pretends there are many virtual registers, and a real CPU with a small physical register file — a core ${topic.category} problem.`,
   };
   yield {
     state: labelMatrix(
@@ -84,7 +84,7 @@ function* liveIntervals() {
     state: intervalGraph('The active set is the allocator state'),
     highlight: { active: ['intervals', 'active', 'free', 'assign', 'e-intervals-active', 'e-active-assign'], found: ['machine'] },
     explanation: `The active set in ${topic.title} contains intervals currently occupying registers, usually ordered by end position. Expiring active intervals across the ${7}-node pipeline is what keeps the scan fast.`,
-    invariant: `At each program point in ${topic.title}, overlapping live intervals compete for the same finite registers â€” the central ${topic.category} invariant.`,
+    invariant: `At each program point in ${topic.title}, overlapping live intervals compete for the same finite registers — the central ${topic.category} invariant.`,
   };
 }
 
@@ -138,7 +138,7 @@ function* spillDecisions() {
       ],
     ),
     highlight: { active: ['linear:strength', 'jit:strength'], compare: ['color:cost'] },
-    explanation: `${topic.title} is popular in JITs and fast compilers â€” a key ${topic.category} tradeoff among ${4} allocator strategies. More expensive allocators can produce better code when compile latency is less important.`,
+    explanation: `${topic.title} is popular in JITs and fast compilers — a key ${topic.category} tradeoff among ${4} allocator strategies. More expensive allocators can produce better code when compile latency is less important.`,
   };
 }
 
@@ -154,136 +154,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation shows a linear scan allocator processing virtual registers one at a time. Active highlights mark the interval currently being allocated. Compared highlights mark intervals competing for the same physical register. Found highlights mark successful assignments. Removed highlights mark spilled intervals that lost their register.',
-        'In the "live intervals" view, watch the matrix fill as each virtual register receives an assignment or a spill marker. In the "spill decisions" view, watch how the allocator chooses which interval to evict when register pressure exceeds supply. The graph view shows the pipeline from SSA virtual registers through liveness analysis, active-set management, and final machine-register assignment.',
-        'At each frame, ask: which intervals overlap right now, how many registers are free, and why the allocator made the choice it did. If the spill decision seems wrong, check whether a different heuristic (shortest remaining lifetime vs. farthest next use) would have produced fewer total spills.',
+        'Each horizontal bar is a live interval, meaning the program positions where one temporary value must still be available. Registers are the small fast storage slots in the CPU. The active set contains intervals that overlap the current scan position and already occupy registers.',
+        'Read every step as interval scheduling. When an interval ends before the current one starts, its register can be reused. When too many intervals overlap, one value must spill, which means it is stored in memory and later loaded back.',
         {type: 'callout', text: 'Linear scan treats register allocation as a one-pass interval scheduling problem: expire dead values, assign free registers, and spill only when overlap exceeds capacity.'},
-      
-        {type: 'image', src: './assets/gifs/linear-scan-register-allocation.gif', alt: 'Animated walkthrough of the linear scan register allocation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/linear-scan-register-allocation.gif', alt: 'Animated walkthrough of the linear scan register allocation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A compiler intermediate representation names values freely. Every add, load, and phi node gets its own virtual register. The optimizer never worries about how many physical registers the target has. But the CPU does worry. An x86-64 chip has 16 general-purpose registers. AArch64 has 31. A GPU lane may have 64-256 depending on occupancy targets. Register allocation is the pass that maps an unbounded virtual name space onto this finite physical file.',
-        {
-          type: 'quote',
-          text: 'We have presented a register allocation algorithm whose time is linear in the size of the intermediate representation. This is in contrast to algorithms based on graph coloring, which have a worst-case time that is quadratic in the size of the interference graph.',
-          attribution: 'Massimiliano Poletto and Vivek Sarkar, "Linear Scan Register Allocation" (1999)',
-        },
+        'Compilers create more temporary values than a CPU has registers. A register allocator decides which values live in registers and which values spill to memory. Good choices matter because register access is far cheaper than memory access.',
+        'Linear scan exists for compilers that need fast allocation, such as just-in-time compilers. It gives up some optimality to allocate in one ordered pass over live intervals. That trade is attractive when compile time is part of user-visible latency.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel CPU die photograph showing the silicon target of compiled machine code.', caption: 'Register allocation is where compiler temporaries become concrete machine resources on hardware. Source: Wikimedia Commons, KL/Intel, public domain.'},
-        'Poletto and Sarkar published linear scan in 1999 to solve a specific production problem: JIT compilers cannot afford the compile latency of graph coloring. A Java method that runs once or twice should not wait hundreds of microseconds for optimal register assignment. Linear scan trades some code quality for a compilation speed that scales linearly with program size, making it the default allocator in most JIT compilers shipped since 2000.',
-        'The core tension is compile time vs. code quality. An ahead-of-time compiler compiles once and runs millions of times, so spending seconds on allocation is fine. A JIT compiler compiles at runtime, so every microsecond of allocation is a microsecond the user waits. Linear scan exists because "good enough registers, fast" beats "perfect registers, late" when compilation is on the critical path.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Graph coloring is the textbook answer. Build an interference graph where each node is a virtual register and each edge connects two registers live at the same point. Color the graph with k colors, one per physical register. If the graph is k-colorable, every virtual register gets a physical register with no conflicts. If not, simplify: remove low-degree nodes, spill high-degree nodes, and retry. Chaitin (1981) and Briggs (1994) refined this into iterated register coalescing, which merges compatible registers to eliminate move instructions.',
-        'Graph coloring produces excellent code. It sees the global interference structure, finds optimal coalescing opportunities, and handles irregular register constraints through careful graph manipulation. LLVM uses a greedy graph-coloring variant. GCC uses a sophisticated IRA (Integrated Register Allocator) with graph coloring at its core. For ahead-of-time compilers that run once per build, the cost is justified.',
-        'The approach works well for functions with hundreds of virtual registers. The interference graph is sparse enough to color quickly, and the resulting code runs millions of times, amortizing the compile cost. For a static compiler, graph coloring is not just reasonable -- it is often the right choice.',
+        'The classic approach is graph coloring. Build an interference graph where each value is a node, and an edge means two values are live at the same time and cannot share a register. Then color the graph with k colors for k registers.',
+        'Graph coloring is expressive because it sees conflicts globally. It can make better spill decisions in optimized ahead-of-time compilers. The cost is building and simplifying a graph that may be large.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'The graph-coloring baseline sees interference globally; linear scan replaces that graph with sorted live intervals and a moving active set. Source: Wikimedia Commons, David W., public domain.'},
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Graph coloring hits a wall when compilation is on the hot path. Building the interference graph requires comparing every pair of simultaneously live values. For a function with N virtual registers, the interference graph can have O(N^2) edges. Chaitin-style simplification iterates: color, fail, spill, rebuild, re-color. Each round re-does liveness analysis and graph construction. A single hot method in a Java application can have thousands of virtual registers after inlining.',
-        'The JIT wall is not theoretical. HotSpot C1, the client compiler, must compile methods in under a millisecond to avoid visible pauses. V8 Maglev must compile JavaScript functions fast enough that the user never notices the transition from interpreter to compiled code. A graph-coloring pass that takes 5ms per method is a dealbreaker when the engine compiles hundreds of methods during page load.',
-        {
-          type: 'note',
-          text: 'The wall is not just asymptotic. Graph coloring also has high constant factors: interference graph construction requires a hash set or bit matrix per live point, and coalescing passes walk the graph repeatedly. Linear scan replaces all of this with a single sorted array and one forward pass.',
-        },
-        'There is a second wall: implementation complexity. A production graph-coloring allocator needs coalescing, biased coloring, aggressive spill cost estimation, rematerialization, live range splitting, and careful handling of pre-colored (fixed) registers. Linear scan needs a sort, a sweep, and a spill heuristic. The simpler implementation is easier to maintain, debug, and port to new targets.',
+        'The wall is compile-time cost. A just-in-time compiler may need to compile a hot function while a program is running. Spending too long on global register optimization can cost more than the runtime speed it saves.',
+        'Many programs also contain short basic blocks and simple live ranges where global coloring is overkill. The allocator still must be correct, but it does not always need the most expensive possible search for a near-perfect assignment.',
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'If every live value is represented as an interval from first use to last use, overlap tells us register conflict. Scan intervals by start position. Keep only the intervals that are currently active, sorted by end position.',
+        'When a new interval starts, expire all active intervals that already ended. If a register is free, assign it. If no register is free, spill either the new interval or the active interval with the farthest end, because that choice frees a register for the longest remaining stretch.',
+      ],
+    },    {
       heading: 'How it works',
       paragraphs: [
-        'Linear scan reduces register allocation to a scheduling problem over one-dimensional intervals. Each virtual register is alive from its first definition to its last use. That span is its live interval. The allocator sorts all intervals by start position, then sweeps forward, maintaining an active set of intervals currently occupying physical registers.',
-        {
-          type: 'diagram',
-          label: 'Live intervals sorted by start point',
-          text: 'Position:  0   1   2   3   4   5   6   7   8   9\n           |---|---|---|---|---|---|---|---|---|---|\n  v1:      [===============================]         (0-8, gets R1)\n  v2:              [===========]                      (2-5, gets R2)\n  v3:                      [===================]     (4-9, spill or split)\n  v4:                              [=======]          (6-7, gets R2 after v2 expires)',
-        },
-        "The algorithm has three operations at each step. First, expire: remove any active interval whose end position is before the current interval's start, and return its physical register to the free pool. Second, allocate: if a free register exists, assign it to the current interval and add it to the active set. Third, spill: if no register is free, compare the current interval against active intervals and evict whichever is cheapest to spill.",
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Core linear scan: expire old intervals, then allocate or spill\nfunction linearScan(intervals, numRegisters) {\n  intervals.sort((a, b) => a.start - b.start);\n  const active = [];  // sorted by end point\n  const free = Array.from({length: numRegisters}, (_, i) => i);\n\n  for (const current of intervals) {\n    // Expire: release registers from intervals that ended\n    for (let i = active.length - 1; i >= 0; i--) {\n      if (active[i].end < current.start) {\n        free.push(active[i].register);\n        active.splice(i, 1);\n      }\n    }\n    if (free.length > 0) {\n      // Allocate: free register available\n      current.register = free.pop();\n      active.push(current);\n      active.sort((a, b) => a.end - b.end);\n    } else {\n      // Spill: evict the interval that ends latest\n      const last = active[active.length - 1];\n      if (last.end > current.end) {\n        current.register = last.register;\n        last.register = null;  // spilled to stack\n        active.pop();\n        active.push(current);\n        active.sort((a, b) => a.end - b.end);\n      } else {\n        current.register = null;  // spill current\n      }\n    }\n  }\n}',
-        },
-        'The spill heuristic above picks the interval with the farthest end point. This is the simplest useful policy: evicting a long-lived interval frees a register for the longest stretch. Production allocators use richer heuristics -- next-use distance, loop nesting depth, spill weight, and rematerialization cost -- but the structural skeleton is the same: sort, sweep, expire, allocate-or-spill.',
+        'First compute live intervals from the intermediate representation. A value starts at its definition or first needed point and ends at its last use. Sort intervals by start position.',
+        'Walk the sorted list. Before handling the next interval, remove active intervals whose end is before the new start and return their registers to the free pool. Then assign a free register or choose a spill.',
+        'A spill inserts memory traffic. If the new interval ends soon, it may keep a register and force a long active interval to spill. If the new interval ends far in the future, the allocator may spill the new value instead.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "Correctness rests on the liveness overlap invariant: two values can share a physical register if and only if their live intervals do not overlap. The sorted sweep guarantees that when the allocator processes interval I, every interval starting before I has already been assigned or spilled. The active set contains exactly the intervals that overlap I's start point. If the active set has fewer entries than the number of physical registers, a free register exists and the assignment is safe.",
-        "Expiring is safe because an interval that ended before the current start cannot conflict with any future interval processed in the sweep. The register it held is genuinely free. Spilling is safe because the spilled value moves to memory, removing it from register contention. The compiler inserts stores and reloads around the spilled interval's uses to maintain program semantics.",
-        "The monotonic property is that the scan position only moves forward. No interval is revisited. No assignment is reconsidered (in the basic algorithm). This is what makes the algorithm O(n log n) -- dominated by the initial sort -- compared to graph coloring's potential O(n^2) interference graph construction. The tradeoff is that linear scan makes local decisions at each step and cannot see global interference patterns that a graph-coloring allocator would exploit.",
+        'The invariant is that active contains exactly the intervals that overlap the current scan position and have assigned registers. Expiring ended intervals is safe because a value past its last use can never be read again. Reusing its register cannot change program behavior.',
+        'Two intervals that overlap are never assigned the same register unless one is spilled, because the allocator checks active conflicts before assignment. Two intervals that do not overlap can share a register because their lifetimes do not intersect. That is the correctness claim: every live value is either in its assigned register or in a known spill slot when needed.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The initial sort is O(n log n) where n is the number of live intervals. The sweep is O(n) with O(n) active-set operations. If the active set is kept sorted by end point, each insertion is O(k) where k is the number of physical registers -- a small constant (16 on x86-64, 31 on AArch64). Total: O(n log n) time, O(n) space. Doubling the number of virtual registers roughly doubles compilation time.',
-        {
-          type: 'bullets',
-          items: [
-            'Graph coloring: O(n^2) worst case, excellent code quality through global interference visibility, but too slow for latency-sensitive JIT tiers.',
-            'Basic linear scan: O(n log n), good code quality from local heuristics, and fast enough for HotSpot C1 and early V8-style baseline compilation.',
-            'Linear scan with splitting: O(n log n), better code quality through interval splitting and lifetime holes, used in Graal and V8 Maglev-style allocators.',
-            'Second-chance binpacking: O(n log n), adds a reclaiming pass for better spill recovery while staying close to linear-scan latency.',
-          ],
-        },
-        "Graph coloring pays O(n^2) for global visibility. Linear scan pays O(n log n) for speed. LSRA with interval splitting (Wimmer 2010) bridges the gap: it keeps linear scan's speed but splits long intervals at optimal points, recovering much of the code quality that basic linear scan loses. Second-chance binpacking (Traub 1998) makes two passes -- the second pass reassigns spilled intervals that fit in registers freed by the first pass -- adding modest cost for better spill decisions.",
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'The graph-coloring baseline sees interference globally; linear scan replaces that graph with sorted live intervals and a moving active set. Source: Wikimedia Commons, David W., public domain.'},
-        'In practice, the constant factors matter as much as the asymptotics. Linear scan avoids building an interference graph (which requires bit-matrix or hash-set storage per pair of live values), avoids iterative simplification, and avoids coalescing passes. On a function with 1,000 virtual registers, this can mean 10x-50x faster compilation than graph coloring with comparable spill counts.',
+        'Computing intervals depends on the compiler representation, but the allocation pass sorts n intervals and then scans them. With sorting, the cost is O(n log n). With intervals already in program order, the scan itself is close to O(n), plus active-set maintenance.',
+        'When n doubles, sort cost grows a little more than double, while the scan grows linearly. Memory is O(n) for intervals and O(k) for the active register set, where k is the number of registers. The behavioral cost that matters later is the number of inserted loads and stores from spills.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        "Linear scan dominates JIT compilation. HotSpot's C1 (client) compiler uses linear scan because methods must compile in under a millisecond. V8's Maglev tier uses a linear-scan variant because JavaScript functions are compiled during page load and any compilation pause degrades user experience. The Graal compiler (used in GraalVM and HotSpot C2 mode) uses Wimmer's LSRA with interval splitting, which is linear scan with surgical precision on split points.",
-        'It also fits well in tiered compilation systems. The baseline tier compiles fast with linear scan. If a method is hot enough to justify recompilation, a higher tier can apply graph coloring or a more aggressive LSRA variant. The key insight is that most compiled methods run few times -- only the hottest 5-10% justify expensive allocation. Linear scan makes the common case fast.',
-        {
-          type: 'bullets',
-          items: [
-            'JIT compilers (HotSpot C1, V8 Maglev, Graal): compilation latency is user-visible, so O(n log n) allocation is mandatory.',
-            'GPU shader compilers: thousands of shaders compile at application startup; a slow allocator delays the first frame.',
-            'Database query compilers (e.g., HyPer, Umbra): each query is compiled to machine code at execution time; register allocation must be sub-millisecond.',
-            'WebAssembly baseline compilers (V8 Liftoff, SpiderMonkey baseline): compile-on-first-call semantics require single-pass or near-single-pass allocation.',
-            'Debug/fast-build modes in AOT compilers: developers iterating on code want fast builds even if the generated code is slightly slower.',
-          ],
-        },
-        'Another structural advantage: linear scan pairs naturally with SSA form. SSA gives each value a single definition point, making live intervals easy to compute. Many SSA values have short lifetimes (one instruction defines, the next few use). Linear scan handles these efficiently because they expire quickly and recycle their registers.',
+        'Linear scan is common in just-in-time compilers and fast compiler tiers. It fits code that must compile quickly, then run soon after. The access pattern is one function at a time with live intervals known from local analysis.',
+        'It is also used in lower optimization tiers before a hotter function earns a slower optimizing compiler. A runtime can start with fast code, collect profiling data, and later recompile with a more expensive allocator if the function stays hot.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Linear scan makes local decisions. When register pressure spikes in a loop body, it cannot look ahead to see that a value is reused heavily after the loop. It may spill a value that is cheap to spill locally but expensive globally because it sits in an inner loop. Graph coloring sees the full interference structure and can make better global trade-offs.',
-        'Complex control flow degrades interval quality. A value live along one branch but dead along another gets a single interval spanning both paths, wasting a register on the dead path. Lifetime holes (intervals with gaps) help, but computing them accurately requires more analysis. Functions with many exception handlers, deeply nested conditionals, or irreducible control flow stress linear scan because the intervals become poor approximations of true liveness.',
-        {
-          type: 'note',
-          text: 'Linear scan also struggles with fixed-register constraints. If an x86 division requires the dividend in RAX and the remainder lands in RDX, the allocator must insert moves around these pinned registers. Graph coloring handles this through pre-coloring constraints on the interference graph. Linear scan handles it through ad-hoc move insertion and interval splitting, which can cascade into extra spills.',
-        },
-        'Correctness bugs in linear scan are subtle. If liveness analysis is wrong -- a value is marked dead too early or live too late -- the allocator reuses a register that still holds a needed value, producing silent data corruption. If call-clobber sets are incomplete, a caller-saved register is reused across a call that destroys it. These bugs are hard to reproduce because they depend on specific register assignments that change with unrelated code modifications.',
+        'Linear scan can spill more than graph coloring because interval endpoints hide detailed control-flow structure. A value may appear live across a long range even if only some paths need it. That coarse interval can occupy a register longer than necessary.',
+        'It also needs careful handling for fixed registers, calling conventions, loops, rematerialization, and split intervals. Production allocators often split live ranges to reduce spill cost. Plain textbook linear scan is the starting point, not the whole compiler backend.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose there are two registers R1 and R2. Intervals are a:[1,4], b:[2,6], c:[3,5], and d:[7,8]. Sort by start time and scan left to right.',
+        'At a, assign R1. At b, a is still active, so assign R2. At c, both a and b overlap and no register is free. The farthest end is b at 6, while c ends at 5, so spill b and give R2 to c.',
+        'At d, a, b, and c have all ended or spilled out of the active set, so a register is free. Assign d to R1. The allocator used one spill because three intervals overlapped while only two registers existed.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Massimiliano Poletto and Vivek Sarkar, "Linear Scan Register Allocation," ACM TOPLAS 21(5), 1999 -- the original paper defining the algorithm, active set, and expire/spill logic.',
-            'Christian Wimmer and Michael Franz, "Linear Scan Register Allocation on SSA Form," CGO 2010 -- extends linear scan with interval splitting, lifetime holes, and SSA-aware construction; used in Oracle Graal and HotSpot.',
-            'Gregory Chaitin, "Register Allocation and Spilling via Graph Coloring," SIGPLAN 1982 -- the graph-coloring baseline that linear scan aims to replace in compile-time-sensitive contexts.',
-            'Preston Briggs, Keith Cooper, and Linda Torczon, "Improvements to Graph Coloring Register Allocation," ACM TOPLAS 1994 -- iterated register coalescing; the gold standard for AOT allocators.',
-            'Todd Traub, Glenn Holloway, and Michael Smith, "Quality and Speed in Linear-Scan Register Allocation," SIGPLAN 1998 -- second-chance binpacking approach that makes two passes for better spill recovery.',
-          ],
-        },
-        'Study liveness analysis and control-flow graphs first -- linear scan is only as good as its input intervals. Then study SSA form and phi elimination, which determine how intervals are constructed. After that, study graph-coloring allocation (Chaitin/Briggs) to understand what linear scan gives up and why. For production depth, read the Graal compiler source (open-source, well-documented LSRA implementation) or the V8 register allocator source.',
-        'Related topics: instruction selection (the pass before allocation), instruction scheduling (the pass after, which interacts with spill placement), calling conventions (which constrain register choice across calls), stack frame layout (where spills live), and JIT tiering (which determines when linear scan is used vs. a more expensive allocator).',
+        'Primary source: Poletto and Sarkar, Linear Scan Register Allocation, ACM TOPLAS 1999. Study the paper for interval construction, active-set management, and why the method became important for fast compilers.',
+        'Study next by role. Liveness analysis explains where intervals come from. Graph coloring allocation explains the global baseline. SSA form, live-range splitting, and rematerialization explain how production allocators reduce spills.',
       ],
     },
   ],

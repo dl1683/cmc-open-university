@@ -113,147 +113,107 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation runs three versions of the same query against the same 8-row table. In the no-index case, highlighted cells show the full scan: every age value is compared, one by one. The visited markers show rows already checked and rejected. The found marker shows the single matching row, reached only after touching everything.',
-        'In the indexed case, the second B-tree appears: a sorted list of (age, pointer) entries. The visited marker shows the binary-search midpoint the engine checked first. The found marker lands directly on the target entry, then one hop fetches the full row from the table. Count the touches: 2-3 versus 8.',
-        'In the covering-index case, only the index is shown because the table is never read. The found markers on both the age and year columns of the index entry mean the answer was already present in the leaf. No table fetch happened at all.',
-      
-        {type: 'image', src: './assets/gifs/database-indexing.gif', alt: 'Animated walkthrough of the database indexing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The visualization runs three versions of the same query -- "WHERE age = 41" -- against the same 8-row table. Use the dropdown to switch between them. In the no-index case, every age cell lights up as the engine compares it: the "compare" highlight means the row is being tested. The "visited" markers show rows already rejected. The "found" marker appears on the single match, but only after all 8 rows have been touched. Count the highlights: every row paid a comparison.',
+        'In the indexed case, a second structure appears -- a sorted (age, pointer) list. The "visited" marker lands on the binary-search midpoint, and the "found" marker jumps straight to the target entry. One hop from the index entry to the table row fetches the full record. Total touches: 2-3 instead of 8. That ratio is the entire point.',
+        'In the covering-index case, only the index is shown. Both the age and year columns of the matching index entry carry "found" markers. The table never appears because the engine never read it -- the answer was already sitting in the index leaf. When the animation does not show the table, that absence is the lesson.',
+        {type: 'image', src: './assets/gifs/database-indexing.gif', alt: 'Animated walkthrough of the database indexing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A database index is a separate, sorted copy of one or more columns with pointers back to the original rows. Think of a book's index: instead of reading every page to find "algorithms", you look up "algorithms" in the index, which tells you page numbers to jump to. A table itself is already sorted by its primary key — MySQL InnoDB, Postgres, and SQLite all store the clustered index, where the table IS the primary-key B-tree. Secondary indexes (what you create with CREATE INDEX) are additional B-trees you build on other columns: (age, pointer-to-row), (name, pointer-to-row), etc.`,
-        { type: 'callout', text: `An index is a paid second layout: it turns a query predicate into a short tree walk and charges every write for keeping that proof current.` },
-        `Indexes exist because queries on unsorted columns require a full table scan: checking every row's value. At scale (millions of rows), this means pulling a million rows off disk to answer one lookup. An index shrinks that work: a binary search in the sorted index (~20 touches at a million rows) plus one jump to fetch the full row, versus a million touches for the scan.`,
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The obvious approach is to keep the table as the only copy of the data and scan it whenever a predicate appears. That is correct, simple, and often fine for tiny tables. It also preserves one write path: inserting a row only updates the table itself.',
-        'The wall arrives when the query is selective and the table is large. If one user lookup, order lookup, or date range asks the engine to examine every row, the system spends most of its time proving that rows are not relevant. An index is the escape hatch: pay extra storage and write work so reads can start from an ordered proof structure instead of from ignorance.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The visual compares three versions of the same query. In the scan case, every row is a candidate until the predicate rejects it. This is not the database being foolish; it simply has no narrower proof. In the indexed case, the search begins in a sorted key structure, so most rows are never candidates at all. In the covering-index case, the answer is already present in the index leaf, so the engine does not need to visit the table heap or clustered row.',
-        'That last jump is the lesson beginners often miss. An index is not just a fast lookup. It is a physical layout decision. Column order, selected columns, sort direction, cardinality, and table fetch cost decide whether an index is only a filter, a range-scan accelerator, an ordering mechanism, or a complete answer store for a narrow query.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        `When you query "WHERE age = 41" on an unindexed column, the database has no choice: scan the whole table, test every row's age, return matches. This is O(n). When you CREATE INDEX ON users(age), the database builds a B-tree keyed on age values: (23 → row6), (29 → row2), (31 → row8), … sorted. Now the same query becomes a B-tree descent (binary search): O(log n). For a million rows, the scan is 1,000,000 page touches; the index is 20 touches — a 50,000x speedup.`,
-        `A refinement: if your query is "SELECT year WHERE age = 41", you can build a covering index (age, year). The answer lives in the index leaf itself; the table is never touched. This is why SELECT * is expensive — it forces the database to fetch every column, which cannot be covered by a narrow index. Naming your columns lets the database answer more queries from smaller indexes alone.`,
-        `The cost arrives at write time. Every INSERT or UPDATE now touches three B-trees: the table, the age index, and the year index. One write triggers multiple tree updates across disk — write amplification. This is why LSM Trees (How Cassandra Writes) batches writes: scanning the index penalty is so high that amortizing it across many writes makes sense.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `Reads are cheap but writes are expensive. A query on an indexed column drops from O(n) to O(log n) — at a million rows, from 1,000,000 touches to 20. An unindexed query on a low-cardinality column (e.g., status: true/false) still barely helps — half the table matches, so you read half a million rows anyway. An index only earns back its write cost if you query it far more than you write. Design indexes for your workload: high-cardinality columns you filter on constantly, covering indexes for queries you run thousands of times per second.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `Every production database relies on indexing. Postgres EXPLAIN shows which indexes a query used (or didn't: "Seq Scan" means full table scan, your cue to add an index). MySQL InnoDB automatically indexes the primary key; you add secondary indexes manually. SQLite's EXPLAIN QUERY PLAN reveals the search strategy. In a real e-commerce system: user IDs are indexed (you query by user constantly), order dates are indexed (range queries: "orders in June"), product names are indexed (autocomplete). Without indexes, a query like "find all orders by user 12345" would scan millions of rows. With an index on user_id, it jumps straight to the 50 rows belonging to that user.`,
-        `The EXPLAIN diagnostic is your first tool for slow queries. Postgres and MySQL both show the query plan: if it says "Seq Scan" or "Full Table Scan", add an index. If it already uses an index but is still slow, investigate write amplification (too many indexes) or cardinality (index doesn't narrow the search enough).`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `One myth: "add an index and queries get faster." Indexes help only on high-cardinality filters (columns with many distinct values). An index on a boolean or status field (cardinality = 2) barely helps because half the rows match anyway. Another myth: "use SELECT *." This forces the database to fetch every column from the table, preventing covering indexes. Name your columns and let the database stay in a smaller index if possible.`,
-        `The biggest pitfall is indexing without measuring. Add too many indexes and writes slow down (write amplification strikes); queries might still scan because the optimizer chose a cheaper full scan. Always run EXPLAIN first, measure before and after, and delete indexes that don't earn back their write cost. Finally, indexes are data structures too: they grow, they fragment, they need maintenance (REINDEX, VACUUM in Postgres). They are not free intelligence — they are a workload trade-off.`,
-      ],
-    },
-    {
-      heading: 'How planners decide',
-      paragraphs: [
-        'A planner does not ask whether an index exists. It asks whether using that index is cheaper than the alternatives. It estimates selectivity from statistics, estimates how many table pages must be fetched, checks whether the index order can satisfy ORDER BY, and checks whether the requested columns can be returned from the index alone. A sequential scan over a small table can be the best plan. An index scan that jumps randomly across a huge heap can be worse than reading the table once in order.',
-        'Composite indexes make this concrete. An index on (tenant_id, created_at) is ideal for one tenant over a time range because the equality prefix narrows the tree before the range scan begins. The same index is weak for all tenants over one date range because created_at is not the leading key. This is why index design starts from repeated query shapes, not from a list of columns that feel important.',
-      ],
-    },
-    {
-      heading: 'Sources and engine details',
-      paragraphs: [
-        `PostgreSQL's planner documentation is the right companion for this topic: EXPLAIN shows the query plan the planner selected, and PostgreSQL emphasizes that choosing the plan matching query structure and data properties is critical: https://www.postgresql.org/docs/current/using-explain.html. The PostgreSQL multicolumn-index documentation explains why column order and access method matter, especially for B-tree indexes: https://www.postgresql.org/docs/current/indexes-multicolumn.html.`,
-        `MySQL's optimization guide describes indexes as a main way to improve SELECT operations on columns used in query conditions, with index entries acting as pointers to rows: https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html. SQLite's query planner guide and EXPLAIN QUERY PLAN reference show the same lesson in an embedded engine: planners choose between scans and index searches based on available indexes, predicates, ordering, and estimated cost: https://www.sqlite.org/queryplanner.html and https://sqlite.org/eqp.html.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `SQL Join Algorithms Primer shows why an index can turn a nested-loop join from a disaster into the right plan. PostgreSQL Query Planner Case Study explains why the optimizer may still ignore an index when estimated cost is higher.`,
-        `Indexes are B-Trees in action — explore B-Trees (How Databases Read) to understand the physical structure, then B+ Tree Leaf Sibling Scan Case Study to see why linked leaves make range scans and covering indexes practical. PostgreSQL HOT Update Heap-Only Tuple shows when an update can avoid redundant secondary-index entries. Binary Search is how the index finds a key in logarithmic time. Hash Tables offer an alternative for exact-match lookups (fast but cannot handle ranges; indexes can). Bw-Tree Delta Chain & Mapping Table shows how a B+ tree can trade page latches for CAS, delta replay, consolidation, and epoch reclamation. LSM Trees (How Cassandra Writes) are an entirely different approach to indexing that batches writes and amortizes the write amplification cost. Write-Ahead Log (WAL) is the consistency mechanism that protects your indexes during crashes.`,
+        'A database table is stored on disk in some physical order -- usually by primary key. MySQL InnoDB, Postgres, and SQLite all organize the table as a B-tree keyed on the primary key (called the clustered index). If you ask "WHERE id = 6", the engine walks that B-tree in O(log n) time and returns the row. The trouble starts when you query any column that is not the primary key.',
+        'A database index is a separate, sorted data structure built on one or more non-primary-key columns. Each entry in the index holds (column value, pointer back to the original row). "Sorted" is the operative word: it means the engine can binary-search the index instead of scanning the entire table. CREATE INDEX ON users(age) tells the database to build a second B-tree keyed on age values, maintained automatically on every write.',
+        { type: 'callout', text: 'An index is a paid second layout: it turns a query predicate into a short tree walk and charges every write for keeping that proof current.' },
+        'The economics are stark. A 10-million-row table with no index on age forces the engine to read all 10 million rows for "WHERE age = 41". With an index, the same query touches roughly log2(10,000,000) = 23 index entries plus one table-row fetch. That is a million-to-one ratio in row touches. Every production database lives or dies by this ratio.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first instinct is to keep the table as the only copy of the data and scan it for every query. This is correct, simple, and honest: no extra storage, no write overhead, no stale structures to maintain. For a 200-row config table queried once a minute, a full scan finishes in microseconds and an index would be pointless overhead.',
-        'The approach works until the table grows and the queries get selective. A query asking for one user out of ten million still reads all ten million rows. The scan cost is proportional to table size, not result size. Once the ratio between rows examined and rows returned becomes large enough, the scan dominates total query time, and the system has no way to improve it without a structural change to how data is accessed.',
+        'Keep the table as the only copy of the data. When a query arrives, scan every row and test the predicate against each one. This is called a full table scan (or sequential scan in Postgres). It is correct, simple, and requires zero extra storage. Writes are fast because inserting a row only updates one structure.',
+        'For small tables this is fine. A 200-row config table scanned once a minute finishes in microseconds. The scan reads rows in physical order, which is friendly to disk prefetching and the OS page cache. There is no maintenance overhead -- no extra trees to split, merge, or rebalance. If the table fits in memory and queries are infrequent, a scan is the right plan.',
       ],
     },
-
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The scan cost is proportional to the table size, not the result size. A query returning one row out of ten million still reads all ten million rows. As the table grows, the gap between "rows examined" and "rows returned" widens until the scan dominates total query time.',
+        'Consider a web application with a users table of 5 million rows, serving 200 login requests per second. Each login runs "SELECT * FROM users WHERE email = ?". Without an index on email, each request scans 5 million rows. At 8 KB per page and 100 rows per page, that is 50,000 page reads per query -- 10 million page reads per second across all requests. The disk cannot keep up; the database stalls. The system needs a way to answer "which row has this email?" without reading the entire table.',
+      ],
+    },
     {
       heading: 'The core insight',
       paragraphs: [
-        'An index is a second copy of selected columns, stored in sorted order, with pointers back to the full rows. Sorted order turns a linear scan into a tree descent: one comparison at each level eliminates an entire subtree of non-matching keys. The data itself does not move; the index is a parallel proof structure that lets the engine skip work the table layout cannot skip.',
+        'An index is a second copy of selected columns, stored in sorted order, with pointers back to the full rows. Sorted order transforms a linear scan into a tree descent: at each internal node, one comparison eliminates an entire subtree of keys that cannot match. The original data does not move; the index is a parallel proof structure that lets the engine skip the work the table layout cannot skip.',
         { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Bplustree.png/500px-Bplustree.png', alt: 'B plus tree with internal keys and linked leaf records', caption: 'A B+ tree makes the index layout visible: internal keys route the lookup, and leaves hold ordered values for scans. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
-        'The deeper insight is that indexes are not just about lookup speed. They are physical layout decisions. A B+ tree index stores all actual values in its leaves, linked together in key order. Internal nodes hold only separator keys that route searches downward. This separation means range scans never touch internal nodes at all: find the first matching leaf, then walk the linked leaf chain. This is why B+ trees dominate databases while plain B-trees do not: B-trees store data at every level, so a range scan must traverse the entire tree structure. B+ trees confine data to leaves and link those leaves, making sequential access as fast as reading a sorted file.',
+        'The deeper insight is that an index is not just a lookup accelerator -- it is a physical layout decision. A B+ tree index stores all actual values in its leaf nodes, linked together in key order. Internal nodes hold only separator keys that route searches downward. This separation means range scans never touch internal nodes: find the first matching leaf, then walk the linked leaf chain. B+ trees dominate databases over plain B-trees precisely because B-trees store data at every level, making range scans require full tree traversal. B+ trees confine data to leaves and link those leaves, so sequential access is as fast as reading a sorted file.',
       ],
     },
-
     {
-      heading: 'B+ tree structure: why databases chose it',
+      heading: 'How it works',
       paragraphs: [
-        'A B+ tree is a balanced search tree where every value lives in a leaf node, and internal nodes exist only to route searches. In an order-4 B+ tree, each internal node holds up to 3 keys and 4 child pointers; each leaf holds up to 3 key-value pairs and a pointer to the next leaf. The root-to-leaf path length is identical for every key, so lookup cost is uniform.',
+        'The mechanism has three layers: the B+ tree structure, the lookup procedure, and the covering-index optimization. Each one builds on the previous.',
+        'A B+ tree is a balanced search tree where every value lives in a leaf node and internal nodes exist only to route searches. In a typical database page size of 8 KB, a single internal node can hold hundreds of separator keys and child pointers (the branching factor). Each leaf holds key-value pairs and a pointer to the next leaf. Because every root-to-leaf path has the same length, lookup cost is uniform for every key.',
         { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/B%2Btree_node_format.png/330px-B%2Btree_node_format.png', alt: 'B plus tree node format with keys and child pointers', caption: 'The node format shows why B+ trees have high fanout: one page can route many child ranges. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
-        'Internal nodes are a search index over the leaves. When searching for key 41, the engine reads the root, compares 41 against the separator keys, and follows the appropriate child pointer. At each level, one comparison eliminates all children on the wrong side. After log_b(n) levels (where b is the branching factor), the search lands on the correct leaf. The leaf contains the actual value (or a pointer to the table row).',
-        'The leaf chain is the feature that separates B+ trees from B-trees. In a B-tree, data lives at every level, so a range query like "WHERE age BETWEEN 30 AND 50" must traverse internal nodes, descend to children, ascend back, and continue. In a B+ tree, the engine finds the first leaf where age >= 30, then walks the next-leaf pointers until age > 50. No backtracking, no re-traversal. The leaf chain turns a tree into a sorted linked list for range access.',
-        'Disk alignment is the other reason. A B+ tree node is sized to match a disk page (typically 4 KB or 8 KB). One disk read loads an entire node with hundreds of keys. A binary search tree, by contrast, stores one key per node and requires one disk read per comparison. For a million keys, a BST needs ~20 disk reads (one per level); a B+ tree with a branching factor of 200 needs ~3 disk reads (log_200 of 1,000,000). Disk reads cost milliseconds; CPU comparisons cost nanoseconds. The wide node amortizes disk latency across hundreds of comparisons per read.',
+        'Point lookup: to find age = 41, the engine reads the root node and compares 41 against its separator keys. This determines which child pointer to follow. At each subsequent level, one comparison eliminates all children on the wrong side. After log_b(n) levels (b = branching factor, n = total keys), the search lands on the correct leaf. With a branching factor of 200 and a million keys, that is ceil(log_200(1,000,000)) = 3 disk reads. A binary search tree storing one key per node would need log_2(1,000,000) = 20 disk reads for the same lookup.',
+        'Range scan: the leaf chain is the feature that separates B+ trees from every other balanced tree. After finding the first leaf where age >= 30, the engine follows next-leaf pointers until age > 50. No backtracking, no re-traversal of internal nodes. The leaf chain turns a tree into a sorted linked list for sequential access.',
+        'A composite index sorts on multiple columns in order. An index on (tenant_id, created_at) sorts first by tenant_id, then by created_at within each tenant. This makes "WHERE tenant_id = 7 AND created_at > \'2024-01-01\'" efficient: the equality prefix narrows the tree, then the range predicate walks the leaf chain. But "WHERE created_at > \'2024-01-01\'" alone cannot use this index well because created_at is not the leading key -- the B+ tree is not sorted by created_at globally.',
+        'A covering index includes all columns a query needs in its leaf entries. For "SELECT year WHERE age = 41", an index on (age, year) stores both age and year in each leaf. The engine finds the matching leaf entry and returns the year value directly -- the table row is never fetched. This eliminates the random I/O cost of jumping from scattered index entries back to scattered table pages. The tradeoff: wider indexes consume more storage, more buffer-pool memory, and more write work on every INSERT and UPDATE.',
       ],
     },
-
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness rests on the B+ tree invariant: for every internal node, all keys in the i-th subtree are strictly less than the i-th separator key, and all keys in the (i+1)-th subtree are greater than or equal to it. This ordering guarantee means a search that follows the correct child pointer at each level will always land on the leaf that contains the target key if it exists. No key can hide in a subtree the search skipped.',
-        'Insertions preserve the invariant by splitting: when a leaf overflows (exceeds its maximum key count), it splits into two leaves and pushes a copy of the middle key up to the parent as a new separator. If the parent overflows, it splits too, potentially all the way to the root. A root split creates a new root with two children, increasing tree height by one. Since splits propagate upward and the tree grows from the top, all leaves remain at the same depth. This guarantees O(log n) worst-case lookup regardless of insertion order.',
+        'Correctness rests on the B+ tree sorted-range invariant: for every internal node, all keys in the i-th subtree are strictly less than the i-th separator key, and all keys in the (i+1)-th subtree are greater than or equal to it. A search that follows the correct child pointer at each level is guaranteed to land on the leaf containing the target key, if it exists. No key can hide in a subtree the search skipped, because the separator truthfully partitions the key space.',
+        'Insertions preserve the invariant by splitting. When a leaf exceeds its maximum key count, it splits into two leaves and pushes a copy of the middle key up to the parent as a new separator. If the parent overflows, it splits too, potentially cascading to the root. A root split creates a new root with two children, increasing tree height by exactly one. Because splits propagate upward and the tree grows from the top, all leaves remain at the same depth at all times. This guarantees O(log n) worst-case lookup regardless of insertion order -- no degenerate cases like an unbalanced BST.',
         { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/B%2B-tree-remove-61.png/250px-B%2B-tree-remove-61.png', alt: 'B plus tree deletion example showing leaf and parent updates', caption: 'Deletes preserve the same sorted range invariant by redistributing, merging, and updating separators. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
-        'Deletions merge or redistribute keys between siblings when a leaf underflows. The parent separator key is updated to reflect the new boundary. The invariant is preserved at every step: the separator always truthfully describes the key range of each subtree below it.',
+        'Deletions preserve balance by merging or redistributing keys between sibling leaves when a leaf underflows (drops below minimum occupancy). The parent separator is updated to reflect the new boundary. At every step, the invariant holds: separators truthfully describe the key range of each subtree below. This merge-or-redistribute rule is why B+ trees never become unbalanced -- unlike a plain BST, there is no sequence of operations that can make one path longer than another.',
       ],
     },
-
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Point lookup on an indexed column costs O(log_b(n)) disk reads, where b is the branching factor (typically 100-500 for an 8 KB page) and n is the number of keys. For 10 million rows with b = 200, that is ceil(log_200(10,000,000)) = 4 disk reads. The same lookup without an index costs O(n/R) disk reads, where R is rows per page -- roughly 100,000 page reads. The index is 25,000 times cheaper.',
+        'Range scans cost O(log_b(n)) to find the start key, then O(k/R) to walk k matching leaf entries across sequential pages. Because leaves are linked, this sequential walk benefits from disk prefetching and the OS page cache. A range query returning 500 rows from a 10-million-row table touches about 4 + 5 = 9 pages total, versus 100,000 pages for a full scan.',
+        'Write amplification is the tax. Every INSERT or UPDATE must update the table plus every index defined on it. Two indexes means three B-tree writes per row change. Each B-tree write may cascade splits or merges. For a write-heavy workload (10,000 inserts/second on a table with 5 indexes), the database performs 60,000 B-tree operations per second instead of 10,000. This is why LSM-tree databases like Cassandra and RocksDB batch and defer index updates -- the write amplification of maintaining sorted B-trees on every write is the fundamental cost.',
+        'Space overhead is typically 1-3x the indexed column size per index. An index on a 4-byte integer column over 10 million rows uses roughly 40-120 MB including internal nodes and page overhead. A covering index on (age, year, name) over the same table uses proportionally more. Each index also competes for space in the buffer pool (the in-memory page cache), so adding indexes can evict hot data pages and slow unrelated queries.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Every production relational database relies on indexes for acceptable query latency. Postgres EXPLAIN shows the plan the optimizer selected: "Index Scan" or "Index Only Scan" means the index is being used; "Seq Scan" means full table scan and is your signal to investigate. MySQL EXPLAIN shows "type: ref" for an index lookup and "type: ALL" for a full scan.',
+        'In a real e-commerce system: the orders table has an index on (user_id) because "show me my orders" runs thousands of times per second. An index on (created_at) supports "orders placed today" dashboards. A covering index on (user_id, created_at, total) lets the "order history" page return results without touching the base table. Without the user_id index, every "my orders" query scans millions of rows to find the 30 belonging to that user.',
+        'The query planner decides whether to use an index at all. It estimates selectivity from column statistics (histograms of value distribution), estimates how many table pages the index entries point to, and compares the total cost against a sequential scan. A sequential scan over a small table can be the best plan. An index scan that jumps randomly across a huge heap -- touching scattered pages for every matching row -- can be worse than reading the table once in order. This is why blindly adding indexes does not guarantee speedup.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Low-cardinality columns waste index space. An index on a boolean column (cardinality = 2) means half the rows match either value. The engine reads half the index, then fetches half the table pages -- barely better than a full scan, but the index still costs write amplification on every INSERT. Partial indexes (Postgres) or filtered indexes (SQL Server) can help by indexing only rows where the boolean is true, but the general rule holds: indexes earn their keep only on columns with many distinct values relative to table size.',
+        'Too many indexes cripple writes. A table with 8 indexes means every INSERT updates 9 B-trees. Every UPDATE that touches an indexed column updates the old and new entries in that index. In write-heavy workloads (logging, event tracking, IoT telemetry), the write amplification can exceed the read benefit. The fix is measuring: run EXPLAIN on your actual queries, check pg_stat_user_indexes in Postgres to see which indexes are actually scanned, and drop the ones that are not earning their keep.',
+        'Index maintenance is real operational work. B-tree pages fragment over time as inserts and deletes leave partially-filled pages. Postgres requires VACUUM to reclaim dead tuples from indexes and REINDEX to rebuild fragmented trees. MySQL InnoDB has online DDL for rebuilding indexes but the rebuild still costs I/O. Indexes are data structures with the same lifecycle costs as any other data structure -- allocation, fragmentation, and garbage collection.',
+      ],
+    },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Build an order-4 B+ tree (max 3 keys per node) by inserting keys 10, 20, 30, 40, 50, 60, 70 in sequence.',
-        'Insert 10, 20, 30: the root leaf holds [10, 20, 30]. It is full. Insert 40: the leaf splits. Left leaf gets [10, 20], right leaf gets [30, 40]. The key 30 is copied up to a new root: [30]. The root has two children. The leaves are linked: [10, 20] -> [30, 40].',
-        'Insert 50: 50 > 30, so go right to [30, 40]. It becomes [30, 40, 50]. Full. Insert 60: the right leaf splits. Left half [30, 40], right half [50, 60]. Copy 50 up to root: root becomes [30, 50] with three children. Leaves: [10, 20] -> [30, 40] -> [50, 60].',
-        'Insert 70: 70 > 50, go to rightmost leaf [50, 60]. It becomes [50, 60, 70]. Still room in the root for another split if needed. The tree is now two levels deep. A search for key 40: start at root [30, 50]. 40 >= 30 and 40 < 50, follow the middle pointer to leaf [30, 40]. Scan the leaf, find 40. Total: 2 node reads.',
-        'A range query "WHERE key BETWEEN 20 AND 50": find the leaf containing 20 ([10, 20]), then follow next-leaf pointers: [10, 20] -> [30, 40] -> [50, 60]. Read three leaves sequentially. No internal nodes are revisited. This is why B+ trees make range queries cheap: the leaf chain provides sorted sequential access.',
+        'Consider a users table with 1,000,000 rows, stored in a clustered B+ tree keyed on id. Each disk page is 8 KB and holds about 100 rows. The table occupies 10,000 pages on disk.',
+        'Query without index: "SELECT * FROM users WHERE email = \'alice@example.com\'". The engine reads all 10,000 pages, tests every row\'s email column. At 0.1 ms per random page read (SSD), that is 1,000 ms = 1 second. For a spinning disk at 5 ms per seek, it is 50 seconds. This is the full table scan.',
+        'Now create an index: CREATE INDEX idx_email ON users(email). The database builds a B+ tree on email values. With a branching factor of 200, the tree height is ceil(log_200(1,000,000)) = 3 levels. A point lookup reads 3 index pages to find the leaf entry, then 1 table page to fetch the full row. Total: 4 page reads, or 0.4 ms on SSD. That is a 2,500x speedup over the scan.',
+        'Now build a B+ tree from scratch with a small example. Order-4 tree (max 3 keys per leaf or internal node). Insert keys 10, 20, 30, 40, 50, 60, 70 in sequence. Insert 10, 20, 30: root leaf holds [10, 20, 30] -- full. Insert 40: leaf splits into [10, 20] and [30, 40]. Key 30 copies up to a new root: root = [30], two children, leaves linked [10, 20] -> [30, 40].',
+        'Insert 50: goes right (50 > 30) to [30, 40], which becomes [30, 40, 50] -- full. Insert 60: right leaf splits into [30, 40] and [50, 60]. Key 50 copies up: root = [30, 50], three children. Leaves: [10, 20] -> [30, 40] -> [50, 60]. Insert 70: goes to rightmost leaf [50, 60], becomes [50, 60, 70]. Tree is two levels deep.',
+        'Search for key 40: start at root [30, 50]. 30 <= 40 < 50, follow middle pointer to leaf [30, 40]. Find 40 in the leaf. Total: 2 node reads (1 internal + 1 leaf). Range query "WHERE key BETWEEN 20 AND 50": find leaf containing 20, which is [10, 20]. Follow next-leaf pointers: [10, 20] -> [30, 40] -> [50, 60]. Read three leaves sequentially. No internal nodes revisited. This sequential leaf walk is why B+ trees make range queries cheap.',
+        'Write amplification example: the users table has indexes on (email), (age), and (created_at). One INSERT writes the clustered table B-tree plus three secondary index B-trees = 4 B-tree insertions per row. At 10,000 inserts/second, the database performs 40,000 B-tree insertions/second. If each insertion averages 2 page writes (the leaf plus occasionally a split), that is 80,000 page writes/second. Without any secondary indexes, it would be 20,000 page writes/second. Each index quadrupled the write load for that column.',
       ],
     },
-
     {
-      heading: 'Covering indexes and composite indexes',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A composite index is an index on multiple columns in a specified order, such as (tenant_id, created_at, amount). The B+ tree sorts first by tenant_id, then by created_at within each tenant, then by amount within each (tenant_id, created_at) pair. This makes the index useful for queries that filter on a prefix of the column list: WHERE tenant_id = 7 uses the first column. WHERE tenant_id = 7 AND created_at > "2024-01-01" uses the first two. WHERE created_at > "2024-01-01" alone cannot use this index efficiently because created_at is not the leading key; the B+ tree is not sorted by created_at globally.',
-        'A covering index includes all columns a query needs, so the engine never fetches the base table row. For "SELECT amount WHERE tenant_id = 7 AND created_at > \'2024-06-01\'", an index on (tenant_id, created_at, amount) covers the query completely: the leaf entries contain tenant_id, created_at, and amount. The engine walks the leaf chain and returns results without a single table lookup. This eliminates the random I/O cost of jumping from index entries back to scattered table pages.',
-        'The tradeoff is width. A covering index that includes many columns is large, slow to update, and consumes more memory in the buffer pool. A narrow index on (tenant_id) is small and fast to maintain but forces a table fetch for every matching row. Index design is a workload negotiation: which queries run often enough to justify the storage and write cost of wider indexes.',
+        'PostgreSQL EXPLAIN documentation shows how to read query plans and identify missing indexes: https://www.postgresql.org/docs/current/using-explain.html. The PostgreSQL multicolumn-index documentation explains why column order determines which queries an index can serve: https://www.postgresql.org/docs/current/indexes-multicolumn.html. MySQL\'s optimization guide covers index types and the optimizer\'s index selection logic: https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html. SQLite\'s query planner guide shows the same principles in an embedded engine: https://www.sqlite.org/queryplanner.html.',
+        'B-Trees (How Databases Read) covers the physical B-tree structure that indexes are built on. B+ Tree Leaf Sibling Scan Case Study shows why linked leaves make range scans and covering indexes practical. Binary Search explains the logarithmic search that happens inside each B+ tree node. Hash Tables offer an alternative for exact-match lookups (O(1) but cannot handle ranges or ordering). LSM Trees (How Cassandra Writes) shows a fundamentally different indexing strategy that batches writes to avoid B-tree write amplification. Write-Ahead Log (WAL) is the crash-recovery mechanism that protects index updates. SQL Join Algorithms Primer shows how indexes transform join performance. PostgreSQL Query Planner Case Study explains when the optimizer deliberately ignores an available index.',
       ],
     },
-
-    {
-      heading: 'B+ tree vs B-tree: why leaves matter',
-      paragraphs: [
-        'In a B-tree, every node (internal and leaf) stores key-value pairs. A search can terminate at any level if it finds the key in an internal node. This sounds like an advantage, but it has two costs. First, internal nodes are wider because they hold values alongside keys, so fewer keys fit per node, which increases tree height and disk reads. Second, range scans are expensive: after finding the start key, the traversal must perform an in-order walk of the entire tree, visiting internal nodes and descending into children repeatedly.',
-        'A B+ tree separates concerns. Internal nodes hold only keys and child pointers, maximizing the branching factor per node. All values live in leaves, and leaves are linked. A range scan finds the first leaf and follows pointers. The result is fewer disk reads for point lookups (wider nodes mean shorter trees) and dramatically faster range scans (sequential leaf access versus tree traversal). This is why every major relational database (Postgres, MySQL InnoDB, SQL Server, Oracle, SQLite) uses B+ trees for its indexes, not B-trees.',
-      ],
-    },
-],
+  ],
 };

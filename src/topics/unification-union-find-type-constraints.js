@@ -156,61 +156,99 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Unification Union-Find Type Constraints. Solve type equations with substitutions: fresh variables, equality constraints, union-find classes, occurs checks, and most-general unifiers..",
-        {type: "callout", text: "Unification delays guesses: it records forced equalities, merges equivalent variables, and binds structures only when the occurs check says the type stays finite."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/unification-union-find-type-constraints.gif', alt: 'Animated walkthrough of the unification union find type constraints visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Read the animation as a type-equation solver. Active items are the current constraint, visited items are constraints already justified, and found items are type variables or structures whose equality is now guaranteed.',
+        {
+          type: 'callout',
+          text: 'Unification delays guesses: it records forced equalities, merges equivalent variables, and binds structures only when the occurs check says the type stays finite.',
+        },
+        'A type variable is an unknown type, and union-find stores variables that must be equal in the same class. The safe inference rule is that a variable can bind to a structure only if the variable does not occur inside that structure.',
+        {
+          type: 'image',
+          src: './assets/gifs/unification-union-find-type-constraints.gif',
+          alt: 'Animated walkthrough of the unification union find type constraints visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A type checker often knows how a value is used before it knows what the value is. In f(x), the argument type, function type, and return type may all start unknown.',
-        'The compiler needs one set of type assignments that makes every use agree. If x is tested in an if condition, x must be bool. If f(x) is added to 1, the result of f must be int. Those facts must meet in one solver.',
-        'Unification is the equality solver for this problem. It takes equations between type terms and returns the most general substitution that makes the equations true.',
+        'A type checker must decide whether program expressions can consistently have types. A type is a description such as int, bool, list of int, or function from int to bool.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first attempt is local checking. Give 1 the type int, give true the type bool, check each function call against the function annotation, and report an error when a local rule fails.',
-        'That works for annotated code. It breaks down when the program leaves types implicit and lets one unknown flow through several expressions. A local checker either guesses too early or keeps rediscovering that several variables are really the same unknown.',
+        'The obvious approach is local checking. Give literals fixed types, check each operation against its expected types, and report an error as soon as a local rule does not match.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The wall',
       paragraphs: [
-        'The missing structure is equality between unknowns. If b and c are the same result type, solving them separately can duplicate work and produce inconsistent errors.',
-        'The other missing guard is the occurs check. If the solver accepts a = a -> b, it has said that a type contains itself. Ordinary Hindley-Milner inference rejects that infinite type rather than hiding it inside a substitution.',
+        'The wall is shared unknowns. If a and b are really the same type variable, solving them separately can duplicate work or produce inconsistent substitutions.',
+        'A second wall is infinite types. If the solver accepts a = list a or a = a -> int, it has built a type that contains itself forever, which ordinary Hindley-Milner inference rejects.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Do not guess a type. Create fresh variables, collect equality constraints from program use, and solve only what the constraints force.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/67/Dsu_disjoint_sets_init.svg', alt: 'Initial disjoint-set forest with every element in its own set', caption: 'Union-Find starts with separate equivalence classes; type inference begins the same way when each unknown gets a fresh variable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_init.svg.'},
-        'Union-Find stores equal type variables as one equivalence class. Structured type terms store constructors such as int, bool, list a, and a -> b. A class can be bound to a structure only when doing so passes the occurs check.',
-        'The target is the most-general unifier. If the program only proves a = b, the solver should merge a and b, not invent int. More specific answers can come later from more constraints.',
+        'Represent unknown types as variables and equal variables as union-find classes. Union-find is a data structure that maintains groups by parent pointers, so equivalent variables share one representative.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/67/Dsu_disjoint_sets_init.svg',
+          alt: 'Initial disjoint-set forest with every element in its own set',
+          caption: 'Union-Find starts with separate equivalence classes; type inference begins the same way when each unknown gets a fresh variable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_init.svg.',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Inference first walks the expression tree. It gives fresh variables to unknown expressions and emits equations from usage: applying f to x emits f = a -> b, using a value as an int emits a = int, and returning two branch values emits left = right.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Dsu_disjoint_sets_final.svg', alt: 'Final disjoint-set forest after several union operations', caption: 'After unions, equivalent unknowns share representatives; the type solver can then attach one structure to the class instead of repeating the same substitution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_final.svg.'},
-        'The solver keeps a worklist of equations. If the equation is a = a, it is done. If it is a = b, the two classes are unioned. If it is a = int, the class for a is bound to int. If it is a -> b = int -> c, the solver decomposes it into a = int and b = c.',
-        'Different constructors fail immediately. int cannot unify with bool, and list a cannot unify with a function type. A variable can bind to a structure only if that variable does not occur inside the structure.',
+        'The inference pass creates fresh variables for unknown expression types and emits equations from program use. Applying f to x emits a constraint like f = a -> b, where a is the argument type and b is the result type.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Dsu_disjoint_sets_final.svg',
+          alt: 'Final disjoint-set forest after several union operations',
+          caption: 'After unions, equivalent unknowns share representatives; the type solver can then attach one structure to the class instead of repeating the same substitution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_final.svg.',
+        },
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Every solver rule preserves the set of possible substitutions. Merging a = b is safe because any solution must assign them the same type. Binding a = int is safe when no previous binding conflicts. Decomposing function equality is safe because two function types are equal only when their argument and result types are equal.',
-        'The occurs check preserves finite types. If a occurs inside t, binding a := t would require expanding a forever. Rejecting that equation prevents the solver from manufacturing a recursive type the language did not ask for.',
-        'Generality comes from restraint. Union-Find records equalities without choosing concrete types until a concrete type is forced. That is why the result can be reused in more call sites.',
+        'Each rule preserves exactly the solutions that could still type the program. If a = b is required, every valid substitution gives a and b the same type, so merging their classes loses no valid answer.',
       ],
-    }
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Union and find operations cost amortized O(alpha(n)), where alpha is the inverse Ackermann function and is effectively constant for real program sizes. Structural decomposition costs proportional to the size of the type terms being compared.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Hindley-Milner type inference uses unification to infer types without requiring every function argument to be annotated. The same idea appears in logic programming and theorem proving.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the language needs constraints beyond equality. Type classes, subtyping, row polymorphism, effects, and lifetimes require additional solvers or richer constraint systems.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Infer the type of function x => x + 1. Give x a fresh type a and the function result a fresh type b, then the plus operator creates constraints a = int and b = int.',
+        'The solver binds class a to int and class b to int, so the function has type int -> int. For x => x(x), the constraint a = a -> b fails the occurs check because a appears inside the type it would become.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study Robinson\'s unification algorithm, Hindley-Milner type inference, and Tarjan\'s union-find analysis. Then study abstract syntax trees, type terms, substitutions, occurs checks, Algorithm W, type classes, subtyping, and constraint-based inference.',
+      ],
+    },
   ],
 };

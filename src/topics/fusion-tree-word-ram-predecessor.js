@@ -323,99 +323,99 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization offers three views. "Packed node" shows the internal layout of a single fusion-tree node: a query enters, sketches are compared in parallel inside one machine word, and a child pointer is selected. "Sketch comparison" walks through how distinguishing bits are extracted, packed, and compared. "Predecessor path" traces a full query from root to answer and compares fusion trees against other predecessor structures.',
+        'Each frame highlights active elements, found results, and compared alternatives. Step through slowly the first time; the bit-level operations are the whole point.',
         {type: 'image', src: './assets/gifs/fusion-tree-word-ram-predecessor.gif', alt: 'Animated walkthrough of the fusion tree word ram predecessor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A fusion tree is an integer predecessor data structure in the word-RAM model. It stores many separator keys in each internal node and uses word-level bit operations to route a query in constant time per node. With high fanout, the tree height drops to O(log_w n), where w is the machine-word size.',
-        'The obvious search tree asks one comparison per branch decision, so reducing height usually makes each node search more expensive. The wall is inside the node: a wide node is useless if routing across its separators takes linear time. Fusion trees solve that local routing problem by packing only the distinguishing bits of many separators into one word.',
+        'The predecessor problem asks: given a set S of integers and a query q, find the largest element in S that is less than or equal to q. It is the backbone of range queries, interval lookups, IP routing tables, and timestamp indexes. A balanced binary search tree solves it in O(log n) comparisons, and for decades that seemed optimal.',
+        'In 1990, Fredman and Willard proved it is not. Their fusion tree achieves O(log_w n) query time, where w is the machine word size in bits. On a 64-bit machine with a million keys, log_2(n) is about 20 but log_64(n) is about 3.3. The trick is to stop treating each key as an opaque object and start treating it as a bit string that fits inside a machine word.',
+        'Fusion trees matter because they broke a fundamental barrier. The comparison-tree lower bound of Omega(log n) applies only when the algorithm uses pairwise comparisons. Once the algorithm is allowed to inspect bits and exploit word-level arithmetic, it can do better. This is the founding result of the word-RAM model of computation.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'Store n keys in a balanced BST. Each internal node holds one separator and two children. A query walks from root to leaf, comparing at each level, paying O(1) per level and O(log n) total. This is clean, general, and well-understood.',
+        'To reduce height, widen the nodes. A B-tree stores up to B keys per node, giving height O(log_B n). Each node search scans or binary-searches B separators, costing O(log B) comparisons. The total is O(log_B n * log B) = O(log n). The height shrank, but total comparison work stayed the same. B-trees win in practice because they reduce cache misses and disk I/O, not because they reduce comparisons.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is inside the node. If you pack B^(1/5) = w^(1/5) separators into a single node (the actual fusion-tree fanout), ordinary comparison-based search within that node costs O(log(w^(1/5))) = O(log w) comparisons. Over O(log_w n) levels, the total is O(log_w n * log w) = O(log n). You have gained nothing.',
+        'To beat O(log n), you need to search inside a wide node in O(1) time, not O(log B) time. No comparison-based method can do that when B grows with w. The wall is the comparison model itself: it processes one pair of keys at a time, so it cannot exploit the fact that multiple separators and the query all live in the same machine word at the same time.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A machine word is not just a number; it is a parallel comparison register. If you can pack the distinguishing bits of several separators into one w-bit word, then a single arithmetic operation (multiply, subtract, mask) acts on all of them simultaneously. The node search becomes O(1) word operations instead of O(log B) comparisons.',
         {type: 'callout', text: 'Fusion trees make fanout useful by making the node search word-parallel: many separator sketches are compared inside one machine word.'},
-        'The structure belongs next to van Emde Boas Tree and X-Fast & Y-Fast Tries. All three exploit the fact that keys are fixed-width integers, not arbitrary comparator objects. Fusion trees exploit the word itself: several key sketches are packed into one word and compared in parallel.',
+        'The key observation is that inside any single node, the separators are already sorted. You do not need to keep all w bits of each separator; you only need the bit positions where those particular separators differ from each other. There are at most k-1 such positions for k separators. Extracting just those bits from each separator produces a short "sketch" that preserves the ordering within that node.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree with grouped sorted keys inside nodes', caption: 'A B-tree reduces height with wide nodes. Fusion trees ask how wide an integer-search node can get when routing is done with packed word operations. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Inside one node, the keys are sorted separators. The construction identifies bit positions that distinguish those separators. Each separator is compressed into a short sketch made from those positions. The sketches are packed into fields of a machine word. A query builds its own sketch, replicates it across fields, and uses arithmetic and masking to estimate its rank among the separators.',
+        'Construction: each node stores k = w^(1/5) sorted separator keys. The algorithm identifies the O(k) bit positions where adjacent separators differ. Each separator is compressed into a sketch of O(k) bits by extracting only those positions. With k = w^(1/5), each sketch has about w^(1/5) bits, so k sketches occupy about w^(2/5) bits total, which fits in one w-bit word.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel CPU die showing processor circuitry', caption: 'Fusion trees are a word-RAM result: the machine word and its arithmetic operations are part of the algorithmic model. Source: Wikimedia Commons, KL and Intel, public domain.'},
-        'The full construction includes correction steps because sketches are not full keys. After the packed comparison finds a candidate rank, nearby full separators and the first differing bit decide the exact child interval. That correction is the difference between a nice diagram and a correct predecessor structure.',
-        'The invariant is local order preservation, not hashing. A sketch may omit many bits, but it must keep enough distinguishing information for the correction step to recover the same child interval that full-key comparison would have chosen.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'Read the packed word as parallel comparison hardware exposed through arithmetic. A fusion node stores sampled bits from several keys, packs them into machine words, and compares many candidates with a small number of word operations.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree with grouped sorted keys inside nodes', caption: 'A B-tree reduces height with wide nodes. Fusion trees ask how wide an integer-search node can get when routing is done with packed word operations. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
-        'The animation is not promising that ordinary JavaScript maps should become fusion trees. It is teaching the model: on the word RAM, bit layout can be an algorithm. The win comes from exploiting fixed-width machine words, so portability and implementation complexity matter as much as asymptotic bounds.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The classic headline is O(log_w n) predecessor search with linear space under word-RAM assumptions. The branching factor is a small power of w, often written w to some fixed epsilon, so one node can still fit the packed sketches needed for constant-time routing.',
-        'This is a theoretical asymptotic result with real design intuition. It teaches why wide nodes matter, why bit-level representations can beat comparison bounds, and why local node-search cost matters as much as tree height. It is also implementation-heavy: multiplication tricks, sketch correction, and architecture details all matter.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A clean case study is an in-memory index over fixed-width packet timestamps or sequence numbers. The hot query is floor(t): find the largest stored boundary at or before t, then scan a small ordered leaf range. A balanced tree gives O(log n). X-Fast & Y-Fast Tries use prefix hashing. A fusion tree instead keeps a wide tree and makes each node decision word-parallel.',
-        'The engineering verdict is cautious. If the index is small, a sorted array with Eytzinger layout or a B-tree-like node may be faster. If updates dominate, the complexity is hard to justify. Fusion trees matter because they expose a design frontier: when integer representation and word operations are part of the contract, the comparison-tree model is not the whole story.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Do not treat the sketch as a hash. A hash destroys order; a fusion-tree sketch preserves selected order information for separators in one node. Also do not read word-RAM bounds as portable performance promises. Real CPUs have cache lines, branch predictors, vector instructions, and memory hierarchies that may reward simpler layouts.',
-        'Another pitfall is ignoring correction. The packed comparison gives a rank candidate. Correct code must still verify with full keys and the relevant distinguishing bit. This is the same lesson as PATRICIA Trie and compressed indexes: compression is safe only when the omitted information can be recovered or checked.',
-        'It is also the wrong tool when keys are not fixed-width integers or when maintainability matters more than shaving a theoretical predecessor bound. In many systems, a B-tree node with branchless binary search or a sorted vector beats the elaborate word trick in wall-clock time.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Separate the abstract idea from a production predecessor index. A real implementation must define word size, key universe, separator fanout, sketch bit positions, packed field layout, correction logic, update policy, and fallback behavior for small nodes.',
-        'Test sketches against full comparison. For every node, generate keys around each separator and verify that the packed route plus correction picks the same child interval as ordinary binary search. Without that oracle, bit tricks are too easy to get almost right.',
-        'Benchmark against simpler layouts. Eytzinger arrays, B-tree nodes, branchless binary search, SIMD scans, and adaptive radix trees often have better constants. Fusion trees are important because they show what the word-RAM model permits, not because every index should use them.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose one node stores separators whose important differences appear at bit positions 2, 7, and 13. The node extracts those bits from each separator to form short sketches, packs those sketches into a word, and does the same extraction for the query key.',
-        'The packed comparison estimates how many separators are less than the query. Because omitted bits can matter near boundaries, the implementation then checks nearby full keys or the relevant distinguishing bit. The fast path narrows the child choice; the correction step makes it exact.',
+        'Query: given a query q, extract its sketch using the same bit positions. Replicate that sketch into every field of a packed word (one multiplication does this). Subtract the packed-separators word from the packed-query word. Each field\'s high bit now indicates whether the query sketch was greater than or equal to that separator\'s sketch. Mask out those high bits and count them (popcount or a shift-and-add trick). The count is the approximate rank of q among the separators.',
+        'Correction: the sketch rank may be off by one because sketches drop bits. The algorithm checks the full separator at the candidate rank and its neighbor. It finds the first bit where q and the nearest separator differ, and that bit determines which side q falls on. This correction runs in O(1) word operations. The result is the exact child pointer for the predecessor query.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The structure works because integer keys expose their bits. A comparison tree treats each key as an opaque object and learns order one comparison at a time. A fusion node uses the word-RAM model to inspect several important bits from several separators in parallel.',
-        'The sketch positions are chosen from bits where separators differ. Those bits are enough to narrow the query to a small neighborhood. The correction step then uses full keys so the data structure remains exact, not approximate.',
+        'Correctness rests on two properties. First, within a single node, the sketch function preserves the relative order of the separators. If separator A < separator B, then sketch(A) < sketch(B), because the distinguishing bits are exactly the positions where adjacent sorted separators differ. Any two separators that are out of order in the sketch would have been adjacent and identical at all distinguishing positions, contradicting the construction.',
+        'Second, the query sketch may land between the wrong pair of separator sketches (because the query has bits that the separators do not share, and those bits are dropped). But it can land at most one position away from the correct rank. The correction step inspects at most two full separators and the first differing bit, which is enough to resolve the ambiguity.',
+        'The height argument is arithmetic. With fanout k = w^(1/5) and n keys, the tree has height O(log_k n) = O(log n / log(w^(1/5))) = O(log n / ((1/5) log w)) = O(5 log n / log w) = O(log_w n). Each level costs O(1) word operations. Total: O(log_w n).',
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Fusion trees matter most as a theoretical boundary marker. They show that predecessor search can beat ordinary comparison-tree intuition when keys are fixed-width integers and word operations are allowed.',
+        'Query time is O(log_w n) in the word-RAM model. On a 64-bit machine, log_64(10^6) is about 3.3, versus log_2(10^6) which is about 20. For a billion keys, log_64(10^9) is about 5, versus log_2(10^9) which is about 30. The improvement is real but moderate for practical n; the constant factors from sketch construction and correction are non-trivial.',
+        'Space is O(n). Each node stores k separators (full keys), their sketches (one packed word), and k+1 child pointers. With n/k nodes and k = w^(1/5), total space is linear in n. Updates (insert and delete) require rebalancing the tree and rebuilding the sketch word for affected nodes. The original paper achieves O(log_w n) amortized update time using standard B-tree rebalancing adapted to the fusion-tree fanout.',
+        'The construction relies on multiplication for sketch extraction (a specific constant times each key extracts the right bits into adjacent fields). Finding that constant and verifying the field layout is the hardest part of a real implementation. The constant depends on the distinguishing bit positions, which change when the node\'s separator set changes.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Direct implementations of fusion trees are rare in production systems. The constant factors, implementation complexity, and cache-unfriendly access patterns make simpler structures (B-trees, van Emde Boas trees, radix trees) more practical for most workloads.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Binary tree diagram with parent and child nodes', caption: 'The comparison-tree baseline pays one branch decision at a time. Fusion trees beat that shape by routing across many child intervals per node. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
-        'The idea also influenced practical indexes even when the exact structure is not used. Modern indexes routinely pack keys, use SIMD comparisons, exploit cache-line-wide nodes, and separate fast approximate routing from exact correction. Fusion trees are one ancestor of that design style.',
+        'The indirect influence is large. The idea that a wide node can be searched in O(1) using word parallelism appears in modern index designs: ART (Adaptive Radix Tree) uses SIMD to scan 256-entry node headers; cache-line-aware B-trees pack keys for branchless comparison; Masstree uses fanout and key-prefix tricks inspired by the same principle. Fusion trees taught the field that the comparison model undersells what hardware can do.',
+        'In theory, fusion trees are a building block for optimal predecessor structures. Combined with Y-fast tries, the "interpolation search" result of Beame and Fich achieves min(O(log_w n), O(log log U)) query time, which is provably optimal for the word-RAM model.',
       ],
     },
     {
-      heading: 'Rule of thumb',
+      heading: 'Where it fails',
       paragraphs: [
-        'Study fusion trees to understand what word-level parallelism can buy. Implement them only when the key universe, performance target, and maintenance budget justify bit-level complexity.',
-        'For most software systems, the practical lesson is broader than the exact data structure: make node search cheap when you increase fanout, and always check compressed routing decisions against the full key when correctness matters.',
+        'Fusion trees assume fixed-width integer keys. If keys are strings, floating-point values, or variable-length, the bit-packing trick does not apply. You would need to reduce to integer keys first (e.g., by hashing prefixes), which may lose the ordering property the structure depends on.',
+        'Cache performance is poor. Each node access touches a packed word, a correction lookup, and a child pointer dereference. These are scattered memory accesses. A B-tree node that fits in one cache line and is scanned linearly will often beat a fusion tree node in wall-clock time, even though the fusion tree does fewer "operations" in the word-RAM model.',
+        'Implementation complexity is high. The multiplication constant for sketch extraction, the correction logic, and the rebalancing code are each subtle and error-prone. A bug in any of them produces silent wrong answers (returning a predecessor that is not actually the largest key below q). For most engineering teams, the maintenance cost outweighs the asymptotic benefit.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider a node with 4 separator keys stored as 16-bit integers: 5 (00000000 00000101), 19 (00000000 00010011), 42 (00000000 00101010), and 57 (00000000 00111001). We want to answer: what is the predecessor of query q = 35 (00000000 00100011)?',
+        'Step 1, find distinguishing bits. Compare adjacent sorted separators. 5 vs 19: they differ at bit positions 1 and 4. 19 vs 42: they differ at positions 0, 1, 3, and 5. 42 vs 57: they differ at positions 0, 3, and 4. The union of distinguishing positions is {0, 1, 3, 4, 5}. That is 5 positions, so each sketch is 5 bits long.',
+        'Step 2, build sketches. Extract bits at positions 5,4,3,1,0 from each key. Key 5 (00101) extracts to sketch 00101. Key 19 (10011) extracts to sketch 10010. Key 42 (101010) extracts to sketch 10101. Key 57 (111001) extracts to sketch 11100. Query 35 (100011) extracts to sketch 10001. Pack all four separator sketches into one 20-bit word: [00101][10010][10101][11100].',
+        'Step 3, parallel compare. Replicate the query sketch into four fields: [10001][10001][10001][10001]. Subtract the separator word from the query word field by field. Fields where the result is non-negative (high bit = 0) indicate separators less than or equal to q. Here, 10001 >= 00101 (yes, 5 <= 35), 10001 >= 10010 (no, 19 > 17 in sketch... but sketch order can differ from key order at boundaries). The approximate rank says q falls near separator index 1 or 2.',
+        'Step 4, correction. Check full keys at the candidate rank. Compare q = 35 against separator 19 (index 1) and separator 42 (index 2). Since 19 <= 35 < 42, the predecessor is in the child interval between separators 19 and 42. The correction resolved the sketch ambiguity using the actual keys. Total cost: O(1) word operations, and the query descends to the correct child.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Fredman and Willard, "Surpassing the Information Theoretic Bound with Fusion Trees", DOI page at https://dl.acm.org/doi/10.1145/73007.73010. Lecture references: MIT 6.851 notes on Fusion Trees at https://courses.csail.mit.edu/6.851/spring12/scribe/lec12.pdf and Erik Demaine lecture video resources at https://courses.csail.mit.edu/6.851/spring12/lectures/. Study X-Fast & Y-Fast Tries, van Emde Boas Tree, B-Trees, Eytzinger Layout Binary Search, Adaptive Radix Tree, and PATRICIA Trie next.',
+        'The original paper is Fredman and Willard, "Surpassing the Information Theoretic Bound with Fusion Trees" (1990), available at https://dl.acm.org/doi/10.1145/73007.73010. The clearest exposition is in MIT 6.851 (Advanced Data Structures) lecture 12: scribe notes at https://courses.csail.mit.edu/6.851/spring12/scribe/lec12.pdf and video lectures at https://courses.csail.mit.edu/6.851/spring12/lectures/.',
+        'For context on predecessor lower bounds, see Beame and Fich, "Optimal Bounds for the Predecessor Problem and Related Problems" (2002). For practical alternatives, study van Emde Boas Tree (universe-recursive predecessor in O(log log U)), X-Fast and Y-Fast Tries (hash-based predecessor), B-Trees (disk/cache-friendly wide nodes), Eytzinger Layout Binary Search (cache-optimal implicit trees), Adaptive Radix Tree (SIMD-accelerated radix nodes), and PATRICIA Trie (compressed prefix trees).',
       ],
     },
   ],

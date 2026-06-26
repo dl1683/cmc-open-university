@@ -220,23 +220,23 @@ export const article = {
           text: 'Eytzinger layout preserves binary-search correctness while changing the physical address sequence into predictable heap-style child jumps.',
         },
         'Active highlights mark the node being compared right now. Found highlights mark the current lower_bound candidate -- the smallest key seen so far that is >= the query. Compare highlights show alternatives being ruled out.',
-        'Watch the array indices, not just the values. The point of Eytzinger layout is that the sequence of indices visited during search -- 1, 2 or 3, 4-7, ... -- follows a predictable pattern the CPU can prefetch ahead of time. If you only watch the values, you see ordinary binary search. If you watch the addresses, you see why the layout matters.',
-      
-        {type: 'image', src: './assets/gifs/eytzinger-layout-binary-search.gif', alt: 'Animated walkthrough of the eytzinger layout binary search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Watch the array indices, not just the values. The sequence of indices visited during search -- 1, then 2 or 3, then 4-7 -- follows a predictable pattern the CPU can prefetch ahead of time. If you only watch the values, you see ordinary binary search. If you watch the addresses, you see why the layout matters.',
+        {type: 'image', src: './assets/gifs/eytzinger-layout-binary-search.gif', alt: 'Animated walkthrough of the eytzinger layout binary search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Binary search over a sorted array is textbook-optimal in the comparison model. With one million keys it needs about 20 comparisons. On paper, that is the end of the story.',
-        'On real hardware, comparisons are not free. Each one loads a cache line. Sorted-array binary search jumps from the midpoint to the midpoint of a half, then to the midpoint of a quarter. Those addresses are scattered across memory. The CPU branch predictor cannot anticipate the direction because it depends on the query. The result: 20 comparisons that each stall on a cache miss, plus branch mispredictions that flush the pipeline.',
-        'Eytzinger layout attacks both problems. It stores the same binary search tree in breadth-first array order so the early levels of the tree sit in adjacent cache lines and the child address at each step is a simple arithmetic function of the parent index. The algorithm still does O(log n) comparisons. The hardware experiences those comparisons with fewer stalls and more predictable memory traffic.',
-        'Khuong and Morin (2017) benchmarked this layout against std::lower_bound and measured 2-3x speedups on large arrays. The algorithm is the same. The speedup comes entirely from memory layout.',
+        'On real hardware, comparisons are not free. Each one loads a cache line -- a 64-byte block of memory fetched from DRAM into the CPU\'s fast local storage. Sorted-array binary search jumps from the midpoint to the midpoint of a half, then to the midpoint of a quarter. Those addresses are scattered across memory. The CPU branch predictor (hardware that guesses which way an if/else will go so it can start executing ahead) cannot anticipate the direction because it depends on the query value. The result: 20 comparisons that each stall on a cache miss, plus branch mispredictions that flush the pipeline.',
+        'Eytzinger layout attacks both problems. It stores the same keys in breadth-first tree order so the early levels sit in adjacent cache lines and the child address at each step is a simple arithmetic function of the parent index. The algorithm still does O(log n) comparisons, but the hardware experiences them with fewer stalls and more predictable memory traffic.',
+        'Khuong and Morin (2017) benchmarked this layout against std::lower_bound and measured 2-3x speedups on large arrays. The algorithm is identical. The speedup comes entirely from memory layout.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The natural first attempt is a sorted array searched with std::lower_bound or its equivalent. It is compact (no pointers, no wasted space), trivial to build (just sort), easy to update (insert and re-sort or use binary insertion), and correct by construction. Every systems programmer reaches for it because it works and is hard to beat in the comparison model.',
+        'The natural first attempt is a sorted array searched with std::lower_bound or its equivalent. It is compact (no pointers, no wasted space), trivial to build (just sort), and correct by construction. Every systems programmer reaches for it because it works and is hard to beat in the comparison model.',
         'For small arrays -- a few thousand keys -- this is genuinely optimal. The entire search path fits in L1 or L2 cache, branch mispredictions cost a few cycles each, and the simplicity of the code matters more than the constant factor.',
         'The approach stops scaling once the array outgrows cache. With 10 million 64-bit keys the array is 80 MB. A 20-level binary search touches 20 cache lines spread across that 80 MB. Each level is a cache miss (50-100 ns on modern DRAM), and the branch predictor has roughly 50% accuracy on each comparison direction. Twenty cache misses plus twenty branch flushes dominate the 20 comparisons by orders of magnitude.',
       ],
@@ -247,6 +247,14 @@ export const article = {
         'The wall is the memory hierarchy. Sorted-array binary search has two properties that fight modern CPUs. First, the addresses it visits are data-dependent: you cannot know the next address until the current comparison finishes, which serializes the memory latency. Second, the branch direction is unpredictable: the CPU pipeline flushes on roughly half the comparisons.',
         'Hardware prefetchers cannot help because they track sequential or strided patterns. Binary search over a sorted array jumps by n/2, then n/4, then n/8 -- a different stride at every level. The prefetcher sees chaos.',
         'The cost model that matters is not comparisons. It is cache misses times memory latency, plus branch mispredictions times pipeline depth. On a machine with 64-byte cache lines, 100 ns DRAM latency, and a 15-stage pipeline, the memory and branch costs dwarf the comparison cost for any array larger than a few cache levels.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Binary search visits keys in an order determined by the comparison tree: root first, then one child, then one grandchild. That traversal order is a breadth-first numbering of a complete binary tree. If you store the keys in that BFS order instead of sorted order, then the child of the key at index i is always at index 2i (left) or 2i+1 (right) -- the same arithmetic a binary heap uses.',
+        'This single rearrangement unlocks three things at once. The top levels of the tree pack into the first few cache lines, so they are almost always hot in L1. The next address to visit is a deterministic function of the current index, so the CPU can prefetch both children before the comparison finishes. And the branch itself can be replaced with a conditional move (cmov) instruction, eliminating misprediction entirely.',
+        'The rearrangement does not change the comparisons. It changes the physical addresses those comparisons touch. That is the insight: on real hardware, the cost of a search is dominated by where data lives in memory, not by how many comparisons you do.',
       ],
     },
     {
@@ -329,11 +337,11 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Eytzinger layout wins decisively in read-heavy, write-rare scenarios on large static datasets. The canonical use case is an in-memory sorted index that is built once and queried millions of times: analytics column indexes, IP routing tables, dictionary lookups in compression codecs, and static membership tests in database query engines.',
         'The pattern that makes it shine: uniform or near-uniform random queries over an array too large for L2 cache. Under those conditions, every level of sorted-array binary search is a cache miss, and the branch predictor is at chance. Eytzinger layout turns the upper ~4 levels into guaranteed cache hits and the remaining levels into prefetched cache misses with no branch penalties.',
-        'It is also a clean example of mechanical sympathy in algorithm design. The abstract algorithm (binary search) does not change. The physical layout changes how the hardware experiences that algorithm. This makes it a powerful teaching tool for understanding why constant factors matter and why asymptotic analysis is necessary but not sufficient.',
+        'It is also a clean example of mechanical sympathy in algorithm design. The abstract algorithm (binary search) does not change. The physical layout changes how the hardware experiences that algorithm. This makes it a valuable reference for understanding why constant factors matter and why asymptotic analysis is necessary but not sufficient.',
       ],
     },
     {
@@ -343,6 +351,16 @@ export const article = {
         'Dynamic data is painful. Inserting or deleting a single key requires rebuilding the entire Eytzinger array -- an O(n) operation. For workloads with frequent updates, a B-tree or sorted array with binary insertion is more practical despite worse search constants.',
         'The branchless variant depends on compiler and architecture cooperation. The cmov instruction must be emitted instead of a branch; some compilers on some optimization levels will re-introduce the branch. Prefetch instructions vary across architectures. Code that looks branchless in C may not be branchless in the generated assembly, erasing the theoretical advantage.',
         'Non-uniform access patterns can also reduce the benefit. If queries cluster on a small subset of keys, the hot nodes are cached regardless of layout. Eytzinger layout helps most when queries are uniformly spread and the array is large enough that no single access pattern keeps the path warm.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Start with the sorted array [2, 4, 6, 8, 10, 12, 14] -- seven keys. Build the Eytzinger layout by inorder-filling a 1-based array of size 7. The recursive procedure visits the implicit tree: go left to 2i, write the next sorted key at i, go right to 2i+1.',
+        'Build trace: visit index 4 (leftmost leaf), write 2. Visit index 2, write 4. Visit index 5, write 6. Visit index 1 (root), write 8. Visit index 6, write 10. Visit index 3, write 12. Visit index 7, write 14. The resulting Eytzinger array is [_, 8, 4, 12, 2, 6, 10, 14] where index 0 is unused (1-based addressing).',
+        'Now search for lower_bound(5). Step 1: i=1, a[1]=8. Since 5 <= 8, record candidate=1, go left to i=2*1=2. Step 2: i=2, a[2]=4. Since 5 > 4, keep candidate=1, go right to i=2*2+1=5. Step 3: i=5, a[5]=6. Since 5 <= 6, update candidate=5, go left to i=2*5=10. Step 4: i=10 > 7 (array length), stop. The candidate is index 5, which holds the value 6. Verify: 6 is the smallest key >= 5 in the original sorted array. Correct.',
+        'Now search for lower_bound(11). Step 1: i=1, a[1]=8. Since 11 > 8, keep candidate=0, go right to i=2*1+1=3. Step 2: i=3, a[3]=12. Since 11 <= 12, record candidate=3, go left to i=2*3=6. Step 3: i=6, a[6]=10. Since 11 > 10, keep candidate=3, go right to i=2*6+1=13. Step 4: i=13 > 7, stop. The candidate is index 3, which holds 12 -- the smallest key >= 11. Correct.',
+        'Both searches took exactly 3 comparisons -- ceil(log2(7)) -- the same count as sorted-array binary search. The difference is the indices visited: 1, 2, 5 and 1, 3, 6 are heap-order positions, not midpoints. On a large array, those positions fall into predictable cache lines that the prefetcher can load in advance.',
       ],
     },
     {

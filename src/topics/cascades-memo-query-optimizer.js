@@ -237,29 +237,17 @@ export const article = {
       paragraphs: [
         'The animation has two views. In "memo groups," each G node is an equivalence class -- a set of expressions that produce the same rows. Edges between groups are references inside the search space, not data-flow edges in a running query. In "rules and enforcers," watch transformation rules add logical alternatives and implementation rules add physical operators into those groups.',
         {type: 'callout', text: 'The memo is the optimizer data structure that makes every equivalent expression compete once per required property.'},
-        {
-          type: 'table',
-          headers: ['Marker', 'Meaning in this animation'],
-          rows: [
-            ['Active (highlighted)', 'The group or rule the optimizer is currently exploring'],
-            ['Compare (dimmed alternate)', 'A sibling alternative the optimizer has not yet chosen between'],
-            ['Found (goal marker)', 'The best physical plan cached for a specific required property'],
-          ],
-        },
+        'Three markers appear throughout both views. Active (highlighted) marks the group or rule the optimizer is currently exploring. Compare (dimmed alternate) marks a sibling alternative the optimizer has not yet chosen between. Found (goal marker) marks the best physical plan cached for a specific required property.',
         'At each frame: identify which group is being explored, what rule just fired, and whether the result is a new logical equivalent or a new physical implementation. The "impl" and "best" nodes in the graph represent the transition from logical search to physical costing -- the moment equivalence becomes a concrete algorithm with a cost.',
-      
-        {type: 'image', src: './assets/gifs/cascades-memo-query-optimizer.gif', alt: 'Animated walkthrough of the cascades memo query optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/cascades-memo-query-optimizer.gif', alt: 'Animated walkthrough of the cascades memo query optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'SQL describes what rows to return, not how to fetch them. A three-table join query has multiple legal join orders, each combinable with different physical algorithms (hash join, merge join, nested loop), different scan methods (sequential, index, bitmap), and different delivered properties (sorted, partitioned, unordered). The optimizer must explore that space and pick the cheapest plan.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt: 'Directed acyclic graph arranged in topological order with arrows flowing from earlier to later nodes', caption: 'Logical query alternatives form a DAG-shaped search space before physical costing chooses one execution plan. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Topological_Ordering.svg.'},
-        {
-          type: 'diagram',
-          label: 'Search space explosion for a 3-table join',
-          text: 'Tables: Orders (O), Customers (C), Regions (R)\n\nJoin orders:        Physical choices per join:    Properties:\n  (O join C) join R   hash / merge / loop            sorted?\n  O join (C join R)   hash / merge / loop            partitioned?\n  (O join R) join C   hash / merge / loop            unordered?\n  ...                 ...                            ...\n\n3 orders x 3 algorithms x 2 joins x 3 scan types x property goals\n= hundreds of candidate plans for just 3 tables',
-        },
+        'Consider three tables: Orders (O), Customers (C), Regions (R). The join orders include (O join C) join R, O join (C join R), (O join R) join C, and more. Each join can be implemented as hash, merge, or nested loop. Each scan can be sequential, index, or bitmap. The result can be sorted, partitioned, or unordered. Multiply these together: 3 orders times 3 algorithms times 2 joins times 3 scan types times property goals yields hundreds of candidate plans for just 3 tables.',
         'With five tables the count reaches thousands; with ten it reaches millions. An optimizer needs a structure that prevents re-deriving the same subplan, shares work across goals, and lets new operators compete without rewriting the search code.',
       ],
     },
@@ -267,30 +255,25 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The natural first optimizer is a hand-coded enumerator. Generate join orders with nested loops, apply if-statements for predicate pushdown, hard-code physical operator selection per pattern, and add a new special case whenever a query regresses.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Hand-coded optimizer: simple but brittle\nfunction optimize(query) {\n  const joins = enumerateJoinOrders(query.tables);\n  let bestPlan = null;\n  let bestCost = Infinity;\n  for (const order of joins) {\n    // Hard-coded: always try hash join first\n    let plan = applyHashJoin(order);\n    if (query.hasOrderBy) plan = addSort(plan);\n    // Special case: merge join if both sides sorted\n    if (bothSidesSorted(order)) plan = applyMergeJoin(order);\n    // Special case added after regression #347\n    if (hasSkewedFilter(order)) plan = addBitmapScan(plan);\n    const cost = estimate(plan);\n    if (cost < bestCost) { bestPlan = plan; bestCost = cost; }\n  }\n  return bestPlan;\n}',
-        },
+        'The logic looks like this: enumerate all join orders, always try hash join first, add a sort if the query has ORDER BY, try merge join if both sides are already sorted, add a bitmap scan for skewed filters -- each pattern wired in as a special case. Every regression spawns a new branch. The optimizer function is a decision tree grown by bug reports.',
         'This works while the engine has few operators and few rewrite patterns. Teams can hold the full decision tree in their heads, and new features arrive slowly enough that each can be wired in by hand.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The hand-coded approach breaks on three fronts simultaneously:',
-        {
-          type: 'bullets',
-          items: [
-            'Duplicated subplans. The subexpression (Orders join Customers) appears in multiple join orders. A hand-coded enumerator re-derives and re-costs it each time, because there is no shared structure to detect the duplicate.',
-            'Tangled property logic. The same child may be needed unordered for one parent and sorted for another. Without explicit property tracking, the planner either misses the enforcer or adds one unconditionally, wasting work.',
-            'Combinatorial rule interaction. Adding a new physical operator (vectorized hash join) or a new rewrite (predicate transitive closure) requires edits across every enumerator branch. Ten operators and ten rewrites do not add linearly -- they multiply into code paths no one can audit.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'The wall is not plan count. It is the inability to share subresults, compose rules, and track properties in one coherent structure. A system with 50 rules and 12 physical operators cannot be maintained as if-else branches -- the cross-product of interactions is too large to hold in code review.',
-        },
+        'The hand-coded approach breaks on three fronts simultaneously.',
+        'First, duplicated subplans. The subexpression (Orders join Customers) appears in multiple join orders. A hand-coded enumerator re-derives and re-costs it each time, because there is no shared structure to detect the duplicate.',
+        'Second, tangled property logic. The same child may be needed unordered for one parent and sorted for another. Without explicit property tracking, the planner either misses the enforcer or adds one unconditionally, wasting work.',
+        'Third, combinatorial rule interaction. Adding a new physical operator (vectorized hash join) or a new rewrite (predicate transitive closure) requires edits across every enumerator branch. Ten operators and ten rewrites do not add linearly -- they multiply into code paths no one can audit.',
+        'The wall is not plan count. It is the inability to share subresults, compose rules, and track properties in one coherent structure. A system with 50 rules and 12 physical operators cannot be maintained as if-else branches -- the cross-product of interactions is too large to hold in code review.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Every logically equivalent expression produces the same rows, but different physical implementations of the same logical expression deliver different properties at different costs. If you group all equivalent expressions together and cache the best physical plan per required property, you never re-derive the same subplan for the same goal.',
+        'This is the memo: a table indexed by (equivalence group, required property) whose cells hold the cheapest known physical plan. Transformation rules add new logical equivalents to a group. Implementation rules add new physical candidates. Goal-directed search fills in the cells top-down, and once a cell is filled, every parent that needs the same (group, property) pair reuses it. The memo turns a combinatorial explosion into a structured, cached search.',
       ],
     },
     {
@@ -298,130 +281,73 @@ export const article = {
       paragraphs: [
         'Cascades organizes the search into four mechanisms: memo groups, transformation rules, implementation rules, and goal-directed optimization.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt: 'Directed acyclic graph with arrows showing dependencies between nodes', caption: 'A memo group graph shares subexpressions across alternatives so parents can reuse optimized child goals. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_acyclic_graph.svg.'},
-        {
-          type: 'diagram',
-          label: 'Cascades memo structure for (O join C) join R',
-          text: 'G0  [full result: O-C-R]\n |--- logical: (O join C) join R\n |--- logical: O join (C join R)      <-- added by associativity rule\n |--- physical: hash(G1, G2)          <-- added by implementation rule\n |--- best(unsorted): hash(G1, G2) cost=450\n |--- best(sorted by date): merge(G1, G2) cost=520\n |\nG1  [O join C]\n |--- logical: O join C\n |--- logical: C join O               <-- added by commutativity rule\n |--- physical: hash(GA, GB)\n |--- physical: merge(GA, GB)\n |\nG2  [C join R]  (or R, depending on rewrite)\nGA  [scan O]  -- seq scan, index scan by date, bitmap scan\nGB  [scan C]  -- seq scan, index scan by id',
-        },
+        'Consider the query (O join C) join R. The memo creates group G0 for the full result. G0 contains the logical expression (O join C) join R. Its children get their own groups: G1 for (O join C), G2 for R\'s side, GA for scan O, GB for scan C. Each group holds logical expressions, physical expressions, and a map of best plans keyed by optimization goal. When the associativity rule rewrites (O join C) join R into O join (C join R), the new expression enters G0 alongside the original -- it does not replace it. When commutativity rewrites O join C into C join O, the new expression enters G1.',
         'Step 1: Insert the initial logical expression into memo group G0. Child subexpressions get their own groups (G1, G2, GA, GB, etc.). If a subexpression already exists in a group, the memo detects the duplicate and reuses the group.',
         'Step 2: Fire transformation rules. Join associativity rewrites (A join B) join C into A join (B join C) and inserts the new expression into G0. Join commutativity rewrites A join B into B join A and inserts into G1. Predicate pushdown moves a filter from above a join to below it, into the scan group. Each new expression enters the memo; it does not replace the old one.',
         'Step 3: Fire implementation rules. A logical join becomes candidate physical operators: hash join, merge join, nested loop. A logical scan becomes sequential scan, index scan, or bitmap scan. Each physical expression records its cost formula and delivered properties.',
         'Step 4: Optimize by goal. A parent asks G0 for the cheapest plan delivering rows sorted by date. G0 explores its physical expressions, asks child groups for their own cheapest plans under required child properties, and inserts enforcers (Sort, Exchange) when a child does not naturally deliver what the parent needs. The result is cached: G0 now knows its best sorted plan and its best unsorted plan separately.',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'optimizeGroup(G0, goal={sorted: date}):\n  for each physical expr P in G0:\n    childGoals = P.requiredChildProperties(goal)\n    childCost  = sum(optimizeGroup(child, childGoal) for each child)\n    totalCost  = P.localCost + childCost\n    if P does not deliver goal.sorted:\n      totalCost += enforcer(Sort).cost\n    if totalCost < G0.best[goal].cost:\n      G0.best[goal] = {plan: P, cost: totalCost}',
-        },
-        'The recursion terminates because groups are finite, goals are finite, and each (group, goal) pair is computed at most once. Memoization across goals is the core of the efficiency gain.',
+        'The optimization procedure for a single group works as follows: for each physical expression P in the group, compute the child goals that P requires, recursively optimize each child group under those goals, sum the child costs with P\'s local cost, and if P does not deliver the parent\'s required property (say, sorted output), add the cost of an enforcer (Sort). If the total cost beats the current best for this (group, goal) pair, update the cache. The recursion terminates because groups are finite, goals are finite, and each (group, goal) pair is computed at most once. Memoization across goals is the core of the efficiency gain.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Query optimization has two kinds of structure that Cascades exploits:',
-        {
-          type: 'table',
-          headers: ['Structure', 'What it provides', 'Cascades mechanism'],
-          rows: [
-            ['Equivalence', 'Many expressions produce the same rows (relational algebra laws)', 'Memo groups: all equivalents share one group'],
-            ['Optimal substructure', 'The best plan for a group depends only on the best plans of its children', 'Goal-directed search with memoized (group, goal) answers'],
-            ['Property decomposition', 'A parent\'s required property decomposes into child requirements', 'Enforcers bridge the gap when a child cannot deliver a property natively'],
-          ],
-        },
+        'Query optimization has three kinds of structure that Cascades exploits.',
+        'The first is equivalence: many expressions produce the same rows because of relational algebra laws (associativity, commutativity, predicate pushdown). Cascades captures this by placing all equivalent expressions in one memo group, so they share a single identity in the search.',
+        'The second is optimal substructure: the best plan for a group depends only on the best plans of its children, not on the path through the search that reached it. Cascades captures this with goal-directed search -- each (group, goal) pair is optimized once and cached.',
+        'The third is property decomposition: a parent\'s required property (sorted output, partitioned data) decomposes into child requirements. Cascades captures this with enforcers -- explicit operators like Sort or Exchange that bridge the gap when a child cannot deliver a property natively.',
         'The memo is a dynamic-programming table for a rule-based search space. When G1 has already found its best unsorted plan, any parent needing G1 unsorted reuses that cached answer. When a different parent needs G1 sorted, G1 optimizes under a new goal and caches that answer separately. No subplan is derived twice for the same goal.',
-        {
-          type: 'quote',
-          text: 'The Cascades optimizer framework uses top-down, goal-directed search with memoization to avoid redundant optimization of shared subexpressions.',
-          attribution: 'Goetz Graefe, "The Cascades Framework for Query Optimization," IEEE Data Engineering Bulletin, 1995',
-        },
+        'As Goetz Graefe wrote in the original 1995 paper: "The Cascades optimizer framework uses top-down, goal-directed search with memoization to avoid redundant optimization of shared subexpressions." The top-down direction matters -- it means the optimizer only explores groups that are actually reachable from the query\'s root goal, unlike bottom-up approaches that precompute every possible subplan.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Dimension', 'Cost', 'What drives it'],
-          rows: [
-            ['Memo space', 'O(groups x expressions per group)', 'Number of transformation rules and join orders'],
-            ['Optimization time', 'O(groups x goals x physical exprs)', 'Property combinations (sort keys, partitioning schemes)'],
-            ['Rule firing', 'Bounded by rule promises + duplicate detection', 'Undisciplined rules cause exponential blowup'],
-            ['Cardinality estimation', 'Dominates plan quality', 'Bad row estimates make the best cached plan wrong'],
-          ],
-        },
+        'Memo space is O(groups times expressions per group), driven by the number of transformation rules and join orders. Optimization time is O(groups times goals times physical expressions), driven by property combinations such as sort keys and partitioning schemes. Rule firing is bounded by rule promises and duplicate detection -- undisciplined rules cause exponential blowup. Cardinality estimation dominates plan quality: bad row estimates make the best cached plan wrong.',
         'The memo prevents duplicate search but does not make search free. A join of N tables has O(4^N / N^(3/2)) join orderings by Catalan number growth. Cascades does not reduce that count -- it shares the subproblems across orderings.',
         'Rule explosion is the operational risk. A rewrite that fires into its own output creates a cycle. A rule that matches too broadly fills the memo with alternatives that will never win. Practical systems defend with rule promises (a rule declares its output pattern will not re-trigger itself), duplicate group detection, upper-bound pruning, and hard timeouts.',
-        {
-          type: 'note',
-          text: 'The other hard cost is invisible: cardinality estimation. A perfect memo over wrong row-count estimates produces a confidently bad plan. If the optimizer thinks a filter returns 100 rows when it returns 10 million, it may choose a nested-loop join that is catastrophic at scale. Cascades organizes the search; it does not fix the statistics.',
-        },
+        'The other hard cost is invisible: cardinality estimation. A perfect memo over wrong row-count estimates produces a confidently bad plan. If the optimizer thinks a filter returns 100 rows when it returns 10 million, it may choose a nested-loop join that is catastrophic at scale. Cascades organizes the search; it does not fix the statistics.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Extensible SQL engines (SQL Server, Greenplum/ORCA, CockroachDB, Apache Calcite). Adding a new physical operator or rewrite rule does not require rewriting the enumerator -- the rule fires into the memo and competes under the cost model.',
-            'Engines with rich physical properties: sort order, partitioning, compression, row vs. columnar format. Cascades tracks these explicitly instead of hiding them in planner branches.',
-            'Distributed query engines where exchange operators (shuffle, broadcast) are physical choices that interact with join order. The memo lets exchange decisions compose with join decisions in a single search.',
-            'Optimizer explainability. The memo is an inspectable search space: which rules fired, which groups formed, which goals were requested, which enforcers were inserted, and why one plan beat another.',
-          ],
-        },
+        'Extensible SQL engines are the primary home. SQL Server, Greenplum/ORCA, CockroachDB, and Apache Calcite all use Cascades-style optimizers. Adding a new physical operator or rewrite rule does not require rewriting the enumerator -- the rule fires into the memo and competes under the cost model.',
+        'Engines with rich physical properties benefit especially: sort order, partitioning, compression, row vs. columnar format. Cascades tracks these explicitly instead of hiding them in planner branches.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/52/OLAP_Cube.svg', alt: 'OLAP cube with product, city, and time dimensions', caption: 'Analytical query engines optimize across dimensions, joins, and aggregation paths; Cascades keeps those physical choices comparable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:OLAP_Cube.svg.'},
-        {
-          type: 'diagram',
-          label: 'Adding a new operator without changing the search',
-          text: 'Before:  G1 physical exprs = {hash_join, merge_join, nested_loop}\nAfter:   G1 physical exprs = {hash_join, merge_join, nested_loop, vectorized_hash}\n\nThe new implementation rule fires into every join group automatically.\nNo enumerator code was modified. The cost model decides when it wins.',
-        },
+        'Distributed query engines benefit where exchange operators (shuffle, broadcast) are physical choices that interact with join order. The memo lets exchange decisions compose with join decisions in a single search.',
+        'Optimizer explainability is a side benefit. The memo is an inspectable search space: which rules fired, which groups formed, which goals were requested, which enforcers were inserted, and why one plan beat another. Adding a new operator is straightforward: write an implementation rule, and the memo places it into every join group automatically. The cost model decides when it wins -- no enumerator code is modified.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Symptom', 'Guardrail'],
-          rows: [
-            ['Cyclic rewrites', 'Same expression re-derived indefinitely, memo grows without bound', 'Rule promises: each rule declares its output will not re-trigger itself'],
-            ['Overly broad rules', 'Memo fills with alternatives that never win, search time explodes', 'Pattern specificity requirements and rule priority ordering'],
-            ['Bad cardinality estimates', 'Optimizer picks confidently wrong plan (e.g., nested loop on 10M rows)', 'Runtime feedback, adaptive re-optimization, histogram maintenance'],
-            ['Timeout instability', 'Different plans chosen under load depending on when the timeout fires', 'Deterministic fallback plan, timeout logging, budget-per-group limits'],
-            ['Property combinatorics', 'Too many (group, goal) combinations with compound sort keys', 'Property subsumption: sorted-by-(a,b) satisfies sorted-by-a'],
-          ],
-        },
+        'Cyclic rewrites are the first failure mode: the same expression is re-derived indefinitely and the memo grows without bound. The guardrail is rule promises, where each rule declares that its output will not re-trigger itself.',
+        'Overly broad rules cause the memo to fill with alternatives that will never win, and search time explodes. Pattern specificity requirements and rule priority ordering are the defense.',
+        'Bad cardinality estimates cause the optimizer to pick a confidently wrong plan -- for example, nested loop on 10 million rows. Runtime feedback, adaptive re-optimization, and histogram maintenance help, but the memo itself cannot detect statistical errors.',
+        'Timeout instability produces different plans under load depending on when the timeout fires. Deterministic fallback plans, timeout logging, and budget-per-group limits mitigate this.',
+        'Property combinatorics can overwhelm the search when compound sort keys create too many (group, goal) combinations. Property subsumption helps: a plan sorted by (a, b) satisfies a goal that needs sorted-by-a, reducing the number of distinct goals.',
         'Cascades is not a replacement for statistics, runtime feedback, or engineering judgment. It organizes the search. It does not guarantee that the cost model understands data skew, column correlation, network latency, cache effects, or memory spill behavior. A well-structured search over a bad cost model finds the best wrong answer efficiently.',
-        {
-          type: 'note',
-          text: 'Many production optimizer bugs come from a transformation rule that is valid for inner joins but wrong for outer joins, anti-joins, or correlated subqueries. Null semantics, volatile functions, and LIMIT propagation are common sources of incorrect rewrites that the memo faithfully caches and reuses.',
-        },
+        'Many production optimizer bugs come from a transformation rule that is valid for inner joins but wrong for outer joins, anti-joins, or correlated subqueries. Null semantics, volatile functions, and LIMIT propagation are common sources of incorrect rewrites that the memo faithfully caches and reuses.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose we have three tables: Orders (O, 100K rows), Customers (C, 10K rows), and Regions (R, 50 rows). The query is SELECT * FROM O JOIN C ON O.cid = C.id JOIN R ON C.rid = R.id ORDER BY O.date.',
+        'The optimizer creates G0 for the full three-table join, G1 for (O join C), G2 for (C join R), GA for scan O, GB for scan C, GC for scan R. Associativity fires: G0 now contains both (O join C) join R and O join (C join R). Commutativity fires on G1: it now contains both O join C and C join O.',
+        'Implementation rules fire. G1 gets three physical candidates: hash(GA, GB) with estimated cost 120, merge(GA, GB) with cost 180, and nested-loop(GA, GB) with cost 950. GA gets sequential scan (cost 100) and index scan on O.date (cost 60, delivers sorted-by-date).',
+        'The root goal arrives: produce G0 sorted by O.date. G0 tries hash(G1, G2): G1\'s cheapest unsorted plan is hash at 120, G2\'s cheapest is hash at 15, local join cost is 50, total so far 185. Hash does not deliver sorted output, so add Sort enforcer at cost 80: total 265. G0 tries merge(G1, G2): G1 needs to deliver sorted-by-cid, which costs 180 (merge join uses sort-merge). G2\'s cheapest sorted-by-cid is merge at 18. Local cost 30, total 228. Merge delivers sorted-by-cid, not sorted-by-date, so add Sort: total 308. Hash with Sort wins at 265.',
+        'But consider the other join order: O join (C join R). G2\' = (C join R) has only 50 * 10K = potential matches, but the filter is tight -- say 500 rows. Hash(GA, G2\') costs index-scan-O (60, delivers sorted-by-date) + hash-C-R (15) + join cost (20) = 95. This delivers sorted-by-date from the index scan on O, so no Sort enforcer is needed. Total: 95. The memo caches this as G0\'s best plan for sorted-by-date.',
+        'Without the memo, the optimizer would re-derive and re-cost the (C join R) subplan every time it appeared in a different join order. With the memo, G2\'s best unsorted plan is computed once and reused. The savings compound: with 5 tables, the same subplan might appear in dozens of orderings.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Goetz Graefe, "The Cascades Framework for Query Optimization," IEEE Data Engineering Bulletin 18(3), 1995 -- the original Cascades paper defining memo groups, rules, properties, and enforcers.',
-            'Goetz Graefe, "The Volcano Optimizer Generator: Extensibility and Efficient Search," IEEE ICDE 1993 -- the predecessor to Cascades; Cascades improved Volcano with top-down goal-directed search and better memoization.',
-            'P. Griffith Selinger et al., "Access Path Selection in a Relational Database Management System," SIGMOD 1979 -- the System R dynamic-programming optimizer that Cascades generalizes.',
-            'Mohamed A. Soliman et al., "Orca: A Modular Query Optimizer Architecture for Big Data," SIGMOD 2014 -- Greenplum/ORCA, a production Cascades implementation with multi-threaded search.',
-          ],
-        },
-        {
-          type: 'table',
-          headers: ['Role', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'Selinger DP Join Order Optimizer', 'The dynamic-programming baseline that Cascades extends with rules and properties'],
-            ['Physical detail', 'SQL Join Algorithms Primer', 'Hash, merge, and nested-loop joins -- the physical operators that compete inside memo groups'],
-            ['Downstream', 'Volcano Iterator Query Execution', 'How the chosen plan actually runs once the optimizer finishes'],
-            ['Failure mode', 'Cardinality Estimation Error Propagation', 'Why bad row-count estimates make even a perfect search choose the wrong plan'],
-            ['Runtime repair', 'Spark Adaptive Query Execution Case Study', 'What happens when the optimizer gets it wrong and the engine must fix the plan mid-execution'],
-            ['Production case', 'PostgreSQL Query Planner Case Study', 'A production planner pipeline that uses bottom-up DP instead of Cascades -- the contrasting design choice'],
-          ],
-        },
+        'Goetz Graefe, "The Cascades Framework for Query Optimization," IEEE Data Engineering Bulletin 18(3), 1995 -- the original Cascades paper defining memo groups, rules, properties, and enforcers. Goetz Graefe, "The Volcano Optimizer Generator: Extensibility and Efficient Search," IEEE ICDE 1993 -- the predecessor to Cascades; Cascades improved Volcano with top-down goal-directed search and better memoization. P. Griffith Selinger et al., "Access Path Selection in a Relational Database Management System," SIGMOD 1979 -- the System R dynamic-programming optimizer that Cascades generalizes. Mohamed A. Soliman et al., "Orca: A Modular Query Optimizer Architecture for Big Data," SIGMOD 2014 -- Greenplum/ORCA, a production Cascades implementation with multi-threaded search.',
+        'For prerequisite context, study the Selinger DP Join Order Optimizer -- the dynamic-programming baseline that Cascades extends with rules and properties. For physical detail, study SQL Join Algorithms (hash, merge, and nested-loop joins are the physical operators that compete inside memo groups). For downstream understanding, look at Volcano Iterator Query Execution to see how the chosen plan actually runs once the optimizer finishes.',
+        'For failure modes, study Cardinality Estimation Error Propagation to understand why bad row-count estimates make even a perfect search choose the wrong plan. For runtime repair, study Spark Adaptive Query Execution to see what happens when the optimizer gets it wrong and the engine must fix the plan mid-execution. For contrast, study the PostgreSQL Query Planner, a production pipeline that uses bottom-up DP instead of Cascades.',
       ],
     },
   ],

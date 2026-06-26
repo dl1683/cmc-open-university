@@ -141,112 +141,95 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Adversarial Examples & FGSM. Point the gradient at the input instead of the weights: one deliberate nudge turns 97% spam into 14%..",
+        'Read the plot as a decision boundary, not as a map of human meaning. The point is the current input, the line is the classifier threshold, and the arrow shows the input direction that most reduces the spam score. If a tiny move crosses the line while the scam intent stays the same, the model has a robustness problem.',
         {type: 'callout', text: 'An adversarial example is a geometry failure: the model can stay confident while a tiny input move crosses the boundary.'},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/adversarial-examples.gif', alt: 'Animated walkthrough of the adversarial examples visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Active marks show the edit being tested now. Compared marks show the old score so you can see how much confidence was lost. The safe inference is local: this gradient step is legal because it follows the model slope at the current input.',
+        {type: 'image', src: './assets/gifs/adversarial-examples.gif', alt: 'Animated walkthrough of the adversarial examples visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
-      heading: `Why this exists`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Adversarial examples exist because model features are not the same as human meaning. A spam filter may represent an email through counts, tokens, phrases, and learned weights. A vision model may represent an image through millions of pixel-derived activations. Those features can change in ways that preserve the human-level object: the scam is still a scam, the stop sign is still a stop sign, the panda is still a panda. The model can still cross its decision boundary.`,
-        `This matters because a confidence score is not a robustness guarantee. A classifier can assign 97 percent spam to a message and still be only two small edits from sending it to the inbox. The model is confident at the observed point, but an attacker chooses the direction of movement. The security question is not just "How accurate is the model on normal data?" It is "How close is a harmful input to an allowed input under the attacker's edit budget?"`,
+        'Adversarial examples exist because model features and human meaning are not the same object. A spam filter may count punctuation, capitalization, tokens, or embeddings while a human sees the same fraud pitch. If an attacker can change model-facing features without changing the harmful intent, clean accuracy is not enough.',
+        'The risk is highest when model decisions create incentives. A spammer wants delivery, a fraudster wants approval, and a malicious user wants a moderation system to miss the payload. The practical question is how far a harmful input is from an allowed region under the edits the attacker can actually make.',
         {type: 'image', src: 'https://blog.keras.io/img/limitations-of-dl/adversarial_example.png', alt: 'Panda adversarial example classified as gibbon after a tiny perturbation.', caption: 'Classic adversarial image example showing human-stable meaning and model-unstable prediction. (Source: blog.keras.io)'},
-      ],
-    },
-    {
-      heading: `The wall`,
-      paragraphs: [
-        `The naive defense is to train a more accurate classifier and trust its confidence. That helps against ordinary mistakes, but it does not answer adaptive pressure. If the attacker can probe the model, see rejections, or approximate the decision boundary, they can search for edits that preserve intent while changing features. In spam, that might be spelling tricks, punctuation changes, image text, or phrase substitutions. In vision, it can be pixel-level noise that a human does not notice.`,
-        `Another naive reaction is to hide the exact model. Secrecy raises the attacker's cost, but it is not a clean boundary. Attacks can transfer from substitute models, and gradient-free search can exploit feedback from the deployed system. The wall is geometry. Smooth models trained by gradient methods tend to expose local directions where the score changes quickly. Accuracy on clean validation data does not measure how much movement is needed in those directions.`,
-      ],
-    },
-    {
-      heading: `The core insight`,
-      paragraphs: [
-        `The same calculus used for training can be aimed at the input. During training, backpropagation asks how weights should change to reduce loss. During an attack, the question changes: how should the input change to increase a target loss, lower a spam score, or force a chosen class? For a linear model, the input gradient is especially visible because the weights themselves describe how each feature pushes the score.`,
-        `FGSM, the Fast Gradient Sign Method, turns that idea into a cheap attack. Compute the gradient of loss with respect to the input, keep only the sign of each component, and move each allowed feature by epsilon in the harmful direction. The sign step is crude, but it is fast and coordinated. In many dimensions, many tiny movements can add into a large logit shift even when each individual movement is small.`,
-        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/fgsm_panda_image.png', alt: 'FGSM panda example showing original image, perturbation, and adversarial result.', caption: 'FGSM uses the input gradient to build a coordinated perturbation. (Source: docs.pytorch.org)'},
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The toy spam filter has two features: exclamation marks and ALL-CAPS words. Logistic regression computes a weighted sum, then passes it through a sigmoid. The original scam sits on the spam side of the boundary. Because both feature weights are positive, reducing both features moves the message away from spam according to the model. One step lowers the score but may not cross the threshold. A second step can cross from flagged to inbox while the malicious payload remains intact.`,
-        `In images, the mechanism is the same but the scale is different. A two-feature spam example needs visible edits because there are only two dimensions contributing to the logit. An ImageNet-sized input has 150,528 pixel-channel values. If each value moves by a tiny epsilon in the gradient sign direction, the total score shift is roughly epsilon times the sum of many sensitivities. The perturbation can be visually tiny while the model's internal score moves a long distance.`,
-      ],
-    },
-    {
-      heading: `How it works (2)`,
-      paragraphs: [
-        `The spam-filter plot proves that evasion is a boundary problem, not a meaning problem. The plotted point moves across the learned line while the human interpretation of the email stays the same. The arrow is not a random edit; it is the model revealing the direction that changes its own score fastest under the chosen features. The before-and-after table makes the security failure concrete: confidence was high, yet the allowed edit budget was small.`,
-        `The high-dimensional view proves why "imperceptible" does not mean "irrelevant." A small per-feature change is harmless in two dimensions, but the same per-feature budget applied across thousands of dimensions can dominate a classifier's logit. The plot is linear in dimension count. That is enough to explain why attacks can be cheap, why they can transfer, and why a model can be both trainable by gradients and vulnerable through gradients.`,
-      ],
-    },
-    {
-      heading: `Why it works`,
-      paragraphs: [
-        `FGSM works because many neural networks are locally close to linear over small neighborhoods. The exact global function may be complex, but near a particular input the first-order gradient often gives a useful direction. The attacker does not need to solve the whole model. One backward pass supplies a local map. If the allowed perturbation set includes many dimensions, the sign step uses all of them at once.`,
-        `The attack also works because human-preserving transformations and model-preserving transformations are different. Humans treat "FREE", "FR-EE", and "F R E E" as the same sales trick; a feature extractor may not. Humans ignore tiny pixel changes; a model may add their effects. The robustness gap is the distance between semantic equivalence for the user and feature equivalence for the model.`,
-      ],
-    },
-    {
-      heading: `Tradeoffs and defenses`,
-      paragraphs: [
-        `FGSM is cheap: one forward pass, one backward pass, and one sign step. Stronger attacks iterate, tune step sizes, project back into an allowed perturbation set, or optimize for a targeted class. Defenses are more expensive. Adversarial training generates attacked examples during training and teaches the model to classify them correctly, often trading clean accuracy and compute for robustness. Randomized smoothing can certify small radii but does not make large edit budgets safe.`,
-        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/sphx_glr_fgsm_tutorial_001.png', alt: 'Accuracy decreases as adversarial epsilon increases.', caption: 'The epsilon curve makes the robustness tradeoff visible as perturbation budget grows. (Source: docs.pytorch.org)'},
-        `Gradient masking is the classic trap. If a defense only makes gradients look useless, attackers may route around it with transfer attacks, gradient-free probes, or a differentiable substitute. Uncertainty detection, ensembles, rate limits, and human review can reduce harm, but adaptive attackers can target the detector too. Robustness has to be evaluated against the attacker's allowed actions, feedback, and budget, not against a single canned perturbation.`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `Adversarial thinking applies to spam, phishing, malware classification, fraud models, content moderation, face recognition, medical imaging, autonomous driving perception, and any model whose output changes an adversary's payoff. It also applies beyond security. A recommender can be gamed by behavior that preserves the actor's goal while changing model features. A ranking model can be pushed by keyword stuffing. A fraud model can be tested by small transaction-shape edits.`,
-        `The main failure mode is confusing validation accuracy with safety. Another is evaluating only non-adaptive attacks. A third is assuming that a human-inspection standard is enough: if the model consumes normalized tokens, resized images, compressed audio, or extracted features, the attack surface is that preprocessing pipeline too. Calibration and reliability diagrams answer whether probabilities are honest on a distribution. They do not answer whether a nearby adversarial input can change the outcome.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Logistic Regression for the linear boundary, Gradient Descent and Backpropagation for why input gradients are available, Loss Landscapes and Optimization Geometry for local linear behavior, Saliency Maps and Feature Attribution for the explanation side of the same gradients, Calibration and Reliability Diagrams for the difference between honest confidence and robustness, and Uncertainty methods for detection limits. Then read the original FGSM work by Goodfellow, Shlens, and Szegedy, plus later work on adversarial training and transfer attacks.`,
-        `The durable habit is to specify the adversary. What edits are allowed? How many probes do they get? What feedback do they see? Does the harmful intent survive the edit? Which preprocessing steps create new handles? A model that answers those questions may still be imperfect, but it is being evaluated as a deployed system rather than as a clean-data leaderboard score.`,
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Neural networks achieve superhuman accuracy on image classification. But add imperceptible noise to an image and the classifier fails catastrophically. A panda image plus a tiny perturbation is classified as "gibbon" with 99.3% confidence (Goodfellow et al. 2015). The noise is invisible to humans — the image looks identical.',
-        'FGSM (Fast Gradient Sign Method, Goodfellow et al. 2015): compute the gradient of the loss with respect to the input image. x_adv = x + ε · sign(∇_x L(θ, x, y)). Move each pixel in the direction that increases the loss. ε = 0.007 (in [0,1] pixel range): imperceptible to humans, catastrophic for classifiers.',
-        'Why it works: neural networks are approximately linear in high dimensions. In a 224×224×3 image (150,528 dimensions), even a tiny perturbation per pixel accumulates to a large dot product with the weight vector. The linear model’s decision boundary is a hyperplane — moving perpendicular to it (along the gradient) crosses it with minimal input change. PGD (Projected Gradient Descent, Madry et al. 2018): iterative FGSM within an ε-ball. Stronger attack, harder to defend against. The standard benchmark for robustness evaluation.',
+        'The obvious approach is to train a more accurate classifier and trust high confidence. That works for ordinary mistakes because more data, better features, and stronger models usually improve clean validation accuracy. It feels reasonable because the model is not merely guessing; it can be 97 percent confident at the original point.',
+        'A second obvious approach is to hide the model. If the attacker cannot see the exact weights, the attack should be harder. Secrecy can raise cost, but deployed systems leak information through scores, rejections, labels, retries, and substitute models trained on similar data.',
       ],
     },
-
     {
-      heading: 'Micro checks',
+      heading: 'The wall',
       paragraphs: [
-        '2D classifier: decision boundary at x₁ + x₂ = 1. Point (0.3, 0.3) → class A (sum = 0.6 < 1). Gradient of loss w.r.t. input: [1, 1] (the normal to the boundary). FGSM with ε = 0.25: x_adv = (0.3 + 0.25, 0.3 + 0.25) = (0.55, 0.55). Sum = 1.1 > 1 → class B. Misclassified. Perturbation magnitude: √(0.25² + 0.25²) = 0.35.',
-        'In high dimensions (d = 150,528): perturbation per pixel = ε/√d ≈ 0.0006. Invisible to humans. But the total perturbation magnitude = ε·√d ≈ 2.7. Massive impact on the classifier’s linear dot product. This is the curse of dimensionality working against robustness.',
+        'The wall is that confidence measures the current point, not the nearby attack surface. A classifier can be confidently correct on natural examples while a small chosen edit crosses its boundary. The attacker chooses the direction of movement, so average performance on honest data does not measure the relevant risk.',
+        'Hiding gradients also fails as a full defense. Attacks can transfer from other models, use finite-difference probes, or optimize against a softened copy of the system. If the underlying boundary is close, removing the obvious map does not remove the nearby exit.',
       ],
     },
-
     {
-      heading: 'Try this now',
+      heading: 'The core insight',
       paragraphs: [
-        'Adversarial training (Madry et al. 2018): generate PGD adversarial examples during training. Loss = max_δ L(θ, x + δ, y) subject to ||δ|| ≤ ε. Train on the worst-case perturbation. Result: roughly 50% robust accuracy on CIFAR-10 at ε = 8/255 (vs roughly 0% for standard models). Cost: 3–10x more compute than standard training (must run PGD at every step). Accuracy tradeoff: robust models are roughly 10% less accurate on clean data. The price of robustness is reduced standard accuracy — a fundamental tension.',
-        'Physical-world adversarial examples: a printed sticker on a stop sign causes misclassification by self-driving car vision systems (Eykholt et al. 2018). Adversarial patches: a small image patch that causes any object it is placed on to be classified as a target class. These work in the physical world — robust to angle, distance, and lighting changes. Defense research is an arms race: every proposed defense has been broken by stronger attacks, except adversarial training (which merely reduces but does not eliminate the problem).',
+        'The same gradient that trains a model can be aimed back at the input. Training asks how the weights should change to reduce loss. An attack asks how the input should change to increase a target loss or lower an unwanted score.',
+        'FGSM, the Fast Gradient Sign Method, makes the move cheap. Compute the gradient of the loss with respect to the input, keep only the sign of each component, and move each feature by epsilon in the damaging direction. In a linear spam model, the weights themselves tell you which feature edits move the score.',
+        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/fgsm_panda_image.png', alt: 'FGSM panda example showing original image, perturbation, and adversarial result.', caption: 'FGSM uses the input gradient to build a coordinated perturbation. (Source: docs.pytorch.org)'},
       ],
     },
-
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'In the spam animation, the original scam starts with four exclamation marks and three all-caps words. The logistic model gives those features positive weight, so reducing both moves the point away from the spam side of the boundary. One edit lowers the score, and a second edit crosses the threshold.',
+        'In an image model, the same mechanism spreads across many more dimensions. Each pixel channel can move by a tiny amount that a human barely notices. The model adds those small score changes across thousands of coordinates, so the total logit shift can be large.',
+        'FGSM is intentionally simple. It does not search over every possible edit or solve a long optimization problem. One forward pass and one backward pass expose a local direction that is often good enough to fool the classifier.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'FGSM works because many neural networks are locally close to linear over small neighborhoods. The full function may be complicated, but the first-order gradient near one input often points toward a higher-loss region. The attack only needs a useful local direction, not a global explanation of the model.',
+        'High dimension makes the attack stronger. If epsilon is tiny but applied to 150,528 image values, the effects can accumulate in the model score. The perturbation is small per coordinate, yet the combined dot product can cross the decision boundary.',
+        'The deeper reason is a mismatch between semantic distance and model distance. Humans may treat two images or messages as equivalent, while the feature vector has moved enough to change the prediction. Robustness means aligning those distances better under the attack budget.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'FGSM is cheap: one gradient evaluation plus a sign step. Its time cost is close to one normal training backward pass for the input batch. Its memory cost is also modest because it only needs the input gradient and the usual model activations.',
+        'Stronger attacks cost more. Projected gradient descent repeats many small FGSM-like steps and projects the result back into the allowed perturbation set. Black-box attacks spend queries instead of gradients, which moves the cost from compute to probing budget and rate-limit pressure.',
+        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/sphx_glr_fgsm_tutorial_001.png', alt: 'Accuracy decreases as adversarial epsilon increases.', caption: 'The epsilon curve makes the robustness tradeoff visible as perturbation budget grows. (Source: docs.pytorch.org)'},
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Adversarial examples matter in spam filtering, phishing detection, malware classification, fraud scoring, content moderation, face recognition, medical imaging, and autonomous driving perception. The common pattern is not the data type. The common pattern is a model decision that an adversary has reason to change.',
+        'They also matter outside classic security. Search rankings, recommender systems, and marketplace moderation can all be gamed by inputs that preserve a user goal while changing model features. Thinking adversarially helps engineers define allowed edits, feedback channels, and review paths before deployment.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'FGSM is a first-order attack, so it can understate risk when the real adversary can run stronger optimization. A model that survives FGSM may still fail under projected gradient descent, transfer attacks, or adaptive black-box probing. Passing one attack is not a certificate of safety.',
+        'Defenses fail when they only hide or break gradients. Gradient masking can make FGSM look weak while leaving the decision boundary close. Robust evaluation must include adaptive attacks that know the defense and can route around brittle preprocessing.',
+        'Adversarial training helps, but it is not free. It adds compute, can reduce clean accuracy, and only improves robustness inside the perturbation family used during training. If the real attacker can make semantic edits outside that family, the guarantee does not carry over.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Use the toy spam model from the animation. The original point is 4 exclamation marks and 3 all-caps words, which the model scores near 0.97 spam. Reducing both features by one gives 3 and 2, which lowers the score but can still leave the email flagged.',
+        'A second step gives 2 exclamation marks and 1 all-caps word. The score falls below the decision threshold, so the same scam intent moves from junk to inbox. The edit is small in feature space, but it crosses the learned boundary.',
+        'For images, replace the two visible edits with thousands of nearly invisible ones. If each coordinate moves by 1/255 in the gradient sign direction, the human image can look unchanged while the model score changes sharply. That is the high-dimensional version of the same boundary crossing.',
+      ],
+    },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Goodfellow et al. 2015 (Explaining and Harnessing Adversarial Examples — FGSM, linearity hypothesis). Madry et al. 2018 (Towards Deep Learning Models Resistant to Adversarial Attacks — PGD, adversarial training). Szegedy et al. 2014 (Intriguing Properties of Neural Networks — first discovery of adversarial examples).',
-        'Study next: Gradient Descent (adversarial examples use gradient ascent on the input), CNN (the models being attacked), Loss Functions (the objective being maximized), Backpropagation (computing input gradients), Activation Functions (linearity enables FGSM).',
+        'Start with Szegedy et al., "Intriguing Properties of Neural Networks," for the discovery that small perturbations can change predictions. Then read Goodfellow, Shlens, and Szegedy, "Explaining and Harnessing Adversarial Examples," for FGSM and the linearity argument. Madry et al., "Towards Deep Learning Models Resistant to Adversarial Attacks," is the standard reference for projected gradient descent and adversarial training.',
+        'Study logistic regression for the visible boundary, backpropagation for input gradients, loss functions for the objective being attacked, and calibration for the difference between honest probabilities and robustness. Then study uncertainty and evaluation design, because a deployed defense is only meaningful against a clearly specified adversary.',
       ],
     },
-],
+  ],
 };
-

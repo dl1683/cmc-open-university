@@ -176,134 +176,45 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation shows a 4-user, 5-movie ratings matrix with 13 observed cells and 7 holes. Highlighted cells mark the missing entries the algorithm must predict. The first view runs alternating least squares live in your browser: you watch learned taste vectors converge, then see predictions appear in the empty cells alongside their hidden ground truth.',
-        'The second view demonstrates failure modes. Cold-start frames show what happens when a user or item has zero observations: the least-squares system has no equations and produces no vector. Feedback-loop frames trace how recommendations filter tomorrow\'s training data, compounding popularity bias with every retrain cycle.',
-        'At each frame, read the explanation text for the invariant being preserved or violated. When predicted values appear next to held-out truth, compare the error: the gap between interpolation (shared structure) and extrapolation (unseen combinations) is the generalization story of matrix completion.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The first view shows a sparse user-item rating matrix. A visible number is an observed rating, and a dot is a missing cell the model must predict. Active cells show factor vectors being fitted, while found cells show predicted holes.',
+        'The second view shows deployment failures. Cold start means a user or item has no observations, so no vector can be solved. Feedback loops mean the recommender trains on data filtered by its own earlier recommendations.',
         {type: 'callout', text: 'Matrix completion is useful only when missing cells are constrained by shared low-rank structure rather than independent guesses.'},
-      
-        {type: 'image', src: './assets/gifs/matrix-completion.gif', alt: 'Animated walkthrough of the matrix completion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A recommendation system needs to answer one question per user-item pair: what would this person think of this thing? A dense answer table would solve the problem by lookup, but real systems observe almost nothing. Netflix had 480,000 users, 17,770 movies, and about 100 million ratings -- roughly 1.2% of the full table. The other 98.8% is the product.',
-        'Filling blanks with column averages is harmless for reporting but useless for personalization. The system needs predictions that depend on who the user is, not just what the average user thinks. Matrix completion is the formalization of that need: given a sparse matrix of observations and the assumption that the full matrix has low rank, recover the missing entries.',
-        {
-          type: 'quote',
-          text: 'Suppose that one observes a small number of entries selected uniformly at random from a low-rank matrix. When is it possible to complete the matrix and recover the entries that have not been seen?',
-          attribution: 'Emmanuel Candes and Benjamin Recht, "Exact Matrix Completion via Convex Optimization" (2009)',
-        },
-        'Candes and Recht proved that the answer is yes, under surprisingly mild conditions: if the matrix is low-rank and incoherent (its singular vectors are not aligned with coordinate axes), then O(n polylog n) randomly sampled entries suffice for exact recovery. The Netflix Prize (2006-2009) was the industrial proof that this theory works: the winning solution was an ensemble dominated by matrix factorization methods.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The first reasonable attempt is user-based collaborative filtering. Find the k users whose observed ratings overlap most with Alice, weight them by similarity (cosine or Pearson over shared items), and predict Alice\'s missing ratings as a weighted average of her neighbors\' ratings. Item-based collaborative filtering does the same thing from the other axis: find items similar to ones Alice already rated.',
-        'This works when overlap is dense. If Alice and Bob share 50 rated movies, their similarity estimate is stable and the prediction is grounded. The approach is intuitive, explainable, and requires no training -- just a similarity computation over raw data.',
-        {
-          type: 'diagram',
-          text: '         Alien  Titanic  MadMax  Up   Dune\nAlice  [  4.0    0.7      ?     3.4    ? ]\nBob    [  1.4    ?       2.8    3.6   3.2]\nCara   [  ?     3.3      3.6    ?     3.4]\nDev    [  1.1    1.5      ?     1.3    ? ]\n\n?  = missing entry (the cells we must predict)\n4.0 = observed rating',
-          label: 'A user-item matrix: 13 observed entries, 7 holes',
-        },
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Sparsity kills neighbor methods. At Netflix scale, two randomly chosen users share on average fewer than two rated movies. A similarity estimate built from one or two shared items is noise, not signal. Two users can both love science fiction and share zero rated titles. Two items can appeal to identical taste profiles but never appear in the same user\'s history.',
-        'The similarity matrix itself becomes the problem. Computing all-pairs user similarity is O(n^2) and mostly undefined because most pairs have no overlap. Storing precomputed neighborhoods does not scale. And the method has no generalization mechanism: it cannot infer that Alice would like a movie unless someone similar to Alice has already rated that exact movie. There is no latent structure connecting users and items through shared hidden factors.',
-        'Matrix completion replaces direct pairwise overlap with a compressed latent space. Instead of asking "did Alice and Bob rate the same movies?", it asks "do Alice and Bob load on the same hidden taste dimensions?" Two users who share zero movies can still connect through the latent factors, because other users bridge the gap.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The low-rank assumption is the foundation. If the true rating matrix M has rank k, then M = P * Q^T where P is n-by-k (one row per user) and Q is m-by-k (one row per item). Each user compresses to k taste coordinates; each item compresses to k profile coordinates. The predicted rating for user i and item j is the dot product p_i . q_j. For our animation, k=2: two hidden axes that turn out to capture something like "action affinity" and "romance affinity."',
+        {type: 'image', src: './assets/gifs/matrix-completion.gif', alt: 'Animated walkthrough of the matrix completion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: [
+        'A recommender needs estimates for user-item pairs that have never been observed. The full rating table is the object the product wants, but the observed table is mostly holes. Matrix completion fills those holes when the full matrix is governed by shared low-rank structure.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach compares users or items directly. Find users who rated many of the same movies as Alice, then average their ratings for a movie Alice has not rated. This works when overlap is rich and the similarity estimate is based on many shared observations.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'Sparse data breaks direct similarity. Two users can share the same taste and still have no rated items in common. At large scale, most pairs have too little overlap, so raw neighbor estimates become noise instead of signal.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Represent each user and each item as a short vector. A predicted rating is the dot product of the user vector and the item vector. The full matrix is approximated as P * Q^T, so a small number of hidden factors constrains many missing cells.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/eb/Matrix_multiplication_diagram_2.svg', alt: 'Matrix multiplication diagram showing row and column vectors forming output entries', caption: 'Matrix factorization predicts one missing entry by taking a dot product between a user vector and an item vector. Source: Wikimedia Commons, Lakeworks, CC BY-SA 3.0 or GFDL.'},
-        'The theoretical approach from Candes and Recht is nuclear norm minimization: find the matrix X that agrees with all observed entries and has the smallest sum of singular values (the nuclear norm, which is the convex relaxation of rank). This is a semidefinite program -- solvable in polynomial time but impractical for millions of users. The incoherence condition ensures recovery works: the true matrix must spread its energy across many entries rather than concentrating it in a few rows or columns. A matrix where one user accounts for all the variance would need nearly every entry observed to recover.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// ALS update: solve for one user vector while item vectors are fixed\n// For user i, collect all items j where rating r_ij is observed.\n// Solve: (Q_obs^T * Q_obs + lambda * I) * p_i = Q_obs^T * r_obs\n//\nfunction solveUserVector(Q, ratings_i, lambda, k) {\n  // Q_obs: rows of Q for items this user rated\n  // r_obs: the corresponding observed ratings\n  const A = identityScaled(k, lambda);  // k x k, starts as lambda * I\n  const b = zeros(k);\n  for (const { itemIdx, rating } of ratings_i) {\n    const q = Q[itemIdx];               // item vector, length k\n    for (let a = 0; a < k; a++) {\n      for (let c = 0; c < k; c++)\n        A[a][c] += q[a] * q[c];         // outer product accumulation\n      b[a] += q[a] * rating;            // right-hand side\n    }\n  }\n  return solve(A, b);                   // k x k linear system\n}',
-        },
-        'Alternating least squares (ALS) is the practical workhorse. It splits the joint optimization over P and Q into two alternating convex subproblems. Fix Q, solve the best p_i for every user i by ordinary least squares over that user\'s observed ratings -- a k-by-k system per user, trivially parallel. Then fix P, solve the best q_j for every item j the same way. Alternate until convergence. Each half-step only decreases the training loss, so the algorithm is monotonically non-increasing in objective value.',
-        'Stochastic gradient descent (SGD) is the other common solver. It streams over observed entries, computes the prediction error e_ij = r_ij - p_i . q_j, and nudges both vectors: p_i += eta * (e_ij * q_j - lambda * p_i). SGD is simpler, adapts to huge data, and integrates naturally with online updates. ALS has exact subproblem solutions and embarrassingly parallel structure.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The correctness argument has two layers: the theoretical guarantee from convex optimization and the practical success of factorization heuristics.',
-        'Candes and Recht proved that if M is an n-by-n matrix of rank r satisfying the incoherence condition, then nuclear norm minimization recovers M exactly from O(r * n * polylog(n)) uniformly random entries with high probability. The nuclear norm is the tightest convex relaxation of the rank function, so minimizing it promotes low-rank solutions without the NP-hard combinatorics of rank minimization. The incoherence condition prevents adversarial structure: it ensures no single row or column dominates the matrix, so random samples carry information about the whole matrix.',
-        'In practice, ALS and SGD do not solve the nuclear norm program. They directly minimize the squared error on observed entries plus a Frobenius-norm penalty on P and Q. This is non-convex, so there is no global optimality guarantee. But the factorized objective has benign landscape properties: for exact recovery with sufficient observations, all local minima are global minima (Ge et al., 2016). The regularization term lambda * (||P||^2 + ||Q||^2) prevents the factors from growing without bound to memorize sparse observations. With fewer parameters than observations (our animation: 18 parameters, 13 observed cells), the model is forced to find shared structure rather than memorize individual ratings.',
-        {
-          type: 'note',
-          text: 'The nuclear norm ||M||_* = sum of singular values is to the rank function what the L1 norm is to the L0 norm: a convex envelope that promotes sparsity in the singular value spectrum. This is why nuclear norm minimization recovers low-rank matrices from incomplete observations, just as L1 minimization recovers sparse vectors from underdetermined linear systems (compressed sensing).',
-        },
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Storage: O((n + m) * k) for the factor matrices plus O(nnz) for the sparse observation matrix, where nnz is the number of observed entries. The full n-by-m matrix is never materialized. One prediction costs O(k) -- a single dot product. Generating top-k recommendations for one user by scoring all items costs O(m * k), which is why production systems use approximate nearest-neighbor indexes (HNSW, ScaNN) to avoid the full scan.',
-        {
-          type: 'bullets',
-          items: [
-            'Nuclear norm optimization gives the clean convex recovery story, but it is limited to theory and small problems because the solve is far heavier than factorized training.',
-            'ALS costs roughly O(nnz * k^2 + (n + m) * k^3) per sweep. It is attractive in distributed systems because each user solve is independent while item vectors are fixed.',
-            'SGD costs O(nnz * k) per pass and streams naturally over huge data, but it follows a noisier path and parallelizes less cleanly than ALS.',
-            'Weighted ALS for implicit feedback treats clicks and views as confidence-weighted observations. It scales with observed interactions, but dense confidence terms need careful algebra to avoid an n * m scan.',
-          ],
-        },
-        'ALS sweeps are dominated by the k-by-k system solves. For small k (10-200 in practice), these are cheap. The embarrassingly parallel structure -- every user solve is independent when item factors are fixed -- makes ALS the natural choice for distributed systems (Spark MLlib uses ALS as its primary recommender). SGD has lower per-entry cost but less parallelism; it is the default for single-machine training on huge datasets.',
-        'When data doubles by adding interactions, cost grows with nnz, not with n * m. This is the whole point: the algorithm\'s compute scales with what you observed, not with what you could have observed.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Matrix completion won the Netflix Prize era. The $1 million prize, awarded in 2009, went to BellKor\'s Pragmatic Chaos -- an ensemble where matrix factorization models (SVD++, timeSVD++) were the strongest single components, outperforming neighborhood methods, restricted Boltzmann machines, and gradient-boosted trees. The factorization approach remains competitive on pure rating prediction benchmarks two decades later.',
-        'The method is strongest when three conditions hold: repeated interactions (each user rates or clicks many items), enough overlap to connect the user-item graph (no isolated subgraphs of users and items), and genuine low-dimensional taste structure (preferences explained by a modest number of hidden factors). It also extends to implicit feedback -- clicks, dwell time, purchases, skips -- by treating each interaction as a confidence-weighted observation rather than a clean star rating (Hu, Koren, Volinsky, 2008).',
-        'The same factorized shape survives in modern retrieval stacks. Neural two-tower models learn user and item embeddings through deep networks, but scoring is still a dot product, and the learned vectors are still retrieved via approximate nearest-neighbor indexes. Matrix completion is the ancestor: understanding its strengths and limits makes embedding retrieval, vector search, and feedback-loop diagnostics easier to reason about.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Cold start is structural, not a tuning problem. A new user with zero interactions produces zero equations in the ALS solve -- no vector can be computed. A new item has the same problem. Pure collaborative filtering literally cannot speak about entities it has never observed. Every production system is a hybrid: popularity fallback for day-zero users, onboarding questionnaires that manufacture a few equations, and content features (genre, cast, text embeddings) that give new items a vector before anyone interacts with them.',
-        'Feedback loops are the deployment trap. In production, users mostly interact with what the recommender shows them. Tomorrow\'s training data is filtered by today\'s model. Popular items accumulate exposure and evidence; obscure items remain uncertain. Without deliberate exploration (Thompson sampling, epsilon-greedy traffic, randomized slates), logging discipline, and counterfactual evaluation, the system grades its own homework and the rich get richer.',
-        'Low rank erases important structure. Preferences can be contextual (time of day, mood), seasonal (holiday shopping), social (watching with family), price-sensitive, or driven by short-term intent. A single static user vector cannot represent all of these simultaneously. Sequence-aware models (transformers, RNNs over interaction histories) capture temporal dynamics that a fixed factorization misses. Matrix completion is a strong baseline, not a complete theory of human preference.',
-        {
-          type: 'bullets',
-          items: [
-            'Cold start: zero observations = zero equations = no vector. Structural, not fixable by tuning.',
-            'Feedback loops: recommendations gate exposure, biasing tomorrow\'s training data toward today\'s predictions.',
-            'Incoherence violation: if one user or item dominates the matrix, random samples miss the rest.',
-            'Non-stationarity: tastes change over time; a static factorization cannot track drift.',
-            'Implicit signal ambiguity: a non-click is not a dislike -- it may be an unseen item.',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Candes and Recht, "Exact Matrix Completion via Convex Optimization" (2009) -- the foundational theorem: nuclear norm minimization recovers low-rank matrices from O(n polylog n) random entries under incoherence.',
-            'Koren, Bell, and Volinsky, "Matrix Factorization Techniques for Recommender Systems" (IEEE Computer, 2009) -- the practitioner\'s guide, distilling Netflix Prize lessons into ALS, SGD, biases, and SVD++.',
-            'Hu, Koren, and Volinsky, "Collaborative Filtering for Implicit Feedback Datasets" (2008) -- extends matrix factorization to clicks and views via confidence-weighted ALS.',
-            'Recht, "A Simpler Approach to Matrix Completion" (2011) -- simplified proof of nuclear norm recovery, more accessible than the original.',
-            'Ge, Lee, and Ma, "Matrix Completion Has No Spurious Local Minimum" (NeurIPS 2016) -- proves all local minima of the non-convex factorized objective are global, explaining why ALS and SGD work despite non-convexity.',
-          ],
-        },
-        'Prerequisite: study SVD and Low-Rank Approximation for the dense version of the low-rank idea -- matrix completion is SVD adapted to missing data. Study Embeddings and Similarity to connect user and item factor vectors to the broader world of vector representations and dot-product retrieval. Extension: study HNSW or other approximate nearest-neighbor indexes for retrieving top-k candidates at production scale without scoring every item. Study Thompson Sampling for principled exploration that buys information instead of only exploiting current predictions. Study Cross-Validation and Honest Evaluation before trusting recommender metrics produced by a system that shapes its own training data.',
-      ],
-    },
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Alternating least squares fixes item vectors and solves the best user vectors, then fixes user vectors and solves the best item vectors. Each solve uses only observed ratings and includes regularization, which penalizes extreme factors. Stochastic gradient descent is the streaming alternative that nudges both vectors from each observed error.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'It works when missing entries are tied together by shared factors. If Alice loads strongly on action and a movie has a strong action coordinate, the dot product can be high without Alice rating that exact movie. The prediction borrows information from every observation that shaped the two factor vectors.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Storage is O((users + items) * rank) plus the sparse observations, not O(users * items). One prediction is O(rank). An ALS sweep costs roughly O(nnz * rank^2 + (users + items) * rank^3), so training grows mainly with observed interactions.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Matrix factorization was central to the Netflix Prize era and remains a strong rating-prediction baseline. The same shape survives in neural two-tower retrieval, where networks produce user and item embeddings but scoring is still a dot product. Similar low-rank completion appears in sensors, surveys, and gene-expression matrices.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'Cold start is structural: zero interactions means zero equations for a vector. Feedback loops are operational: the system mostly observes items it chose to show. Static low-rank factors also miss sequence, context, seasonality, and short-term intent.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Use two factors, action and romance. Alice is [1.4, 0.2] and Dune is [1.8, 1.8], so the predicted rating is 1.4*1.8 + 0.2*1.8 = 2.88. Bob is [0.2, 1.3], so Bob on Dune is 0.2*1.8 + 1.3*1.8 = 2.70.',
+        'For Alien as [2.8, 0.3], Alice scores 1.4*2.8 + 0.2*0.3 = 3.98. Bob scores 0.2*2.8 + 1.3*0.3 = 0.95. The same two hidden coordinates explain both recommendations.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Read Candes and Recht on exact matrix completion, Koren, Bell, and Volinsky on recommender matrix factorization, and Hu, Koren, and Volinsky on implicit feedback. Study SVD, embeddings and similarity, ALS, approximate nearest-neighbor search, and Thompson sampling next.',
+      ], },
   ],
 };

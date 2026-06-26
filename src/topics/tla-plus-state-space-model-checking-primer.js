@@ -241,93 +241,17 @@ export const article = {
     { title: 'Current TLA+ Tools', url: 'https://github.com/tlaplus/tlaplus/blob/master/general/docs/current-tools.md' },
   ],
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/tla-plus-state-space-model-checking-primer.gif', alt: 'Animated walkthrough of the tla plus state space model checking primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `TLA+ exists because some bugs live in the design before any implementation exists. Distributed systems, lock managers, retry loops, quorum protocols, and concurrent workflows can fail even when each individual step looks reasonable. The failure is a reachable sequence of legal actions: client A waits, client B retries, a message is delayed, a timeout fires, and a state that was supposed to be impossible appears.`,
-        `Code review and tests are weak at this kind of bug because they sample executions. A reviewer follows the path that seems likely. A test runner schedules a few interleavings. The system may still contain a deadlock, split brain, stale read, lost update, or broken ownership invariant in a path nobody happened to exercise.`,
-        `TLA+ moves the question earlier. Instead of asking whether one program run behaved, you write a model of the design as a state machine and ask which states are reachable. TLC, the model checker, explores a finite version of that state space and reports a concrete counterexample when a property fails. The official TLA+ materials frame this as a way to eliminate fundamental design errors in concurrent and distributed systems: https://docs.tlapl.us/.`,
-        {type: `callout`, text: `Model checking changes design review from sampled stories to reachable-state evidence: if a bad state exists in the bound, TLC can hand back the path.`},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `The obvious approach is to draw the protocol and write scenario tests. That is not foolish. A small sequence diagram catches many missing transitions, and executable tests are necessary later. The problem is coverage. A lock service with two clients and two locks already has enough interleavings to hide a circular wait.`,
-        `Another reasonable approach is to reason informally from invariants. You might say each lock has at most one owner, every committed entry has a quorum, or every message is eventually handled. Those statements are useful, but the human proof often skips the uncomfortable cases: retry after partial failure, two timeouts in a row, a node that receives an old message, or a client that observes the system during reconfiguration.`,
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `The wall is state explosion plus human selectivity. If a system has several variables, each with several possible values, the total number of snapshots grows as their combinations multiply. Add process interleavings and message queues, and the graph becomes too large to inspect by hand.`,
-        `The second wall is that implementation tests arrive late. By the time a bug is found in code, the team may have already built APIs, storage formats, and operational assumptions around the flawed design. A model is cheaper because it can be wrong on purpose. It can use tiny bounded sets, abstract messages, and simplified time while preserving the bug class that matters.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `The core insight is that a design can be treated as a graph of states. A state is one valuation of the model variables. Init defines the possible starting states. Next defines which actions can produce successor states. Invariants state facts that must hold in every reachable state. Liveness properties state progress obligations, usually with fairness assumptions.`,
-        `TLC turns that specification into graph search. It starts from Init, applies Next to generate successors, stores a visited set so it does not revisit the same state forever, checks properties on each state, and keeps enough parent information to reconstruct a failing path. Lamport and Yu describe TLC as a model checker for debugging TLA+ specifications by checking invariance properties of a finite-state model: https://lamport.azurewebsites.net/pubs/yuanyu-model-checking.pdf.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `A useful model begins with variables that are just detailed enough. For a lock protocol, variables might be lock ownership, waiting clients, outstanding messages, and a small set of client states. The model does not need real TCP packets or production timestamps if the property depends only on ownership and waiting.`,
-        `Actions describe legal transitions. Acquire may move a client from idle to holding a lock. Release may free a lock. Timeout may move a waiting client back to retry. Message delivery may update a replica. The model checker does not guess which action is realistic next; it tries every enabled action inside the finite bounds.`,
-        `Properties are the reason to model. A safety invariant says something bad never happens: two owners for one lock, a committed value without a quorum, a negative balance, or a queue item lost from all data structures. A liveness property says something good eventually happens: a request eventually completes, a leader is eventually elected, or a retry loop does not starve forever under the stated fairness assumptions.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The state-graph view should be read as the model checker, not as the production system. The spec creates the initial nodes and transition rules. The frontier stores states still waiting to expand. The seen set prevents duplicate work. The invariant checker is the gate every reachable state must pass.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/3/3d/TLC_one-bit_clock_states.png`, alt: `Finite state graph for a one-bit TLA plus clock model`, caption: `Even a tiny TLA+ model becomes a reachable-state graph that TLC can exhaustively check inside the chosen bounds. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TLC_one-bit_clock_states.png.`},
-        `The counterexample view shows the real payoff. A failure is not a vague warning. It is a replayable sequence of model states and actions: start here, take this legal action, then this one, and the property breaks. That trace is often more useful than a failing test because it names the design interleaving, not just the symptom observed in one implementation run.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Within its finite model, TLC is exhaustive. If every reachable state has been explored and the invariant held in each one, then the invariant holds for that bounded model. The argument is plain induction over graph reachability: Init states pass, and every successor generated from already reachable states is checked before the search finishes.`,
-        `If an invariant fails, parent pointers give the proof of failure. The checker does not merely claim that a bad state exists. It returns the chain of actions from an initial state to that state. That makes the result falsifiable and actionable: the engineer can decide whether the trace is a real design bug, a missing environment assumption, a spec typo, or an unrealistic bound.`,
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        `The cost is dominated by states and transitions. If you double the number of processes, messages, or data values, the state space can grow far more than double because combinations multiply. TLC needs memory for the visited set, time to generate successors, property checks for each state, and sometimes disk-backed storage or fingerprints to keep large searches practical.`,
-        `Abstraction is the main performance tool. Replace unimportant payloads with small symbols. Bound process counts. Collapse symmetric identities when the property does not care which client is named A or B. Split one huge property into focused models. Each abstraction is a risk: remove the detail that creates the bug, and the model can prove a toy while production remains unsafe.`,
-        `Liveness adds another tax. Safety asks whether a bad state is reachable. Liveness asks about infinite behavior and fairness: whether the system can avoid progress forever. Those checks require more discipline because the wrong fairness assumption can either hide a starvation bug or invent an impossible one.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `TLA+ is strongest for protocols and coordination logic: leader election, distributed locks, transaction state machines, snapshot protocols, retries, deduplication, queue ownership, consensus-adjacent designs, cache coherence rules, and storage metadata updates. These systems have small logical states but many interleavings.`,
-        `It is also useful as a design communication tool. A good spec forces the team to name variables, actions, and invariants. The model becomes a sharper artifact than a prose design document because every ambiguity eventually has to become a transition or a property.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `TLA+ fails when the model is either too faithful or not faithful enough. Too much implementation detail explodes the state space before it teaches anything. Too little detail removes the bug. The skill is not writing a large spec; it is preserving the failure mode while deleting everything irrelevant to that failure mode.`,
-        `It also does not prove that the implementation matches the model. A checked design can still be implemented incorrectly, deployed with different timeouts, or connected to an environment the spec never modeled. Treat the model checker as a design verifier, not as a substitute for code review, property-based tests, fault injection, or production telemetry.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study finite state machines for the modeling base, graph BFS and DFS for the search mechanics, hash tables for visited-state storage, property-based testing for executable sampling, Alloy for bounded relational models, SMT solvers for formula-backed constraints, and distributed systems topics such as Raft, two-phase commit, leases, fencing tokens, and snapshot isolation. Then practice by modeling one small real workflow before trying to model a whole service.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the animation as graph search over a design. TLA+ describes states and actions; TLC explores the finite state graph. The frontier holds states to expand, and the seen set prevents repeated work.', {type: 'image', src: './assets/gifs/tla-plus-state-space-model-checking-primer.gif', alt: 'Animated walkthrough of the tla plus state space model checking primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: ['Some bugs exist in the design before code exists. Distributed locks, retry loops, and quorum workflows fail when legal steps interleave badly. Model checking exists to find reachable bad states before implementation commits the design.', {type: 'callout', text: 'Model checking changes design review from sampled stories to reachable-state evidence: if a bad state exists in the bound, TLC can hand back the path.'},], },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a design document plus scenario tests. That catches likely paths but samples only a few interleavings. Human invariant arguments help, but people skip stale messages, retries, and rare timeout orders.'], },
+    { heading: 'The wall', paragraphs: ['The wall is state explosion. Three clients with three states already create 27 client-state combinations before locks and messages. Once message delivery orders are included, the graph is too large to inspect by hand.'], },
+    { heading: 'The core insight', paragraphs: ['Treat the design as a graph. Init defines starting states, Next defines legal transitions, and invariants define facts that must hold in every reachable state. TLC searches that graph and returns a concrete counterexample path when a property fails.'], },
+    { heading: 'How it works', paragraphs: ['A useful model keeps only the details needed for the bug class. Actions describe guarded transitions such as acquire, release, timeout, or message delivery. TLC tries every enabled action within the finite bounds.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/TLC_one-bit_clock_states.png', alt: 'Finite state graph for a one-bit TLA plus clock model', caption: 'Even a tiny TLA+ model becomes a reachable-state graph that TLC can exhaustively check inside the chosen bounds. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TLC_one-bit_clock_states.png.'},], },
+    { heading: 'Why it works', paragraphs: ['For finite safety checking, correctness is induction over reachability. Initial states are checked, and every successor generated from a reachable state is checked before completion. If a bad state appears, parent links give a constructive proof path.'], },
+    { heading: 'Cost and complexity', paragraphs: ['Cost is states times transitions. Doubling clients or messages can more than double the graph because combinations multiply. Abstraction controls cost, but deleting the detail that creates the bug makes the proof irrelevant.'], },
+    { heading: 'Real-world uses', paragraphs: ['TLA+ fits protocols, lock managers, queue ownership, retries, storage metadata, cache coherence, and transaction workflows. It is also a communication tool because ambiguous prose must become variables, actions, and properties.'], },
+    { heading: 'Where it fails', paragraphs: ['A model can be too detailed and explode, or too abstract and miss the bug. It also does not prove that code matches the model. Liveness checks can mislead if fairness assumptions hide or invent progress problems.'], },
+    { heading: 'Worked example', paragraphs: ['Model one lock and two clients. Each client is idle, waiting, or holding, giving 3 * 3 = 9 client combinations. Add owner in none, A, or B, and the raw space is at most 27 snapshots before messages.', 'The invariant is that A and B cannot both hold the lock. If acquire forgets to check the current owner, TLC can produce A acquires, B requests, B acquires, and then both clients hold. The counterexample names the missing guard.'], },
+    { heading: 'Sources and study next', paragraphs: ['Read Lamport TLA+ materials, the TLC documentation, and the model-checking paper by Yu, Manolios, and Lamport. Study finite state machines, BFS, DFS, invariants, temporal logic, Alloy, SMT solvers, Raft, leases, and snapshot isolation next.'], },
   ],
 };

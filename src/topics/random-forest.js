@@ -119,111 +119,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Random Forest. Three different decision trees classify the same animal, then vote. Ensembles beat solo trees.",
+        'Read the animation as one example moving through several decision trees. A decision tree is a model that asks feature-threshold questions until it reaches a leaf prediction.',
         { type: "callout", text: "A random forest reduces variance only when its trees make partly different mistakes; voting cannot fix identical blind spots." },
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/random-forest.gif', alt: 'Animated walkthrough of the random forest visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/random-forest.gif', alt: 'Animated walkthrough of the random forest visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference rule is that the forest prediction is a vote, not a proof from one tree. If the trees make different errors, the majority can be steadier than any single path.',
+      ],
     },
     {
-      heading: `Why this exists`,
+      heading: 'Why this exists',
       paragraphs: [
-        `A random forest is an ensemble of decision trees. Each tree learns a sequence of if-then splits over the input features and ends at a leaf prediction. A single tree is easy to inspect, but it is unstable. Change a few training rows, or allow a slightly different first split, and the whole downstream tree can change. A random forest turns that instability into a strength by training many trees on different views of the data and combining their predictions.`,
+        'A random forest exists because one decision tree is flexible but unstable. Small changes in training rows can change the first split, and that change reshapes every decision below it.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branches and leaf decisions', caption: 'A forest is built from many decision trees like this one, then aggregates their leaf predictions instead of trusting one path. Source: Wikimedia Commons, CC BY-SA 4.0.'},
-        `For classification, the forest usually predicts by majority vote. For regression, it averages numeric outputs. The word "random" refers to two sources of variation: each tree trains on a bootstrap sample of rows, and each split considers only a random subset of features. The word "forest" matters too. The model is not one carefully pruned explanation tree. It is a crowd of partly independent trees whose errors can cancel when they are not all wrong in the same way.`,
-      ],
-    },
-    {
-      heading: `The wall`,
-      paragraphs: [
-        `The obvious approach is to train one decision tree. It can model nonlinear rules, interactions, thresholds, and mixed feature types without forcing the data into a linear equation. A tree can learn that income matters only after debt crosses a threshold, or that a medical risk score changes when age and a lab value interact. It is also readable: follow the path from root to leaf and you can explain one prediction as a series of feature tests.`,
-        `The wall is variance. Decision trees are greedy. They choose a split, then choose the next split inside the partition created by the first one. Early choices are amplified. A small data perturbation can change the root split, which changes every later candidate split. Deep trees fit training data well but generalize poorly. Shallow trees have lower variance but higher bias. One tree often forces the practitioner to choose between a brittle accurate tree and a stable underfit tree.`,
-      ],
-    },
-    {
-      heading: `The core insight`,
-      paragraphs: [
-        `The core insight is variance reduction through decorrelation. A deep tree is a high-variance estimator: it can fit complex structure, but it moves around when the sample changes. Averaging many high-variance estimators can be powerful if their errors are not perfectly correlated. If every tree sees the same rows and always considers the same strongest features, the trees will look similar and the vote will not help much. Random forests deliberately make trees different.`,
-        `Bootstrap sampling changes the rows each tree sees. Feature subsampling changes which features can compete at each split. A dominant feature cannot always win immediately because it may not be available in that split's candidate set. Weaker but useful features get chances to shape some trees. The final forest combines many local opinions. This does not eliminate bias, but it can dramatically reduce the variance that makes a single tree unreliable.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `Training begins with T, the number of trees. For each tree, sample n rows with replacement from the n-row training set. Some original rows appear multiple times; some do not appear at all. The omitted rows are the out-of-bag examples for that tree. They can estimate prediction error without a separate validation set, although a final untouched test set is still important. The tree then grows by repeatedly choosing splits that reduce impurity, such as Gini impurity or entropy for classification and squared error for regression.`,
-        `At each split, the algorithm considers only m_try randomly selected features out of p total features. A common classification default is around sqrt(p), though the best value is empirical. Trees are often grown deep, subject to constraints such as maximum depth, minimum samples per leaf, minimum impurity decrease, or maximum leaf nodes. Prediction is simple: run the example down every tree, collect the votes or numeric predictions, and combine them. Training parallelizes naturally because trees do not depend on previous trees.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `The cost is mostly tree count times tree size. Training grows many split structures, so runtime depends on rows, candidate features per split, split-search strategy, depth, and the number of trees. Prediction is usually fast per tree, but a forest with hundreds of deep trees still performs hundreds of root-to-leaf walks for every example. Memory stores every split threshold, feature index, child pointer, and leaf value. More trees reduce variance until the curve flattens, then they mostly add latency and memory.`,
-        `The main tuning controls are number of trees, maximum depth, minimum samples per leaf, maximum features per split, bootstrap use, class weights, and the decision threshold applied after probability estimation. Random forests are forgiving, but they are not parameter-free. A small forest can be noisy. A very deep forest can memorize leakage. A huge forest can be too slow for online scoring.`,
-      ],
-    },
-    {
-      heading: `Why it works`,
-      paragraphs: [
-        `Random forests work well on tabular data because many tabular relationships are thresholded, nonlinear, and interaction-heavy. A linear model needs explicit feature engineering to express "high risk only when feature A is large and feature B is small." A tree can express that kind of rule through splits. A forest can express many such rules and average across them. Feature scaling is usually not a problem because split thresholds depend on order, not Euclidean distance.`,
-        `They also work because they are robust baselines. They need less hyperparameter tuning than many neural networks. They can handle mixtures of numeric, binary, ordinal, and encoded categorical variables. They can expose rough feature importance. They are less sensitive to monotonic transformations than models that depend on distances or dot products. On many structured problems, a random forest will not be the final leaderboard winner, but it gives a strong first answer that is hard to embarrass.`,
-      ],
-    },
-    {
-      heading: `Real-world uses`,
-      paragraphs: [
-        `Use random forests for tabular classification and regression when you need a strong baseline quickly. Common domains include fraud detection, credit risk, churn prediction, insurance pricing, medical triage, remote-sensing land cover, manufacturing quality, bioinformatics, demand signals, and operational risk scoring. They are also useful when you want to inspect feature behavior before committing to a more specialized model.`,
-        `They fit especially well when the data is medium-sized, structured, and not dominated by raw pixels, waveform samples, or long text. For text, Naive Bayes and linear models can be stronger simple baselines after bag-of-words features. For modern tabular competitions, Gradient Boosting often beats random forests because boosting corrects residual errors sequentially. Still, forests remain valuable because they are parallel, stable, relatively low-tuning, and resistant to some overfitting patterns that defeat one tree.`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `A forest fails when its trees are too correlated. If the dataset has one overwhelmingly strong shortcut feature, many trees may split on it whenever it appears and inherit the same blind spot. If the training data has leakage, every tree can learn the leaked signal and the majority vote will look excellent offline while failing in production. If the task requires extrapolation beyond the range of observed data, tree methods struggle because they predict by partitioning known feature space rather than learning a smooth equation.`,
-        `Interpretability is another common misconception. One small tree is interpretable. A forest with hundreds of deep trees is not automatically transparent. Impurity-based feature importance can favor high-cardinality or high-variance features. Correlated features can split importance in misleading ways. Use permutation importance, partial dependence, accumulated local effects, and slice-level metrics. For imbalanced problems, accuracy can be useless. Study Precision, Recall & the Confusion Matrix and tune thresholds against real costs.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Evaluate a forest with out-of-bag error, cross-validation, and a final test set that was not used for model choice. Track accuracy, precision, recall, F1, ROC AUC, precision-recall AUC, calibration, regression error, and business cost depending on the task. Compare against a single decision tree, logistic regression or linear regression, Gradient Boosting, and any existing production baseline. Inspect performance by slice, not only in aggregate. Watch training time, prediction latency, memory size, tree depth, number of leaves, and stability of feature importance across folds.`,
-        `Primary sources are Breiman's bagging paper at https://www.stat.berkeley.edu/~breiman/bagging.pdf and Random Forests at https://www.stat.berkeley.edu/~breiman/randomforest2001.pdf. Study Decision Trees first if the split mechanics are not clear. Then study Gradient Boosting for sequential tree ensembles, Cross-Validation & Honest Evaluation for generalization measurement, Calibration & Reliability Diagrams for probability quality, Threshold Optimization for deployment decisions, Tabular Feature-Basis Orientation Primer for structured-data geometry, Causal Forest Uplift Policy for treatment effects, and Benchmark Variance & Model Selection before trusting one lucky score.`,
+        'A forest trains many trees on different random views of the data and combines their predictions. For classification it usually votes, and for regression it averages numeric outputs.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        "One decision tree: split data recursively on the best feature and threshold. Simple, interpretable, but overfits badly. A deep tree memorizes training data and performs poorly on new data. Pruning helps but limits capacity.",
-        "Bagging (Breiman 1996): train T trees on T bootstrap samples (sample N points with replacement from N). Average their predictions. Variance drops by roughly 1/T, bias stays the same. But if one feature dominates (e.g., income predicts spending), every tree splits on it first. The trees are correlated, so averaging does not help much.",
-        "Random Forest (Breiman 2001): at each split, consider only m random features out of p total. Default: m = sqrt(p) for classification, m = p/3 for regression. This decorrelates the trees. Each tree is individually worse (higher bias), but the ensemble's variance drops dramatically. Result: one of the most reliable out-of-box classifiers. Kaggle competitions from 2010 to 2015 were dominated by random forests before gradient boosting took over.",
+        'The obvious approach is to train one deep decision tree. It can capture thresholds, feature interactions, and nonlinear rules without scaling features or writing many transformations by hand.',
+        'Pruning that tree makes it less brittle, but pruning also removes detail. The practitioner ends up choosing between a deep tree that memorizes noise and a shallow tree that misses real structure.',
       ],
     },
-
     {
-      heading: 'Micro checks',
+      heading: 'The wall',
       paragraphs: [
-        "2D data, 2 classes. Features: height, weight. Training: (170, 65, A), (180, 80, B), (160, 55, A), (175, 70, B), (165, 60, A), (185, 85, B).",
-        "Tree 1 (features: {height}): split height <= 172.5 -> A, else B. Accuracy: 5/6. Tree 2 (features: {weight}): split weight <= 67.5 -> A, else B. Accuracy: 5/6. Tree 3 (bootstrap + {height}): (170,65,A) sampled twice, (185,85,B) missing. Split height <= 167.5 -> A, else B.",
-        "For new point (172, 68): Tree1 -> B, Tree2 -> B, Tree3 -> B. Vote: B (unanimous). For (168, 66): Tree1 -> A, Tree2 -> A, Tree3 -> B. Vote: A (2-1). The majority vote smooths individual tree errors.",
+        'The wall is variance, which means sensitivity to the particular training sample. A tree that chooses age <= 42 at the root on one sample may choose income <= 61000 on another, sending later splits down a different path.',
+        'Bagging reduces variance by training trees on bootstrap samples, which are samples drawn with replacement. If every tree still uses the same dominant feature first, the trees stay correlated and the vote helps less.',
       ],
     },
-
     {
-      heading: 'Try this now',
+      heading: 'The core insight',
       paragraphs: [
-        "Feature importance: for each tree, track how much each feature reduces impurity (Gini or entropy) across all splits. Average across trees. Height might contribute 60% of total impurity reduction, weight 40%. This ranking is free — it comes from the training process.",
-        "Out-of-bag (OOB) error: each bootstrap sample excludes roughly 37% of data points (1 - 1/e is approximately 0.368). Use excluded points as a free validation set for that tree. Average OOB error across all trees approximates test error. No need for a separate validation set.",
-        "Gradient Boosted Trees (Friedman 2001, XGBoost/LightGBM): instead of averaging independent trees, build trees sequentially — each tree fits the residual errors of the ensemble so far. Less parallelizable but usually more accurate.",
+        'The core insight is variance reduction through partly independent trees. Random forests perturb both rows and split candidates, so each tree sees a bootstrap sample and each split considers only a random subset of features.',
+        'This makes individual trees a little less greedy in the same direction. The forest wins when the errors are not identical, because averaging cancels some mistakes while preserving many useful threshold rules.',
       ],
     },
-
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Training chooses T trees. For each tree, it samples n rows with replacement from the n-row dataset, grows a decision tree, and at each split considers only m_try features out of p total features.',
+        'Prediction sends the input through every tree. In classification, 70 votes for fraud and 30 votes for not fraud can become a 0.70 estimated probability before the team applies a business threshold.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness is statistical rather than exact like a sorting algorithm. If each tree is better than random on the target distribution and their errors are not perfectly correlated, majority vote lowers the chance that the whole ensemble is wrong.',
+        'The out-of-bag idea gives an internal check. About 36.8 percent of rows are omitted from any one bootstrap sample, so those rows can test that tree without being used to train it.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Cost behaves like tree count times tree depth. If prediction through one tree takes 20 comparisons, a 500-tree forest may perform about 10,000 comparisons for one example before thresholding.',
+        'When rows double, training each tree has more candidate split work, and deeper trees may grow unless constrained. Memory stores every feature index, threshold, child pointer, and leaf value, so more trees buy stability with latency and RAM.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Random forests are strong baselines for tabular classification and regression. They fit credit risk, fraud detection, churn prediction, manufacturing quality, and medical triage when features are structured fields rather than raw text or pixels.',
+        'They are also useful for exploratory modeling. Feature importance and out-of-bag error can reveal whether the signal is stable enough to justify more specialized models.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A forest fails when all trees learn the same shortcut. Leakage, a dominant proxy feature, or biased sampling can make 500 trees confidently repeat one wrong rule.',
+        'It also fails at extrapolation. Trees partition the observed feature space, so a forest usually cannot predict a trend beyond the range it saw during training the way a fitted equation might.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose 100 trees classify loan applications, and one applicant receives 63 approve votes and 37 deny votes. With a deployment threshold of 0.70 for approval, the forest returns a 0.63 approve probability but the system still denies because the risk policy requires stronger support.',
+        'Now compare a single tree that changed from approve to deny after 20 rows were resampled. If the forest vote moves only from 63 to 60 approvals, the ensemble absorbed that local instability instead of letting one root split control the outcome.',
+      ],
+    },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        "Breiman 2001 (Random Forests — the foundational paper). Breiman 1996 (Bagging Predictors — the bootstrap aggregation idea). Ho 1995 (Random Decision Forests — independent invention using random subspaces).",
-        "Study next: Binary Search Tree (the recursive splitting structure), Naive Bayes (simpler classifier for comparison), Entropy / Cross-Entropy (the split criterion), A/B Testing (statistical validation of model performance), Gradient Descent (gradient boosting is the main competitor).",
+        'Read Breiman, Bagging Predictors, and Breiman, Random Forests. Ho, Random Decision Forests, is also useful for the random-subspace view.',
+        'Study decision trees, entropy and Gini impurity, cross-validation, calibration, permutation importance, gradient boosting, and benchmark variance next. These topics separate a reliable forest from a lucky offline score.',
       ],
     },
-],
+  ],
 };

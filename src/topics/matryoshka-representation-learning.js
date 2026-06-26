@@ -217,110 +217,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The nested-embeddings view shows one vector being read at several prefix lengths. A prefix is the first d dimensions of the same embedding, not a separate smaller model. The retrieval-cascade view spends short prefixes on many candidates and longer prefixes on fewer candidates.',
         {type: 'image', src: './assets/gifs/matryoshka-representation-learning.gif', alt: 'Animated walkthrough of the matryoshka representation learning visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'Matryoshka Representation Learning (MRL) trains embeddings so useful representations are nested inside larger representations. A 768-dimensional vector is not treated as one indivisible object. Its first 64 dimensions should be useful, its first 128 dimensions should be better, and the full vector should be best. The name comes from nesting dolls: smaller representations live inside larger ones.',
-        'The paper asks a deployment question: downstream tasks have different compute, storage, latency, and data constraints, but standard representation learning produces one rigid vector size. MRL makes capacity elastic. A retrieval system can use a short prefix for fast search and a longer prefix for reranking without retraining a separate embedding model.',
+      ], },
+    { heading: 'Why this exists', paragraphs: [
+        'Embedding systems often choose one vector length for every use. That wastes memory and latency because first-stage retrieval, reranking, mobile classification, and offline analysis need different amounts of detail. Matryoshka Representation Learning trains one vector whose prefixes are useful at several budgets.',
         {type: 'callout', text: 'MRL makes vector length a runtime policy knob by training every prefix to carry usable semantics.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious deployment answer is to train one embedding model per budget: a small vector for cheap search, a medium vector for most users, and a large vector for high-quality reranking. That works on paper, but it multiplies training, evaluation, storage, index management, and model-versioning work.',
-        'Another obvious answer is to take an ordinary embedding and truncate it. That is not the same thing. Standard training has no reason to put the most useful information in the first dimensions. A truncated non-Matryoshka vector may discard exactly the information a downstream task needs.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is that vector dimension is an infrastructure cost. More dimensions mean more storage, more memory bandwidth, larger ANN indexes, slower distance computations, and more network transfer. At billion-vector scale, the difference between 128 and 768 dimensions is not cosmetic.',
-        'The second wall is task diversity. The best representation size for a mobile classifier, first-stage retrieval, second-stage reranking, and offline evaluation may differ. A rigid embedding forces every stage to pay for the largest representation even when most stages need only a coarse answer.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Train the representation so prefixes are intentionally useful. The first dimensions learn a coarse representation; later dimensions refine it. This turns vector length into a runtime policy choice instead of a model-family decision.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious deployment approach trains one model per vector size. That works, but it multiplies training, evaluation, indexing, and model-versioning work. Arbitrarily truncating an ordinary embedding is cheaper, but ordinary training has no reason to put the most useful dimensions first.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'Vector dimension is infrastructure cost. More dimensions mean larger indexes, more memory traffic, slower distance computations, and larger payloads. At billion-vector scale, reducing 768 dimensions to 128 changes whether data fits in memory.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Train losses on several prefixes of the same representation. Early dimensions must solve the task because they are evaluated alone, while later dimensions add detail for harder distinctions. Vector length becomes a runtime policy rather than a model-family decision.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/71/Russian-Matroshka.jpg', alt: 'Russian matryoshka nesting dolls arranged from large to small', caption: 'The nesting-doll metaphor is literal: smaller useful objects sit inside larger ones, just as short embedding prefixes sit inside longer vectors. Source: Wikimedia Commons, Russian-Matroshka image.'},
-        'The result is one embedding that can serve several cost-quality points. A retrieval system can search the whole corpus with 64 or 128 dimensions, rerank candidates with 256 or 512, and use the full vector only where final precision is worth the cost.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The training change is simple. Use a normal encoder, but attach losses at several prefix lengths of the output embedding. Each prefix must solve the task well enough on its own, so the model learns coarse-to-fine ordering across dimensions. Early dimensions carry high-value information; later dimensions add detail. At inference, truncation is just slicing the vector.',
-        'MRL connects to PCA but differs in how the structure is learned. PCA finds high-variance directions after training. MRL shapes the representation during training so prefix dimensions are semantically useful for the supervised or contrastive objective. It also connects to Product Quantization and HNSW because vector search cost is dominated by how many dimensions and candidates must be compared.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'Read Matryoshka embeddings as nested useful prefixes. The first dimensions are trained to carry a strong coarse representation, and later dimensions refine it rather than starting from scratch.',
-        'The animation should make deployment flexibility visible. A system can store one embedding and choose shorter prefixes for cheap search or longer prefixes for reranking, but only if the model was trained so prefixes remain meaningful.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine a RAG system with ten million chunks. Searching all chunks with 768-dimensional vectors is expensive. With MRL, the first stage can search using a 128-dimensional prefix to get a broad candidate set. A second stage can rerank ten thousand candidates with 256 or 512 dimensions. The final stage can use the full vector, cross-encoder reranking, or source-specific rules on only the top candidates.',
-        'The cascade is useful only if each stage preserves enough recall. If the 128-dimensional prefix drops the correct chunk before reranking, the full vector never gets a chance to recover it. That is why MRL evaluation should report recall and latency at every prefix and every stage, not just final accuracy after a hand-picked cascade.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The nested losses pressure the encoder to organize information by importance. Early dimensions must satisfy the task because they receive their own loss. Later dimensions can add discriminative detail because the full vector still receives the usual objective.',
-        'This is different from compression after the fact. Quantization, PCA, or projection can reduce a vector, but MRL changes what the model learns during training. It asks the encoder to make truncation meaningful before the deployment system ever slices the vector.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'MRL can reduce storage and retrieval cost because short prefixes are enough for many stages. If a system stores billions of embeddings, cutting vectors from 768 dimensions to 128 dimensions can materially change memory, bandwidth, cache residency, and latency. The paper reports up to 14x smaller embedding size for ImageNet-1K classification at similar accuracy and up to 14x retrieval speedups in studied settings.',
-        'The added training cost is usually modest compared with training separate small models. The operational complexity moves into indexing policy: which prefix dimensions are stored, which indexes are built, which stage uses which prefix, and how recall is audited. A bad cascade can look fast only because it dropped the right answer early.',
-        'Index design is the practical tax. A system may need separate ANN indexes per prefix, a prefix-aware index, or a policy that stores full vectors but compares only prefixes during early stages. Each choice changes memory layout, cache behavior, update cost, and evaluation discipline.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'MRL is useful for large-scale retrieval, visual search, semantic search, RAG chunk retrieval, on-device classifiers, recommender candidates, long-tail classification, and any product where vector dimension is a major cost driver. It works well as a bridge topic between Embeddings & Similarity, HNSW (Vector Search at Scale), Product Quantization for Vector Search, and Multi-Index RAG.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'MRL is not a guarantee that every short prefix is good enough for every use case. Rare entities, near-duplicate documents, multilingual distinctions, safety-critical labels, or domain-specific terms may need later dimensions. A short prefix can preserve broad semantic class while losing the exact distinction the product cares about.',
-        'It also does not remove the need for normal retrieval engineering. Metadata filters, freshness, chunking, reranking, deduplication, and benchmark variance still matter. MRL gives the system a better cost-quality knob; it does not make the rest of the search pipeline correct.',
-      ],
-    },
-    {
-      heading: 'Deployment review',
-      paragraphs: [
-        'A serious deployment review asks who chooses the prefix length, whether the choice is per product, per query, per tenant, or per retrieval stage, and whether users can see quality regressions when a cheaper prefix is selected. A hidden cost policy can become a hidden relevance policy.',
-        'The index story also has to be explicit. If the first-stage index stores only 128 dimensions, the system cannot later recover full-vector recall for documents it never retrieved. If it stores full vectors but searches prefixes, engineers need to know how the ANN library handles prefix distance and whether rankings match offline evaluation.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Do not assume every prefix is good enough for every domain. A 64-dimensional prefix may preserve coarse class identity but lose rare entity distinctions or safety-critical nuance. Also, a Matryoshka vector does not remove the need for benchmark variance discipline. Prefix quality should be measured across tasks, corpus sizes, seeds, and retrieval stages. Finally, arbitrary truncation of a non-MRL embedding is not the same thing; the nested property must be trained.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Matryoshka Representation Learning at https://arxiv.org/abs/2205.13147, the NeurIPS paper PDF at https://proceedings.neurips.cc/paper_files/paper/2022/file/c32319f4868da7613d78af9993100e42-Paper-Conference.pdf, and the Hugging Face overview at https://huggingface.co/blog/matryoshka. Study Embeddings & Similarity, PCA: Principal Component Analysis, HNSW (Vector Search at Scale), Product Quantization for Vector Search, Multi-Index RAG, and Benchmark Variance & Model Selection next.',
-      ],
-    },
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'The encoder produces one full embedding. During training, the loss is applied to prefixes such as 64, 128, 256, and 768 dimensions. At inference, truncation is just slicing the vector, so no second model or second forward pass is needed.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'The prefix losses create ordering pressure. High-value coarse information must appear early because short prefixes are graded on their own. Later dimensions can refine rare, close, or ambiguous cases without carrying the whole representation alone.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Similarity cost is roughly candidates compared times dimensions used. Searching 10 million vectors at 128 dimensions touches about 1.28 billion coordinates, while 768 dimensions touches about 7.68 billion. The operational cost moves into index policy: which prefixes are stored, searched, and audited.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'MRL fits semantic search, image retrieval, RAG chunk retrieval, recommender candidate generation, and on-device classifiers. It is strongest in cascades where a cheap broad search feeds a more expensive reranker. The same embedding can serve both stages.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'Short prefixes can lose rare entities, legal distinctions, multilingual nuance, or safety-critical labels. MRL also does not fix chunking, stale indexes, metadata filters, or weak rerankers. It gives a cost-quality knob, not a complete retrieval system.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'A RAG system with 10 million chunks can search a 128-dimensional prefix first, rerank 10000 candidates with 256 dimensions, and use the full vector on the final 100. If the correct chunk is dropped in the first stage, later stages cannot recover it. That is why recall must be measured at every prefix.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Start with the Matryoshka Representation Learning paper and implementation notes. Study embeddings and similarity, PCA, HNSW, product quantization, multi-stage retrieval, and RAG evaluation next. The core deployment question is which prefix keeps enough recall for each stage.',
+      ], },
   ],
 };

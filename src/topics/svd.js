@@ -185,70 +185,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each heatmap as a matrix reconstruction. A matrix is a rectangular table of numbers, and rank is the number of independent row-column directions needed to build it. The animation adds one rank-1 layer at a time, so each frame shows what the next independent pattern contributes.',
+        { type: 'callout', text: 'SVD turns one matrix into ordered rank-1 energy, so compression is a controlled choice about which directions to keep.' },
+        'The ledger shows storage and recovered energy, not just visual quality. Energy here means squared magnitude in the matrix, so larger singular values explain more of the matrix under the Frobenius norm. The safe inference is that keeping the first k singular layers gives the best rank-k approximation under standard SVD error measures.',
+        {type: 'image', src: './assets/gifs/svd.gif', alt: 'Animated walkthrough of the svd visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        { type: 'callout', text: 'SVD turns one matrix into ordered rank-1 energy, so compression is a controlled choice about which directions to keep.' },
-        'Matrices get large before they get mysterious. An image patch has pixel intensities. A recommender has users by items. A neural network has weight matrices. Storing every entry is easy, but it does not tell you which variation is structure and which variation is noise.',
-        'SVD answers the compression question and the geometry question at the same time: how many independent directions does this matrix really use, and how much error do we pay if we keep only the largest ones?',
-        'That makes SVD a bridge topic. It is linear algebra, but it explains PCA, recommender systems, latent semantic analysis, image compression, low-rank adaptation, denoising, conditioning, and the geometry of neural-network layers.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The obvious approach is to store the whole matrix, or to throw away small-looking entries. For images, that means keeping pixels. For user ratings, it means keeping observed cells. For a model update, it means training every weight.',
-        'The wall is correlation. A smooth image does not need every pixel independently. User tastes are not independent item by item. A fine-tune update may move weights along a few shared directions. Entry-level pruning misses structure that lives in rows and columns together.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
+        'Large matrices appear in images, recommendations, search, scientific data, and model weights. Storing every entry is easy, but it does not say which variation is structural and which variation is small residual detail. Singular Value Decomposition, or SVD, separates a matrix into ordered independent directions.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/c/c4/Reduced_Singular_Value_Decompositions.svg',
           alt: 'Reduced singular value decomposition variants showing full, thin, compact, and truncated SVD.',
           caption: 'Reduced SVD variants show the exact rows and columns removed when the rank budget shrinks. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Reduced_Singular_Value_Decompositions.svg.',
         },
-        'SVD writes a matrix as M = U Sigma V^T. One reading is geometric: rotate the input axes, stretch along perpendicular hidden axes, then rotate into output space. Another reading is additive: M is a sum of rank-1 layers sigma_i u_i v_i^T.',
-        'The singular values sigma_i are sorted from largest to smallest. Large values are loud directions. Small values are quiet directions. Low-rank approximation keeps the first k layers and drops the rest.',
-        'The decomposition works for any real matrix, not only square matrices. That is why it appears wherever data has rows and columns but no clean eigenvalue story. It finds orthogonal input directions, orthogonal output directions, and a nonnegative stretch for each paired direction.',
+        'The reason this matters is compression with a visible error budget. If most energy sits in a few directions, a low-rank matrix can approximate the original with far fewer numbers. If energy is spread evenly, low-rank compression will visibly lose information.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to keep the whole matrix. For an image, that means every pixel; for a user-item table, every observed rating; for a model update, every weight delta. This preserves information but gives no ranking of which parts matter most.',
+        'Another simple approach is to drop small-looking entries. That can fail because structure may live in coordinated row-column patterns rather than individual cells. A smooth image, for example, can have many nonzero pixels but only a few strong directions.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is correlation. Rows and columns are often not independent, so entry-level pruning misses the shared geometry. A matrix can look large because it has many entries while still behaving like a small number of reusable patterns.',
+        'Without a decomposition, there is no principled way to choose a rank budget. Keeping 10 percent of entries is not the same as keeping 10 percent of the important directions. The method needs to rank directions by how much matrix energy they explain.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'SVD writes a matrix M as U Sigma V^T. V^T rotates input coordinates into right singular directions, Sigma stretches each direction by a nonnegative singular value, and U rotates the result into output coordinates. The same equation can be read as a sum of rank-1 layers: sigma_i times u_i v_i^T.',
+        'The singular values are sorted from largest to smallest. Keeping the first k layers gives a rank-k approximation, meaning the reconstructed matrix uses only k independent directions. The dropped layers are the smallest directions under the chosen SVD ordering.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For each layer, SVD finds a right pattern v, a left pattern u, and a strength sigma. The outer product u v^T creates a full matrix with one reusable row-column pattern. Scaling by sigma says how much that pattern contributes.',
-        'The visualization computes the top layers by power iteration and deflation. It repeatedly multiplies by the matrix and its transpose until the dominant direction stabilizes, subtracts that rank-1 layer from the residual, and repeats on what remains.',
+        'A rank-1 layer is an outer product of one left vector and one right vector, scaled by a singular value. It creates a full matrix from a reusable row-column pattern. Adding layers accumulates independent patterns until the reconstruction reaches the original matrix.',
+        'Algorithms compute SVD through stable numerical linear algebra, often by reducing the matrix to a simpler form and then solving smaller orthogonal problems. For very large matrices, truncated or randomized methods compute only the top k singular directions. The animation uses the same idea conceptually: find a strong direction, subtract its layer from the residual, and repeat.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The singular vectors are orthogonal directions of action. Because each layer points in a direction independent of the others, the energy of the approximation is accounted for cleanly by the singular values.',
-        'Eckart-Young is the key theorem: keeping the first k singular layers gives the best possible rank-k approximation under the standard spectral and Frobenius norms. If you are only allowed k layers, no different choice of k rank-1 layers can beat the truncated SVD.',
+        'The singular vectors are orthogonal, so their contributions do not overlap under the standard inner product. That means the squared error after dropping layers is accounted for by the dropped singular values. The ordered singular spectrum therefore gives a clean error ledger.',
+        'The Eckart-Young theorem is the correctness claim for compression. Among all rank-k matrices, the truncated SVD is the closest to the original under spectral norm and Frobenius norm. No other choice of k rank-1 layers gives a smaller error under those measures.',
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the compression view, read each heatmap as a reconstruction, not a new image. Rank 1 keeps the strongest row-pattern times column-pattern layer. Rank 2 adds the next independent pattern. The ledger shows the storage cost and the recovered matrix energy.',
-        'In the applications view, watch the same decomposition change vocabulary. PCA calls the layers components. Image compression calls them visual structure. LoRA calls them adapter directions. Recommenders call them latent tastes. The data changes; the low-rank bet is the same.',
-      
-        {type: 'image', src: './assets/gifs/svd.gif', alt: 'Animated walkthrough of the svd visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'The page starts with an 8 by 8 patch, so the raw matrix stores 64 numbers. A rank-1 reconstruction stores one left vector, one right vector, and one singular value: 8 + 8 + 1 = 17 numbers. Rank 2 stores 34 numbers and usually looks much closer because it adds another independent pattern.',
-        'The LoRA example uses the same arithmetic at model scale. A full 4096 by 4096 update has 16,777,216 trainable numbers. A rank-8 update written as B A has 4096 * 8 + 8 * 4096 = 65,536 trainable numbers. That is the low-rank assumption turned into a training budget.',
-        'The recommender example has the same shape with different names. A user vector says how strongly a person expresses latent tastes. An item vector says how strongly a movie expresses those tastes. Their dot product fills in an unknown rating. SVD-style factorization turns a sparse table into a geometry problem.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'A full dense SVD costs O(m n min(m,n)), which is too much for many large matrices. Top-k iterative or randomized methods can be far cheaper because they only need the largest directions and can exploit sparse or structured matrix-vector multiplies.',
-        'A rank-k approximation stores about k(m + n + 1) numbers instead of m n. That is a win only when k is small relative to both dimensions and the singular spectrum decays. If the spectrum is flat, every direction matters and truncation becomes lossy fast.',
+        'A full dense SVD of an m by n matrix costs O(m n min(m,n)), which is too expensive for many large matrices. A rank-k approximation stores about k(m + n + 1) numbers instead of mn. If m and n double while k stays fixed, storage for the low-rank form roughly doubles in each dimension sum rather than quadrupling like the full matrix.',
+        'The behavior depends on the singular spectrum. Fast decay means the first few singular values carry most of the energy, so small k works well. A flat spectrum means many directions matter, so truncation saves less and error rises quickly.',
       ],
     },
     {
@@ -260,101 +256,31 @@ export const article = {
           alt: 'Scatter plot with principal component axes over a Gaussian cloud.',
           caption: 'PCA makes the SVD direction story visible: one axis captures the loudest variance, and the next captures the strongest remaining orthogonal direction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:GaussianScatterPCA.svg.',
         },
-        'SVD wins when the matrix has repeated structure: images with smooth regions, centered data with dominant variance directions, user-item ratings with latent tastes, document-term matrices with topics, and neural-network updates that can be expressed in a few directions.',
-        'It is not the right tool when interpretability requires nonnegative parts, when missing data is not handled by the chosen objective, when the matrix is too dynamic to refactor, or when the useful signal is spread evenly across many singular directions.',
+        'Image compression uses low-rank reconstruction when visual structure is smoother than the raw pixel table. PCA uses SVD on centered data to find variance directions. Recommender systems and latent semantic analysis use related factorization ideas to place users, items, documents, and terms in a lower-dimensional geometry.',
+        'Neural-network adaptation uses the same arithmetic in low-rank updates such as LoRA. A full 4096 by 4096 update has 16,777,216 numbers, while a rank-8 factorization uses 4096*8 + 8*4096 = 65,536 numbers. The access pattern is a large matrix whose useful change is believed to live in a few directions.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Do not read singular vectors as unique semantic labels. Their signs can flip, nearby equal singular values can rotate within a subspace, and preprocessing can change the spectrum. Centering, scaling, weighting, and missing-value treatment are not cosmetic choices.',
-        'Do not confuse optimal rank-k approximation with truth. Truncated SVD gives the best low-rank matrix under a norm, not a guarantee that the dropped directions are noise. Small singular directions can still contain rare but important signal.',
-        'Do not apply dense SVD blindly to sparse recommendation data with missing entries. Missing means unknown, not zero. Matrix completion and weighted objectives exist because treating blanks as real zeros changes the problem.',
+        'SVD fails when the low-rank assumption is false. If important signal is spread across many singular directions, truncation removes real information. Small singular directions can still contain rare events, sharp edges, or domain-specific features.',
+        'It also fails when preprocessing is wrong. Centering, scaling, missing-value treatment, and weighting change the matrix before SVD ever sees it. In recommendation data, missing often means unknown rather than zero, so a plain dense SVD can solve the wrong problem.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'For small dense matrices, use a library routine and inspect the singular spectrum. For large sparse matrices, use truncated, iterative, or randomized methods that only compute the top k directions. For streaming or frequently changing matrices, consider incremental or sketching methods rather than recomputing from scratch.',
-        'Choose k from the task, not only from a pretty scree plot. Compression may tolerate visible error. Search ranking may care about rare directions. A neural-network adapter may need validation loss. The singular spectrum is evidence, not the whole decision.',
-        'Always record preprocessing. Centered versus uncentered data, normalized rows, missing-value handling, and weighting can change the singular vectors enough to change conclusions. Two SVD results are only comparable if the matrix construction was the same.',
+        'For the 2 by 2 matrix [[3, 0], [0, 1]], the singular values are 3 and 1, with axes already aligned. Rank 1 keeps [[3, 0], [0, 0]] and drops [[0, 0], [0, 1]]. The Frobenius error is 1 because the only dropped entry has magnitude 1.',
+        'For an 8 by 8 image patch, the full matrix stores 64 numbers. A rank-2 reconstruction stores two left vectors, two right vectors, and two singular values: 2*(8 + 8 + 1) = 34 numbers. The compression only helps if the two kept directions capture enough visual energy.',
+        'At model scale, a 4096 by 4096 full update stores 16,777,216 numbers. A rank-8 update stores 65,536 factor numbers, about 256 times fewer. The cost is that the update can only move weights inside an 8-direction subspace.',
       ],
     },
     {
-      heading: 'Worked example (2)',
+      heading: 'Sources and study next',
       paragraphs: [
-        'In latent semantic analysis, rows can be documents and columns can be terms. Raw word counts are noisy and sparse. A low-rank SVD keeps broad co-occurrence directions, so documents can be compared by latent topics rather than exact word overlap.',
-        'That helps search find related language, but it also loses detail. Rare terms, negation, and domain-specific phrases may sit in smaller directions. The right rank depends on retrieval quality, not just compression ratio.',
+        'Study Gilbert Strang for the geometric reading of SVD and Golub and Van Loan, "Matrix Computations," for numerical algorithms. For the approximation theorem, study Eckart and Young 1936 and the modern statement of the Eckart-Young-Mirsky theorem.',
+        'Study eigenvectors, matrix multiplication, and orthogonality before this topic. Afterward, study PCA, matrix completion, randomized SVD, quantization, embeddings similarity, and LoRA to see how low-rank structure appears in systems.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study next by role: PCA for centered data and variance directions, Eigenvectors for the square-matrix skeleton, Matrix Completion for sparse low-rank prediction, LoRA for low-rank neural-network updates, Quantization for another compression axis, and Embeddings Similarity for latent vector geometry.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why SVD & Low-Rank Approximation moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

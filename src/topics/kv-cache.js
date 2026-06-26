@@ -188,111 +188,72 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The matrix shows Key vectors for every token in the context. Each row is one token; each column is one dimension of the K vector. Toggle between "with KV cache" and "without cache (naive)" to compare the two generation strategies.',
+    { heading: 'How to read the animation', paragraphs: [
+        'Each row is a token position, and each column is one dimension of a Key vector. Active rows are being computed now, while faded rows are already stored and reused from the KV cache.',
         {
           type: 'callout',
           text: 'KV cache is safe because causal attention makes past key and value rows immutable after they are computed.',
         },
-        'Active (highlighted) rows are K/V vectors being computed right now. Visited (faded) rows are cached vectors reused without recomputation. In cached mode, only one row lights up per generation step -- the new token. In naive mode, every row lights up every step because the model recomputes all of them. The running total at the bottom proves the difference: linear growth versus quadratic.',
-        'The prefill step lights up all prompt rows at once. That parallel pass is why LLMs pause before the first token. Every subsequent step adds one generated token and shows exactly how much work the cache saves.',
+        'In cached mode, generation computes one new row per token and reads all previous rows. In naive mode, every old row lights up again because the model recomputes the whole prefix.',
+        'The prefill phase computes the prompt rows in parallel, which is why the first token takes longer. Decode then appends one row at a time, which is why later tokens can stream.',
       
-        {type: 'image', src: './assets/gifs/kv-cache.gif', alt: 'Animated walkthrough of the kv cache visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Autoregressive LLMs generate one token at a time. Each new token attends to every token before it: the prompt plus every token already generated. To attend, the model needs a Key vector and a Value vector for every previous position, at every layer. Without reuse, generating token t means recomputing K and V for all t-1 previous tokens -- tokens whose K/V outputs have not changed since they were last computed.',
+        {type: 'image', src: './assets/gifs/kv-cache.gif', alt: 'Animated walkthrough of the kv cache visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: [
+        'A decoder-only language model generates one token at a time. At each layer, the new token needs attention over every earlier token, which means it needs their Key and Value tensors.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png',
           alt: 'Transformer architecture diagram with attention modules',
           caption: 'The Transformer architecture repeats attention at each layer, which is why cached K and V rows exist for every layer and position. Source: Wikimedia Commons, from Vaswani et al. 2017.',
         },
-        'The cost adds up fast. Generating a sequence of n tokens requires computing K/V projections 1 + 2 + 3 + ... + n = n(n+1)/2 times across the sequence. For 1,000 tokens, that is 500,500 sets of projections, most of them exact duplicates of earlier work. The KV cache exists to store K and V for each token once and never recompute them.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The straightforward way to generate text: concatenate all tokens so far, run the full transformer, read off the next-token prediction. Repeat. Every step is a fresh forward pass over the entire context, identical to training-time propagation with a causal mask.',
-        'This works correctly. Causal masking means old tokens never see future tokens, so their K and V outputs are identical on every rerun. The approach is simple to implement and easy to verify.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The obvious approach recomputes K and V for every old token at every step. Suppose a prompt has 2,000 tokens and the model generates 500 more. Token 2,001 requires K/V projections for 2,001 positions. Token 2,002 requires 2,002. By token 2,500, the model has computed K/V projections 2,001 + 2,002 + ... + 2,500 = 1,125,250 times -- and 2,000 of those projections per step are identical duplicates.',
-        'Generating 1,000 tokens from scratch: 1 + 2 + ... + 1,000 = 500,500 K/V projection sets. The total work is O(n^2) in generated tokens, on top of the O(n^2) attention itself. Every old token is recomputed even though causal masking guarantees its K/V vectors cannot change. The wasted work grows quadratically.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Only the newest token needs new K/V projections. The new token must attend to all previous tokens, but it can read their Keys and Values from a cache instead of recomputing them. The problem shifts from "rerun the entire prefix" to "append one K/V row and run attention against stored rows."',
-        'This is not a general-purpose cache like an LRU map. A decoder KV cache is ordered model state: layer by layer, position by position, head by head. It is safe because the transformer is causal -- projections for past tokens depend only on past tokens. It is expensive because every active request carries a growing memory object tied to its exact prefix, model weights, and positional encoding.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Inference splits into two phases. Prefill processes the full prompt in parallel: for every layer, compute Q, K, V for all prompt tokens, run attention, and write the prompt K/V tensors into cache storage. This is the pause before the first token. Long prompts make prefill slow because the model must ingest the entire input before producing any output.',
-        'Decode runs one token at a time. For the new token, compute its Q, K, and V. Append the new K and V to the cache at each layer. Score the new Q against all cached K vectors to get attention weights, then mix the cached V vectors. Feed-forward blocks, projections, and K/V rows for past tokens are never touched again.',
-        'The cache shape is [2, n_layers, batch, seq_len, n_kv_heads, d_head] -- one tensor for keys, one for values. Multi-head attention stores K/V per head. Grouped-query attention (GQA) and multi-query attention (MQA) reduce n_kv_heads so multiple query heads share fewer K/V heads. RoPE is applied to keys before caching, so stored keys already carry positional information.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Correctness rests on one invariant: for a fixed prefix, model weights, and positional encoding, K and V for token i depend only on tokens at positions <= i. Causal masking blocks future tokens. Adding token i+1 cannot change K or V for token i. Reusing the cached row produces the same result a full rerun would compute.',
-        'The query is different. Q for the newest token is new because the token is new. That Q must compare against all cached K vectors to decide which V vectors to mix. The cache preserves exact transformer semantics -- it eliminates redundant computation, not information.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Without cache, generating n tokens costs O(n^2 * d) total K/V projection work plus O(n^2 * d) attention work. With cache, K/V projection work drops to O(n * d) total -- one projection per token, computed once. Attention work is still O(n^2 * d) because each new token attends over the growing context. The cache does not make generation constant-time; it eliminates the quadratic projection and feed-forward overhead.',
+        'Without a cache, token 500 recomputes the same K and V values for tokens 1 through 499 even though causal masking guarantees those values cannot change. The cache exists to pay that projection cost once per token.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to rerun the transformer on the full prefix for every generated token. Concatenate the prompt and generated tokens so far, run a full forward pass, sample the next token, and repeat.',
+        'This is correct and easy to reason about. It matches the training-time view of a full sequence with a causal mask, so the implementation has fewer moving parts.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'The wall is repeated work. Generating 1,000 tokens naively performs 1 + 2 + ... + 1,000 = 500,500 prefix-token projection steps, even though only 1,000 token positions are new.',
+        'The waste becomes visible in long prompts. With a 2,000-token prompt and 500 generated tokens, each decode step repeats about 2,000 old positions unless cached state is reused.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Past Key and Value rows are immutable under causal attention. A past token cannot attend to a future token, so adding a new token cannot change the K or V rows already computed for the prefix.',
+        'The cache changes the work from rerun the whole prefix to append one row and attend over stored rows. It saves computation by spending resident memory.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Prefill computes K and V for all prompt tokens at all layers and stores them in a cache indexed by layer, request, position, KV head, and head dimension. Decode computes Q, K, and V only for the new token, appends its K and V, and uses the new Q to read all cached keys and values.',
+        'Grouped-query attention and multi-query attention reduce cache size by using fewer KV heads than query heads. RoPE or another positional encoding is applied consistently so cached keys carry the same position information a full rerun would have produced.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'The invariant is exact: for a fixed prefix, model weights, adapter, and position scheme, K and V for position i depend only on tokens at positions less than or equal to i. Adding position i+1 cannot change those tensors.',
+        'The newest query still changes because the newest token is new. The cache preserves transformer semantics by reusing old evidence, not by approximating it.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Without a cache, K/V projection work across generated tokens grows as O(n^2). With a cache, K/V projection work grows as O(n), but attention still reads a growing prefix, so decode remains memory-bandwidth heavy.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg/330px-AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg',
           alt: 'GPU package with high-bandwidth memory modules',
           caption: 'The cache saves compute by spending high-bandwidth memory, so long context can become a memory-capacity problem. Source: Wikimedia Commons, File:AMD at 28nm GCN Fiji Radeon R9 Nano photo.',
         },
-        'Memory is the real bill. Per sequence: 2 (K and V) x n_layers x n_kv_heads x d_head x seq_len x bytes_per_element. A 70B model with 80 layers, 8 KV heads (GQA), d_head=128, at 4,096 tokens in float16: 2 x 80 x 8 x 128 x 4,096 x 2 = 1.34 GB per request. Serve 32 concurrent requests and the KV cache alone needs 43 GB, separate from model weights. GQA cuts this by the ratio of query heads to KV heads -- a 32-head model with 8 KV groups uses 4x less cache than full multi-head attention.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Every production autoregressive LLM uses KV caching: GPT, LLaMA, Mistral, and their serving stacks (vLLM, TensorRT-LLM, llama.cpp, TGI, SGLang). The cache is why "time to first token" and "tokens per second" are separate metrics -- prefill is a large parallel pass; decode is a sequence of small steps dominated by cache reads and memory bandwidth.',
-        'The cache enables higher-level serving strategies. Prefix caching reuses K/V state for repeated system prompts or shared conversation prefixes, so a server running 1,000 chats with the same system prompt stores the cache for that prefix once. Speculative decoding has a draft model propose tokens and a verifier model check them, keeping accepted K/V state intact. Continuous batching tracks how much KV memory each live request owns to pack more requests onto a GPU. These techniques all depend on the cache as their foundation.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Memory scales linearly with sequence length. A 128K-context model at float16 with 80 layers and 8 KV heads needs over 40 GB of cache per request. Batch serving multiplies that by the batch size. Long-context products, agent loops, and RAG pipelines can exhaust GPU memory on cache alone.',
-        'The cache cannot be shared across requests unless their token prefixes are identical under the same model weights, positional encoding, and adapter. Change a LoRA adapter, a system prompt, or even the tokenizer and the cache is invalid.',
-        'Compression and eviction add tradeoffs. Int8 or lower-precision KV storage halves memory but can shift attention scores. Sliding-window eviction bounds memory but discards old context. Prefix caching helps repeated prompts but requires exact token matching and adds cache invalidation complexity. Non-autoregressive models (encoder-only, diffusion) do not use KV caching at all -- the technique is specific to causal left-to-right generation.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider a 4-layer model with 4 attention heads, d_head = 16, generating token 5 (the 5th token in the sequence). The prompt was 3 tokens; 1 token was already generated.',
-        'After prefill, the cache holds K and V for positions 0-2 (the prompt) at each of the 4 layers. After generating token 3 (first generated token), K/V for position 3 is appended. The cache now has 4 positions x 4 layers x 4 heads x 16 dims x 2 (K+V) = 2,048 values.',
-        'To generate token 4 (the 5th token): compute Q, K, V for the new token at each layer. Append K and V for position 4 to the cache. The new Q (shape [4 heads, 16 dims]) dot-products against 5 cached K vectors per head to produce 5 attention weights per head. Those weights mix 5 cached V vectors per head to produce the attended output. Total new K/V computation: 1 token. Total attention reads: 5 cached positions. Without cache, the model would recompute K/V for all 5 positions -- 4 of them wasted.',
-        'At GPT-2 scale (12 layers, 12 heads, d_head=64, float16), the full memory formula is: 2 x 12 x 12 x 64 x seq_len x 2 bytes. At seq_len = 1,024: 36 MB per request. Serve 64 concurrent requests: 2.3 GB of GPU memory for KV storage alone. At 70B scale (80 layers, 8 KV heads, d_head=128, float16, seq_len=4,096): 1.34 GB per request. 32 concurrent requests: 43 GB. The model weights fit on the GPU; the KV cache for concurrent users may not.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Vaswani et al., 2017: Attention Is All You Need -- the transformer and implicit KV reuse. Shazeer, 2019: Fast Transformer Decoding: One Write-Head is All You Need -- multi-query attention. Ainslie et al., 2023: GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints. Kwon et al., 2023: Efficient Memory Management for Large Language Model Serving with PagedAttention (vLLM).',
-        'Prerequisite: Attention Mechanism -- keys, queries, and values must be concrete before studying the cache. Architecture context: Transformer Block -- where KV caching fits in the full forward pass. Extensions: Speculative Decoding (uses the cache to verify draft tokens cheaply), Grouped-Query Attention (reduces cache size by sharing K/V across heads), RoPE (positional encoding applied to keys before caching). Contrasting approaches: state-space models (Mamba) and recurrent alternatives (RWKV) replace the growing cache with fixed-size recurrent state.',
-      ],
-    },
+        'Memory per request is 2 x layers x sequence length x KV heads x head dimension x bytes per element. A 70B-class model with 80 layers, 8 KV heads, head dimension 128, 4,096 tokens, and fp16 values needs 1.34 GB of KV cache per request.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Every production autoregressive LLM serving stack uses KV caching because interactive decoding would otherwise repeat most of the prefix work. vLLM, TensorRT-LLM, TGI, SGLang, llama.cpp, and similar systems build their schedulers around cache ownership.',
+        'Higher-level features depend on it. Prefix caching reuses shared system prompts, continuous batching packs requests by available KV memory, and speculative decoding keeps accepted verifier state instead of recomputing it.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'The cache grows linearly with context length and live requests. Long-context products can run out of high-bandwidth memory even when the model weights fit comfortably.',
+        'A cache entry cannot be reused if the token prefix, model weights, adapter, tokenizer, position scheme, or cache format changes. Eviction, quantization, offload, and sliding windows reduce pressure but add correctness and quality tradeoffs.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Take a 12-layer model with 12 KV heads, head dimension 64, fp16 values, and a 1,024-token sequence. KV memory is 2 x 12 x 1,024 x 12 x 64 x 2 bytes = 37,748,736 bytes, or about 36 MiB per request.',
+        'Serve 64 such requests and the KV cache alone is about 2.25 GiB. At 4,096 tokens the same model needs about 144 MiB per request, so 64 concurrent requests need about 9 GiB before counting weights or activations.',
+        'For compute, a 5-token toy sequence without cache recomputes 1 + 2 + 3 + 4 + 5 = 15 K/V rows. With cache it computes exactly 5 rows, one per token, and reuses the other 10 row computations.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Sources: Vaswani et al. 2017 for attention, Shazeer 2019 for multi-query attention, Ainslie et al. 2023 for grouped-query attention, and Kwon et al. 2023 for PagedAttention in vLLM.',
+        'Study Attention first, then Transformer Block, Grouped-Query Attention, RoPE, PagedAttention, prefix caching, speculative decoding, and KV cache quantization. The question is how much memory you will spend to avoid recomputation.',
+      ], },
   ],
 };

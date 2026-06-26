@@ -129,124 +129,97 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. "The two kinds of doubt" draws a prediction band over a sensor-calibration dataset: 9 training points between readings 2 and 5, then extrapolation beyond. Active markers are training data. The band\'s width IS the uncertainty -- narrow inside the data, flaring outside. Watch where the band stays flat (irreducible noise) versus where it grows (missing knowledge).',
-        {type: 'callout', text: 'Uncertainty is useful only when it changes the decision: accept routine predictions, widen intervals for noise, and escalate inputs the model has not learned.'},
-        '"MC dropout in action" runs the same input through one network eight times with dropout left on. Active cells are individual forward-pass outputs. When they cluster tightly, the model is stable. When they scatter, the model is guessing. The matrix view at the end maps scatter width to a decision: accept or escalate.',
-        'At each frame, ask: is the doubt coming from noisy data or missing data? The answer determines whether the system should widen its interval or refuse to answer.',
-      
-        {type: 'image', src: './assets/gifs/uncertainty-quantification.gif', alt: 'Animated walkthrough of the uncertainty quantification visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The animation separates two kinds of doubt. Aleatoric uncertainty is noise in the data itself, while epistemic uncertainty is missing knowledge because the model has not seen enough similar examples.',
+        {
+          type: 'callout',
+          text: 'Uncertainty is useful only when it changes the decision: accept routine predictions, widen intervals for noise, and escalate inputs the model has not learned.',
+        },
+        'Active samples are repeated model outputs, and the spread between them is the signal. A narrow band means the model is stable on that input; a wide band means the system should widen the interval, collect data, or escalate.',
+        {
+          type: 'image',
+          src: './assets/gifs/uncertainty-quantification.gif',
+          alt: 'Animated walkthrough of the uncertainty quantification visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A model that returns a point estimate without a doubt score is dangerous. A sensor-calibration model predicting 42 degrees for a reading it has never seen looks identical to one predicting 22 degrees for a reading it trained on. Both are single numbers. One is trustworthy; the other is a guess dressed as a fact.',
+        'A model prediction without uncertainty is just a number. A temperature estimate of 22 degrees inside the training range and a temperature estimate of 42 degrees far outside it may look equally precise unless the model reports doubt.',
         {
-          type: 'quote',
-          text: 'We show that a dropout network is mathematically equivalent to an approximation to a probabilistic deep Gaussian process. We develop tools for representing model uncertainty of existing dropout NNs -- extracting information that has been thrown away so far.',
-          attribution: 'Yarin Gal and Zoubin Ghahramani, "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning" (2016)',
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg',
+          alt: 'Normal distribution with one, two, and three standard deviation intervals shaded',
+          caption: 'Prediction bands are decision surfaces, not decoration: their width tells the system how much outcome range to reserve. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.',
         },
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution with one, two, and three standard deviation intervals shaded', caption: 'Prediction bands are decision surfaces, not decoration: their width tells the system how much outcome range to reserve. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
-        'Uncertainty quantification exists because confidence must be actionable. A medical imaging model that flags "I am not sure about this scan" routes it to a specialist. A lending model that flags "this applicant is outside my training distribution" triggers manual review instead of an automated denial. Without a doubt signal, every prediction gets the same trust level, and the system cannot distinguish routine cases from dangerous ones.',
-        'Two distinct problems hide under the word "uncertainty." Aleatoric uncertainty is noise in the world -- the sensor scatters even on inputs the model has seen thousands of times. Epistemic uncertainty is ignorance -- the model has never seen this region. The first cannot be fixed with more data. The second can. Conflating them means applying the wrong remedy.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to use the model\'s own output as confidence. A softmax probability of 0.97 looks decisive. A regression model returning 42.0 with no error bar looks clean. For in-distribution inputs with well-calibrated models, this can work passably.',
-        'The problem is that neural networks are not calibrated by default. Modern deep networks trained with cross-entropy tend to be overconfident -- softmax outputs cluster near 0 and 1 even on ambiguous inputs. Guo et al. (2017) showed that post-hoc temperature scaling can fix calibration on familiar data, but temperature scaling does nothing for out-of-distribution inputs. It rescales all logits uniformly; it cannot distinguish "this is a hard cat-vs-dog image" from "this is a chest X-ray fed to an animal classifier."',
-        'A global confidence threshold compounds the problem. Setting "reject if softmax < 0.8" conflates two questions: is the score well-calibrated on data like the training set, and is this input similar enough to the training set to trust the score at all? Calibration answers the first. Epistemic uncertainty answers the second. One threshold cannot serve both.',
+        'The obvious approach is to trust the model\'s own score. A classifier with softmax 0.97 looks confident, and a regression model returning one decimal place looks precise.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that calibrated probabilities and epistemic uncertainty answer different questions, and no single scalar can answer both. A perfectly calibrated model -- one whose 0.7 predictions are correct exactly 70% of the time -- can still assign 0.95 to an out-of-distribution input it has never seen, because calibration is a property of the training distribution, not a detector for novelty.',
-        'Concrete failure: train an image classifier on cats and dogs. Temperature-scale it until calibration error is near zero on a held-out test set of cats and dogs. Now feed it a picture of a truck. The softmax output can still be 0.99 "dog" because the network projects every input onto the learned classes. The calibration guarantee says nothing about trucks -- it only promises that among inputs that look like cats and dogs, the 0.99s are right 99% of the time.',
-        'This is not a fixable bug in calibration. It is a structural limitation. Calibration conditions on the data distribution; epistemic uncertainty conditions on the model\'s coverage. You need both gauges on the dashboard, or the system will be confidently wrong on exactly the inputs where confidence matters most.',
+        'The wall is that confidence and familiarity are different questions. A model can be well calibrated on cat and dog images and still assign 0.99 dog to a truck, because the truck is outside the training distribution.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Separate uncertainty into what more data can fix and what more data cannot fix. Epistemic uncertainty comes from limited training coverage, while aleatoric uncertainty comes from irreducible noise in the measurement or outcome.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'MC dropout (Gal and Ghahramani, 2016) repurposes the dropout regularizer as a Bayesian approximation. During training, dropout randomly silences neurons to prevent co-adaptation. The standard practice is to turn dropout off at test time. MC dropout keeps it on. Each forward pass through the network uses a different random dropout mask, producing a different thinned sub-network. Run the same input T times, collect T outputs, and compute their mean (the prediction) and standard deviation (the uncertainty).',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes and connections', caption: 'MC dropout samples many thinned versions of the same layered network; disagreement across those samples becomes an epistemic signal. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
+        'MC dropout keeps dropout active at inference time. Dropout randomly turns off parts of the neural network, so repeated forward passes act like a small committee of related models.',
         {
-          type: 'code',
-          language: 'python',
-          text: '# MC Dropout inference: T stochastic forward passes\nmodel.train()  # keep dropout active\nT = 30\noutputs = torch.stack([model(x) for _ in range(T)])  # [T, batch, classes]\nmean_pred = outputs.mean(dim=0)        # prediction\nstd_pred  = outputs.std(dim=0)         # epistemic uncertainty\n# High std => model disagrees with itself => epistemic doubt\n# Route to human review if std > threshold',
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg',
+          alt: 'Layered neural network diagram with colored nodes and connections',
+          caption: 'MC dropout samples many thinned versions of the same layered network; disagreement across those samples becomes an epistemic signal. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.',
         },
-        'In the animation, reading 3.0 (inside training data) produces eight passes clustered between 21.7 and 22.3, standard deviation ~0.19. Reading 8.0 (far outside training data) produces passes scattered from 24.1 to 38.2, standard deviation ~4.29. The sub-networks agree where training constrained them and scatter where it never did. That scatter is epistemic uncertainty made visible.',
-        'Deep ensembles (Lakshminarayanan et al., 2017) take the committee idea further: train M separate networks from different random initializations, each seeing the same data but learning a different function in the parts the data underdetermines. Their disagreement is a stronger epistemic signal than MC dropout because the diversity comes from different optimization trajectories, not just different dropout masks. The cost is M full training runs instead of one.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        {
-          type: 'diagram',
-          label: 'Epistemic vs. aleatoric uncertainty decomposition',
-          text: 'Total predictive uncertainty = Epistemic + Aleatoric\n\nEpistemic (model uncertainty)        Aleatoric (data uncertainty)\n-------------------------------      ----------------------------\nSource: limited training data         Source: noise in the world\nSignal: disagreement between          Signal: average predicted\n        ensemble members or                   variance across\n        MC dropout passes                     ensemble members\nFix:    more data, better coverage    Fix:    cannot be reduced;\n                                              model the spread\nAction: abstain, collect data,        Action: widen interval,\n        escalate to human                     risk-aware decision',
-        },
-        'MC dropout works because dropout during training implicitly builds an ensemble. Each dropout mask defines a sub-network, and training optimizes a weighted combination of exponentially many sub-networks. Where data is dense, gradient updates force all sub-networks toward the same function -- they agree. Where data is absent, no gradient ever constrained the sub-networks, so they extrapolate differently -- they disagree. The variance across masks approximates the posterior variance of a Gaussian process.',
-        'Deep ensembles work because random initialization plus non-convex loss landscapes mean each network settles into a different local minimum. These minima agree in regions where the data strongly constrains the function and diverge elsewhere. Empirically, ensembles capture functional diversity better than MC dropout because different initializations explore the loss landscape more broadly than different dropout masks from a single optimum.',
-        'Conformal prediction works by an entirely different mechanism. It makes no assumptions about the model\'s internals. Instead, it uses a held-out calibration set to convert any model\'s scores into prediction sets with a guaranteed coverage rate (e.g., "the true label is in this set at least 90% of the time"). The guarantee is distribution-free under exchangeability. It does not decompose uncertainty into epistemic and aleatoric, but it gives hard coverage guarantees that Bayesian methods do not.',
+        'Where training data is dense, different dropout masks or ensemble members are constrained by many similar examples. Their predictions tend to agree, so the measured spread is small.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'MC dropout: one standard training run, T forward passes at inference, useful dropout-mask disagreement, post-hoc calibration still needed, approximate Bayesian interpretation.',
-            'Deep ensembles: M full training runs and M forward passes, strong initialization diversity, often better calibrated, empirical rather than formal guarantees.',
-            'Bayesian neural networks: variational overhead during training and sampled inference, principled posterior target, approximation quality can still underestimate uncertainty.',
-            'Temperature scaling: one calibration pass and one forward pass, good in-distribution calibration, no out-of-distribution novelty signal.',
-            'Conformal prediction: one model plus a calibration set, prediction-set construction at inference, finite-sample coverage under exchangeability.',
-          ],
-        },
-        'MC dropout with T=30 passes costs 30x inference compute for one model. Deep ensembles with M=5 models cost 5x training and 5x inference. For a model that takes 10ms per forward pass, MC dropout adds 290ms per prediction; ensembles add 40ms but required 5 full training runs. Both are acceptable for medical imaging or loan decisions where a single mistake costs thousands. Both are expensive for real-time serving at millions of queries per second unless batched or distilled.',
-        'Expected Calibration Error (ECE) measures how well predicted probabilities match observed frequencies. Bin predictions into groups by confidence, compute the gap between average confidence and average accuracy in each bin, and take the weighted average. ECE of 0.02 means predictions are off by 2 percentage points on average. Low ECE is necessary but not sufficient -- a model can have perfect ECE on familiar data and assign 0.99 to an out-of-distribution input.',
-        'Evaluation requires held-out in-distribution data, deliberately shifted data, and out-of-distribution probes. Metrics: ECE, Brier score, AUROC for OOD detection (using uncertainty as the detector score), coverage at a given abstention rate, and cost-weighted error after selective prediction. If you cannot test on shifted data, you cannot trust the uncertainty estimate in production.',
+        'MC dropout costs T forward passes per prediction. If one pass takes 10 milliseconds and T = 30, the uncertainty estimate takes about 300 milliseconds before batching or hardware parallelism.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Selective prediction is the core production pattern. Wire uncertainty into the decision loop: auto-accept when doubt is below a threshold, escalate to a human when it is above. Medical imaging systems use this to route ambiguous scans to radiologists. Loan underwriting uses it to flag applicants who fall outside the training distribution for manual review. Autonomous vehicles use it to trigger conservative fallback behavior when perception uncertainty spikes.',
-        'Out-of-distribution detection uses epistemic uncertainty as a novelty detector. If ensemble disagreement or MC dropout variance is high, the input is likely unlike anything the model trained on. This catches failure modes that calibration alone misses: the well-calibrated cat-vs-dog classifier that confidently labels a truck as a dog will show high ensemble disagreement on the truck if the ensemble members learned different extrapolation behaviors.',
-        'Active learning uses epistemic uncertainty to choose which unlabeled examples to label next. Query the points where the model is most uncertain, label them, retrain -- and the epistemic uncertainty in that region drops. This is the direct operational consequence of epistemic vs. aleatoric separation: querying points with high aleatoric uncertainty wastes labeling budget because more labels cannot reduce noise.',
-        'LLM systems apply the same principle as self-consistency: sample the same prompt multiple times, measure agreement across responses. High agreement suggests the model has a stable answer; low agreement suggests the model is uncertain. This is MC dropout\'s committee wearing a chat interface.',
+        'Selective prediction is the main use. The system accepts low-uncertainty cases automatically and routes high-uncertainty cases to a human, another model, or a conservative fallback.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'MC dropout variance is not a calibrated confidence interval. It is a useful heuristic that correlates with epistemic uncertainty under certain assumptions (the network must have dropout layers, the dropout rate matters, and the approximation quality depends on architecture). For architectures without dropout (e.g., transformers using layer norm but no dropout), MC dropout is not directly applicable.',
-        'Deep ensembles are expensive and still have failure modes. If all M models converge to the same region of function space (which happens on very large datasets), ensemble diversity collapses and epistemic uncertainty is underestimated. Adversarial examples can also fool ensembles: Carlini and Wagner (2017) showed that adversarial inputs can be crafted to produce low ensemble disagreement while being far from the training distribution.',
-        'Conformal prediction guarantees coverage only under exchangeability -- the calibration set and test data must come from the same distribution. Under distribution shift, the guarantee breaks. Adaptive conformal methods (Gibbs and Candes, 2021) partially address this but add complexity.',
-        {
-          type: 'note',
-          text: 'High uncertainty is not a failure of the model -- it is often the correct output. A model that says "I do not know" about an input it has never seen is more trustworthy than one that guesses. The failure is when uncertainty is high but the system ignores it and acts as if the prediction were confident.',
-        },
+        'MC dropout is an approximation, not a guaranteed confidence interval. It depends on architecture, dropout placement, dropout rate, and whether the sampled subnetworks actually disagree in unknown regions.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For input 3.0, eight MC-dropout passes return 21.8, 22.1, 22.0, 21.9, 22.2, 22.0, 21.7, and 22.1, with mean about 22.0 and standard deviation about 0.16. The small spread says the model is stable inside the training range.',
+        'For input 8.0, the passes return 24.1, 28.7, 31.2, 35.0, 38.2, 29.5, 33.1, and 26.4, with mean about 30.8 and standard deviation about 4.7. A rule that escalates above standard deviation 2.0 would send this case to review.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Gal and Ghahramani, "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning" (ICML 2016) -- the foundational paper connecting dropout to approximate Bayesian inference.',
-            'Lakshminarayanan, Pritzel, and Blundell, "Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles" (NeurIPS 2017) -- introduced deep ensembles as a practical uncertainty method that outperforms MC dropout on most benchmarks.',
-            'Guo et al., "On Calibration of Modern Neural Networks" (ICML 2017) -- showed that modern networks are miscalibrated and that temperature scaling is a simple fix for in-distribution calibration.',
-            'Vovk, Gammerman, and Shafer, "Algorithmic Learning in a Random World" (2005) -- the foundational text on conformal prediction and distribution-free coverage guarantees.',
-          ],
-        },
-        'Prerequisite: study Dropout (the regularizer this repurposes) and Calibration & Reliability Diagrams (the in-distribution gauge that uncertainty complements). Extension: study Conformal Prediction for guaranteed coverage sets and Bayesian Neural Networks for the full posterior treatment. Contrast: study Temperature Scaling to see what calibration alone can and cannot do.',
-        'For production: study Selective Prediction and Abstention Policies to wire uncertainty into decisions. Study Thompson Sampling and Multi-Armed Bandits to see the positive use of uncertainty -- explore when unsure, exploit when confident. Study Adversarial Examples & FGSM to understand why uncertainty detectors can be fooled.',
-        'The useful deployment pattern is a dashboard with two gauges: one for whether a familiar score is calibrated (ECE, reliability diagrams) and one for whether the input is familiar enough to score at all (ensemble disagreement, MC dropout variance, OOD detection). Uncertainty is useful only when it changes behavior.',
+        'Study Gal and Ghahramani, Dropout as a Bayesian Approximation (2016), Lakshminarayanan, Pritzel, and Blundell on deep ensembles (2017), and Guo et al. on calibration (2017). Then study calibration curves, Brier score, conformal prediction, out-of-distribution detection, and selective prediction.',
       ],
     },
   ],

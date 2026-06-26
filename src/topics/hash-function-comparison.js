@@ -263,94 +263,79 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Scatter frames: each dot is one key. The horizontal axis is the raw key value; the vertical axis is the bucket the hash function assigns it to. Dots that stack vertically at the same y-coordinate share a bucket — those keys will collide. A good hash spreads dots evenly across the y-range.',
+        'Each dot is one key and each bucket is an array slot in a hash table. A collision happens when two keys choose the same bucket. The histogram shows whether lookup work is spread evenly or concentrated in one slow bucket.',
         {type: 'callout', text: 'A hash function protects O(1) lookup only when it erases input patterns before the bucket index is chosen.'},
-        'Histogram frames: each bar is one bucket. Height is the number of keys in that bucket. A flat histogram means uniform distribution — ideal. Tall spikes mean overloaded buckets and degraded lookup time.',
-        'The invariant line below each frame reports the worst-bucket count, empty-bucket count, and ideal load, so you can compare distribution quality numerically rather than guessing from the chart.',
-      
-        {type: 'image', src: './assets/gifs/hash-function-comparison.gif', alt: 'Animated walkthrough of the hash function comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/hash-function-comparison.gif', alt: 'Animated walkthrough of the hash function comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A hash table promises O(1) average lookup. That promise rests entirely on one assumption: the hash function distributes keys uniformly across buckets. If it does not, some buckets overflow into long chains or probe sequences, and the O(1) promise degrades toward O(n). The table structure is just an array — the hash function is the algorithm.',
+        'A hash table is fast only if keys spread across buckets. Real keys have structure: IDs, timestamps, paths, addresses, and names are not random. Hash functions exist to turn structured inputs into bucket choices that behave close to uniform.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg', alt: 'Hash table with chaining showing several keys mapped into buckets', caption: 'The table can only stay fast if the hash function spreads keys across buckets instead of feeding long collision chains. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.'},
-        'This is not an academic concern. In 2011, researchers demonstrated hash-flooding denial-of-service attacks against web frameworks (PHP, Java, Python, Ruby) by crafting inputs that collided under the frameworks\' default hash functions. Every request that should have been O(1) became O(n), taking down servers with modest traffic. The fix was switching to randomized hash functions (SipHash). The vulnerability was not in the table; it was in the hash function.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Use key % table_size. This is the division method: divide the key by the number of buckets and take the remainder. It is the simplest possible hash function, requires no constants or configuration, and works correctly for any integer key.',
-        'For auto-increment database IDs (0, 1, 2, 3, ...) it is actually perfect: keys round-robin through the buckets in order, every bucket gets exactly its fair share, and there is zero waste. This is why modulo hashing persists in practice despite its weaknesses.',
+        'The obvious hash for integers is key % m, where m is the bucket count. It is simple and works well for consecutive IDs when m fits the pattern. Many first implementations start here because it is correct on small examples.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Modulo hashing breaks on patterned input. If keys are multiples of the table size (or share a common factor with it), they all land in the same bucket. Keys 0, 16, 32, 48 all hash to bucket 0 when m = 16. Keys 0, 4, 8, 12 all hash to buckets 0, 4, 8, 12 when m = 16, leaving 12 buckets empty.',
-        'This is called primary clustering: the hash function preserves the arithmetic structure of the input instead of destroying it. Any regularity in the keys — stride patterns, aligned addresses, encoded timestamps with low-entropy suffixes — becomes a regularity in the bucket assignments. The table works perfectly on random input and fails on the structured input that real systems produce.',
-        'Choosing a prime table size helps (it shares no factors with common strides) but does not solve the fundamental problem: modulo hashing cannot scramble bit patterns. It can only take remainders.',
+        'Modulo does not mix information. With m = 16, keys 0, 16, 32, and 48 all land in bucket 0. Patterned keys turn expected O(1) lookup into long chains or probe clusters.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A good hash destroys input patterns before bucket reduction. Avalanche means a small input change flips many output bits. Keyed hashing adds a hidden seed so an attacker cannot predict collisions in advance.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The multiplication method (Knuth, TAOCP Vol 3, Section 6.4): pick a constant A between 0 and 1, compute key * A, take the fractional part, and multiply by the table size. The formula is h(key) = floor(m * frac(key * A)). Knuth recommends A = (sqrt(5) - 1) / 2 = 0.6180339887, the golden ratio conjugate, because its continued-fraction expansion has the slowest possible convergence, which maximizes the spread of consecutive keys.',
-        'Universal hashing (Carter and Wegman, 1979): instead of picking one hash function, pick a random function from a family at table creation time. A family H is universal if for any two distinct keys x and y, the probability that h(x) = h(y) is at most 1/m when h is chosen uniformly from H. A simple universal family for integer keys: h(k) = ((a*k + b) mod p) mod m, where p is a prime larger than the key space and a, b are random with a != 0. Because the adversary does not know which function was chosen, they cannot craft colliding inputs.',
-        'Cryptographic hashes (SHA-256, BLAKE3) guarantee that finding collisions is computationally infeasible. But they are 10-100x slower than non-cryptographic hashes because they must resist intentional attack, not just accidental patterns. SipHash (Aumasson and Bernstein, 2012) splits the difference: it is keyed (randomized like universal hashing), fast enough for hash tables, and resistant to hash-flooding attacks. Python, Rust, and Ruby all use SipHash for their built-in dictionaries.',
+        'Fast hashes mix bytes with xor, shifts, rotations, and multiplication by constants. Universal hashing picks a random function from a family, such as ((a*k + b) mod p) mod m. Cryptographic hashes spend more work to make collision-finding infeasible.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Cryptographic_Hash_Function.svg', alt: 'Several text inputs passing through a cryptographic hash function to produce different digests', caption: 'The avalanche idea is visible here: small input changes should produce very different digest bits before bucket reduction happens. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cryptographic_Hash_Function.svg.'},
-        'Non-cryptographic hashes optimized for speed: FNV-1a (simple byte-mixing loop), MurmurHash3 (fast mixing with good avalanche), xxHash (SIMD-friendly, extremely fast on long inputs), wyhash (minimal code, excellent distribution). These all achieve near-uniform distribution on real-world data at throughputs of gigabytes per second.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The multiplication method works because irrational numbers cannot produce repeating fractional parts. Multiplying successive integers by the golden ratio and taking the fractional part produces a low-discrepancy sequence — the same mathematical property that makes the golden angle arrange sunflower seeds efficiently. Each new value falls into the largest existing gap, so the sequence fills the interval [0, 1) as uniformly as possible.',
-        'Universal hashing works because randomization breaks the adversary. Without knowing a and b, the attacker cannot predict which keys will collide. The expected number of collisions for any fixed input is at most n/m, which is the best possible for any deterministic hash function on worst-case input. The guarantee is probabilistic over the random choice of hash function, not over the distribution of keys.',
-        'The avalanche property is what separates good hashes from bad ones: flipping one bit in the input should flip roughly half the bits in the output. Modulo hash has zero avalanche — changing the high bits of the key does not change the low bits of the output. Multiplication hash has partial avalanche. MurmurHash and xxHash have near-perfect avalanche because they mix bits with shifts, multiplies, and xors designed to propagate single-bit changes across the entire word.',
+        'The table needs the largest bucket to stay near the average load. Uniform hashing gives expected lookup O(1 + n/m) with separate chaining. Universal hashing guarantees any two fixed keys collide with probability at most 1/m over the random choice of hash function.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'All hash functions discussed here run in O(1) per key (or O(L) for a string of length L — you must read every byte). The difference is the constant factor. Modulo hash: one integer division. Multiplication hash: one multiply, one floor. FNV-1a: one multiply and one xor per byte. MurmurHash3: a few multiplies and shifts per 4-byte block. SipHash: ~15 arithmetic operations per 8-byte block. SHA-256: ~64 rounds of mixing per 64-byte block.',
+        'Hashing a fixed integer is O(1), and hashing a string of length L is O(L) because every byte may matter. A cheap weak hash saves arithmetic but can create expensive bucket scans. A stronger keyed hash costs more per key but protects the table against chosen-collision input.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel i7 processor die photograph', caption: 'Hash speed matters because every lookup pays the mixing cost before memory access. The right function balances arithmetic, cache behavior, and adversarial resistance. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
-        'On modern hardware (2024 benchmarks): xxHash processes ~30 GB/s. MurmurHash3: ~8 GB/s. SipHash: ~2 GB/s. SHA-256: ~0.5 GB/s. For a hash table doing millions of lookups per second, the 15x difference between xxHash and SipHash is real — but SipHash is still fast enough that the bottleneck is usually memory access, not hash computation.',
-        'Memory cost is zero beyond the hash value itself. The hash function is stateless (or stores a single seed). The table pays for buckets and collision resolution; the hash function does not add to that.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Hash tables are the primary consumer. Every programming language\'s built-in dictionary, set, or map depends on a good hash function. Python dicts, Java HashMaps, C++ unordered_maps, JavaScript objects (V8 uses a variant of MurmurHash internally) — all rely on hash quality for their O(1) guarantee.',
-        'Bloom filters and their variants (cuckoo, quotient, xor filters) use hash functions to map elements to bit positions. Poor distribution means more false positives because bits cluster instead of spreading.',
-        'Checksums and integrity verification: CRC32, xxHash, and BLAKE3 detect accidental corruption. Content-addressable storage (git, IPFS) uses cryptographic hashes as object identifiers. Deduplication systems hash file blocks to find duplicates without byte-by-byte comparison.',
-        'Load balancing: consistent hashing (Karger et al., 1997) assigns requests to servers by hashing the request key. Uniform hash distribution means uniform server load. A biased hash function creates hot spots.',
+        'Language maps and sets rely on hash quality for their normal O(1) behavior. Bloom filters, consistent hashing, deduplication, checksums, and load balancing also depend on uniform spread. In each case, a biased hash creates hot buckets, false positives, or hot servers.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Hash flooding attacks exploit deterministic hash functions. An attacker who knows the hash function can craft keys that all collide, turning O(1) operations into O(n). This brought down web servers in the 2011 HashDoS attacks. The defense: use a keyed hash (SipHash) with a random seed chosen at startup. The attacker cannot predict collisions without the seed.',
-        'Collision resolution is still necessary regardless of hash quality. Even a perfect random hash produces collisions via the birthday paradox. With n keys in m buckets, the expected number of collisions is approximately n^2 / (2m). The hash function controls how well collisions spread; it cannot eliminate them.',
-        'Hash table resizing is expensive. When the load factor exceeds a threshold (typically 0.7-0.75), the table doubles in size and rehashes every key. This O(n) cost is amortized over future insertions but creates latency spikes. Hash function speed matters here because every key is re-hashed during resize.',
-        'Non-comparable keys: hash tables cannot support range queries, ordered iteration, or nearest-neighbor lookups. For those, you need trees or sorted structures. The hash function destroys ordering by design — the same property that gives uniform distribution prevents any notion of "close keys go to close buckets."',
+        'Hashing cannot remove collisions; it only spreads them. Hash tables still need chaining, probing, resizing, or another collision strategy. Hashing also destroys order, so it is the wrong primary structure for range queries, prefix scans, and nearest-neighbor search.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Hash 10 keys (0, 3, 6, 9, 12, 15, 18, 21, 24, 27) into m = 8 buckets. Modulo: 0%8=0, 3%8=3, 6%8=6, 9%8=1, 12%8=4, 15%8=7, 18%8=2, 21%8=5, 24%8=0, 27%8=3. Bucket 0 has 2 keys, bucket 3 has 2 keys, all others have 1. Two collisions — not terrible because 3 and 8 are coprime.',
-        'Same keys, modulo m = 6: 0%6=0, 3%6=3, 6%6=0, 9%6=3, 12%6=0, 15%6=3, 18%6=0, 21%6=3, 24%6=0, 27%6=3. All keys land in just 2 of 6 buckets (0 and 3). Five keys per bucket — this is O(n/2) per lookup, not O(1). The stride 3 and the table size 6 share factor 3, which kills distribution.',
-        'Multiplication method with A = 0.618, m = 8: h(0) = 0, h(3) = floor(8 * frac(1.854)) = floor(8 * 0.854) = 6, h(6) = floor(8 * frac(3.708)) = floor(8 * 0.708) = 5, h(9) = floor(8 * frac(5.562)) = floor(8 * 0.562) = 4, h(12) = floor(8 * frac(7.416)) = floor(8 * 0.416) = 3, h(15) = floor(8 * frac(9.270)) = floor(8 * 0.270) = 2, h(18) = floor(8 * frac(11.124)) = floor(8 * 0.124) = 0, h(21) = floor(8 * frac(12.978)) = floor(8 * 0.978) = 7, h(24) = floor(8 * frac(14.832)) = floor(8 * 0.832) = 6, h(27) = floor(8 * frac(16.686)) = floor(8 * 0.686) = 5. Buckets: {0:2, 2:1, 3:1, 4:1, 5:2, 6:2, 7:1}. Seven of 8 buckets used, max load 2. Much better than modulo with m = 6, and comparable to modulo with m = 8 — but the multiplication method does not depend on m being coprime with the stride.',
+        'Hash keys 0, 3, 6, 9, 12, 15, 18, 21, 24, and 27 into 6 buckets with key % 6. The remainders alternate between 0 and 3, so two buckets get five keys each and four buckets stay empty. Lookup in those buckets is no longer constant-looking.',
+        'Use 8 buckets instead. The same keys map to 0, 3, 6, 1, 4, 7, 2, 5, 0, and 3. The largest bucket has 2 keys because stride 3 and bucket count 8 are coprime, showing why modulo depends on luck with input patterns.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Knuth, D. (1998). The Art of Computer Programming, Vol 3: Sorting and Searching, Section 6.4 — the multiplication method, analysis of division method, and the golden ratio constant. Carter, J. L. and Wegman, M. N. (1979). "Universal Classes of Hash Functions" — the foundational paper on universal hashing with probabilistic collision bounds. Aumasson, J.-P. and Bernstein, D. J. (2012). "SipHash: a fast short-input PRF" — the keyed hash function adopted by Python, Rust, and Ruby to prevent hash-flooding attacks.',
-        'See Hash Table for the data structure itself. Cuckoo Hashing and Robin Hood Hashing for advanced collision resolution. Bloom Filter for hash-based approximate membership. Rolling Hash & Rabin-Karp for hash-based string matching. Big-O Growth Rates for why the O(1)-vs-O(n) distinction matters at scale.',
+        'Read Knuth on division and multiplication hashing, Carter and Wegman on universal hashing, and Aumasson and Bernstein on SipHash. Study hash tables, Bloom filters, consistent hashing, rolling hash, cuckoo hashing, and Robin Hood hashing next.',
       ],
     },
   ],

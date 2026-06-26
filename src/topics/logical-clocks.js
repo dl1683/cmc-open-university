@@ -1,4 +1,4 @@
-﻿// Clocks in distributed systems: wall clocks LIE across machines, so
+// Clocks in distributed systems: wall clocks LIE across machines, so
 // either build order from causality (Lamport, vector clocks) or buy
 // hardware truth and wait out its error bars (Spanner's TrueTime).
 
@@ -175,168 +175,88 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Clocks & Ordering: Lamport to TrueTime. Wall clocks lie across machines — order events by causality instead, or buy atomic truth and wait out its error bars..",
+        'Read events as actions on different machines and arrows as causal evidence. A same-process arrow means one event happened after another on the same machine; a message arrow means the receive could know about the send. Active highlights show the ordering fact being tested, not a physical timestamp.',
         {type: 'callout', text: "Distributed clocks are ordering evidence, not time decoration; use the clock whose guarantee matches the merge rule."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/logical-clocks.gif', alt: 'Animated walkthrough of the logical clocks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/logical-clocks.gif', alt: 'Animated walkthrough of the logical clocks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Distributed systems constantly need to answer ordering questions: which write wins, which log entry is newer, which replica has missed an update, whether two changes conflict, and whether a read is allowed to see a write. On one machine, a local clock and a local sequence number often feel enough. Across machines, they are not.',
+        'Distributed systems need to decide which write wins, which replica is stale, whether two updates conflict, and whether a read is allowed to see a transaction. On one machine, local order is often clear. Across machines, clock skew and network delay make wall-clock order unreliable.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Internet topology map with many connected paths', caption: 'Distributed events cross variable network paths, so timestamp order can diverge from causal order whenever skew and latency overlap. Source: Wikimedia Commons, The Opte Project, CC BY 2.5.'},
-        'Wall-clock timestamps are tempting because they are easy to print and sort, but they are not reliable evidence across machines. Small skew is enough to drop a real user correction under last-write-wins. The system may keep the value with the later timestamp even though the human action happened earlier.',
-        'Logical clocks exist to replace "what time did this happen?" with "what could this event have known or caused?" That is the question databases, CRDTs, gossip protocols, consensus terms, anti-entropy sync, and distributed traces actually need. The clock is not for telling time. It is for carrying ordering evidence.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is last-write-wins by wall-clock timestamp. Each server stamps its write, replicas sort by timestamp, and the newest value wins. It is simple, compact, and easy to explain. It also silently loses correct user actions when clocks are skewed.',
-        'NTP narrows the problem but does not remove it. Clocks drift, virtual machines pause, leap seconds get smeared, networks delay messages, and clock synchronization always leaves an uncertainty window. Any two events closer than that window cannot be safely ordered by wall time alone.',
-        'Another shortcut is to invent a total order for every event. That may be necessary for a log or a consensus protocol, but it can be wrong for collaborative or eventually consistent data. If two writes are truly concurrent, the application may need to merge them rather than pretend one caused or superseded the other.',
+        'The obvious approach is last-write-wins by timestamp. Each server stamps its write with local wall time, replicas sort by timestamp, and the newest stamp wins. It is compact, easy to print, and easy to explain.',
+        'NTP and clock synchronization make this approach tempting. They reduce error, but they do not remove it. Any two events closer together than the remaining uncertainty window cannot be safely ordered by wall time alone.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is skew. If server S1 is 80 ms fast, a write at real time 10:00:00.020 can receive timestamp 10:00:00.100. A later correction on S2 at real time 10:00:00.050 can receive timestamp 10:00:00.050 and lose under last-write-wins.',
+        'The bug is silent because every timestamp looks valid. The merge rule trusted clock display more than causal evidence. A distributed clock must therefore encode what could have caused what, or expose physical-time uncertainty and wait it out.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is that causality is a partial order. An event can be known to happen before another event if it occurs earlier on the same process, sends a message that the other event receives, or is connected by a chain of those facts. Events with no causal path between them are concurrent.',
+        'Causality is a partial order. Event A happens before event B if A is earlier on the same process, A sends a message that B receives, or a chain of those facts connects them. If no path exists either way, the events are concurrent, which means unordered by evidence rather than simultaneous.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Vector_Clock.svg/500px-Vector_Clock.svg.png', alt: 'Vector clock diagram showing causes, effects, and independent events', caption: 'Vector clocks make partial order visible: dominated vectors carry causal history, while non-dominated vectors expose concurrency. Source: Wikimedia Commons, CC BY-SA 3.0.'},
-        'Concurrent does not mean simultaneous. It means the system has no causal evidence that one event should come before the other. That distinction matters because a merge policy, conflict detector, database timestamp, or trace analysis tool should not invent evidence it does not have.',
-        'Different clocks preserve different amounts of this partial order. Lamport clocks preserve causal precedence in one direction. Vector clocks preserve enough metadata to detect concurrency. Hybrid logical clocks combine logical causality with approximate physical time. TrueTime keeps physical time but exposes uncertainty and waits before making timestamps globally meaningful.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Lamport clocks use one integer per process. Increment it for local events. When sending a message, include the current value. When receiving a message, set the local clock to max(local, received) + 1. If event A causally happens before event B, A will have a smaller Lamport clock than B.',
-        'The reverse is not guaranteed. A smaller Lamport timestamp does not prove causality, because concurrent events also receive arbitrary numbers. Lamport clocks are good for compact monotonic progress and deterministic tie-breaking, but they do not reveal conflicts.',
-        'Vector clocks keep one counter per participant. Each process increments its own slot and carries the vector with messages. One vector is before another if every component is less than or equal and at least one is smaller. If each vector is larger in some slot, the events are concurrent. That makes conflict detection possible, at the cost of metadata that grows with participants.',
-        'TrueTime takes a different path. It uses clock infrastructure to return a bounded interval rather than a single exact instant. Spanner-style commit-wait delays visibility until the uncertainty interval has passed, making commit timestamps globally meaningful after the wait. The system does not ignore uncertainty; it pays latency to wait it out.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The wall-clock view proves that timestamp order and real event order can diverge. The correction loses because the first server is fast. The bug is not a crash or packet loss. It is a merge rule trusting clock time more than causality.',
-        'The happens-before graph proves the replacement invariant: arrows create defensible order; no arrow means concurrency. If A sends a message that eventually affects E, A happens before E. If A and C have no path between them, neither should be treated as causally first without an application rule.',
-        'The Lamport view proves that one integer can count causal arrows but cannot expose concurrency. The vector-clock table proves why componentwise comparison matters. The TrueTime table proves the physical-clock alternative: expose uncertainty, then wait long enough that a timestamp becomes safe to use as a global ordering point.',
+        'Lamport clocks keep one integer per process. Increment for each local event, send the integer with messages, and on receive set local to max(local, received) + 1. If A caused B, then A has a smaller Lamport number than B, but a smaller number does not prove causality.',
+        'Vector clocks keep one counter per participant. One vector is before another if every component is less than or equal and at least one is smaller. If each vector is larger in some component, the events are concurrent and the application needs a merge rule.',
+        'TrueTime-style systems take the physical-clock path. They return an interval rather than a single instant and delay commit visibility until the uncertainty interval has passed. The system buys bounded clock uncertainty, then pays latency to make timestamps globally meaningful.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Logical clocks work because messages are evidence. If one process sends information to another, the receiver can know that the send happened before the receive. By propagating counters with messages, the system turns causal structure into metadata that survives across machines.',
-        'Vector clocks work because they keep each participant\'s contribution separate. Componentwise comparison can tell whether one event includes all the causal history of another. If neither vector dominates, the histories are independent enough that a merge or conflict resolution rule is needed.',
-        'TrueTime works by making clock uncertainty explicit. Instead of pretending a physical timestamp is exact, it returns an interval. Commit-wait then ensures that once a transaction is visible, no other transaction can later claim an earlier real-time position that violates the timestamp order.',
+        'Logical clocks work because messages carry evidence. A receiver can know a send happened before the receive, so carrying clock metadata across messages preserves causal history. Local increments preserve same-process order.',
+        'Vector-clock correctness comes from componentwise dominance. If vector X is less than or equal to vector Y in every slot, Y has seen at least the history X records. If neither dominates, neither history contains the other, so overwriting one with the other would invent an order.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Lamport clocks are compact and cheap, but they hide concurrency. If you use them to pick a winner for concurrent writes, you may drop a conflict users expected to merge. They are best when monotonic progress or deterministic ordering matters more than conflict visibility.',
-        'Vector clocks expose concurrency, but the stamp grows with participants and needs pruning rules for churn, replicas that disappear, and dynamic membership. Version vectors and dotted version vectors exist because production systems need more careful metadata management than a classroom vector.',
-        'Hybrid logical clocks are a practical compromise: close to wall time, compact, and causally safer than raw timestamps for many database designs. TrueTime-like systems offer a stronger contract but require clock infrastructure, uncertainty monitoring, and commit-wait latency.',
+        'Lamport clocks are O(1) space and cheap to update, but they hide concurrency. Vector clocks are O(n) in participants, so metadata grows when replicas, clients, or shards grow. Hybrid logical clocks keep constant-size timestamps closer to wall time but still depend on clock assumptions.',
+        'TrueTime-like designs cost hardware, monitoring, and commit-wait latency. If uncertainty epsilon is 7 ms, a write may wait about that long before it is externally visible. The cost buys a stronger timestamp contract, but only if the whole system respects the uncertainty bound.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Lamport-style counters appear in consensus terms, leader epochs, idempotency tokens, log sequence numbers, and any protocol that needs monotonic progress without trusting wall time.',
+        'Lamport-style numbers appear in leader terms, log sequence numbers, epochs, and protocols that need monotonic progress. Vector clocks and version vectors appear in eventually consistent stores, anti-entropy sync, and conflict detection. Hybrid logical clocks appear in databases that want causal-ish timestamps near wall time without atomic-clock infrastructure.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Causal order is a directed graph property: arrows justify before and after, while missing paths mean the application must decide how to merge. Source: Wikimedia Commons, David W., public domain.'},
-        'Vector clocks and version vectors appear in eventually consistent storage, conflict detection, anti-entropy, and CRDT sync. They are useful when concurrent edits should be surfaced or merged instead of silently overwritten.',
-        'Hybrid logical clocks show up in distributed SQL systems that want timestamps close to real time without Spanner-grade clock hardware. TrueTime matters when the product needs globally consistent timestamp reads across shards and is willing to pay for clock infrastructure plus write latency.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The common failure mode is overclaiming what a timestamp means. A timestamp can be a display hint, a causal token, a conflict detector, or a serialization point. Treating one kind as another is how systems lose writes while all checks pass.',
-        'Wall clocks fail when used as the only correctness signal for concurrent writes. Lamport clocks fail when teams assume a total order means causal truth. Vector clocks fail operationally when metadata growth and membership churn are ignored. TrueTime-like designs fail when the system cannot actually bound uncertainty or tolerate commit-wait.',
-        'A practical rule: use wall-clock timestamps for humans and retention policies, not as the only merge signal. Use Lamport-style numbers for monotonic progress. Use vector metadata when conflicts must be detected. Use physical-time guarantees only when the whole architecture measures and respects clock uncertainty.',
+        'The common failure is using one timestamp kind for the wrong job. Wall time is useful for humans and retention, but unsafe as the only merge signal for close writes. Lamport clocks provide order for progress, but they cannot tell whether two writes are concurrent.',
+        'Vector clocks fail operationally when metadata growth and membership churn are ignored. TrueTime-like systems fail if the clock uncertainty is not actually bounded or if the application cannot tolerate commit-wait. The clock guarantee must match the merge rule.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Raft Leader Election for Lamport-like terms, CRDTs for merge rules that use causal metadata, Transaction Isolation Levels for snapshot semantics, Sharding & Partitioning for cross-shard read problems, and Distributed Tracing for the difference between timestamp order and request causality.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Two replicas store a name. At real time 0 ms, S1 writes Ana, but S1 clock is 80 ms fast, so the stamp is 80 ms. At real time 50 ms, S2 writes Anna with a correct clock, so the stamp is 50 ms. Last-write-wins keeps Ana because 80 is greater than 50, even though Anna was the correction.',
+        'With vector clocks over S1 and S2, the first write has [1, 0] and the second independent write has [0, 1]. Neither vector dominates, so the system detects concurrency instead of silently choosing a winner. The application can then ask a user, merge fields, or apply a domain-specific rule.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Read Lamport, Time, Clocks, and the Ordering of Events in a Distributed System. Then read Spanner for TrueTime and a modern distributed database design that exposes physical-clock uncertainty instead of hiding it.',
+        'Study consensus terms, CRDTs, transaction isolation, distributed tracing, hybrid logical clocks, and version vectors. The next exercise is to compare two vector stamps and state whether they are before, after, or concurrent.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Clocks & Ordering: Lamport to TrueTime moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

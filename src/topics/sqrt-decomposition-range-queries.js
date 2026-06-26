@@ -247,114 +247,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/sqrt-decomposition-range-queries.gif', alt: 'Animated walkthrough of the sqrt decomposition range queries visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Problem',
-      paragraphs: [
-        'Range-query problems ask the same question over many intervals of an array: what is the sum, minimum, count, or other aggregate on [l, r]? A direct scan is easy to trust, but it repeats work every time a long range appears.',
-        {type: 'callout', text: 'Square-root decomposition works by making the middle of a range cheap and keeping the messy edges small.'},
-        'The harder version also allows updates. Prefix sums answer static range sums in O(1), but one point correction changes every later prefix. Square-root decomposition is the middle ground: keep enough precomputed state to skip most of a long interval, while leaving the local pieces simple.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'A raw scan pays O(r - l + 1) per query. That is optimal for one query, but poor when a service, judge problem, or dashboard asks thousands of overlapping ranges.',
-        'A tree can be faster, but the price is structure. Segment trees and Fenwick trees need the operation to fit their update/query contract. If the useful summary is a sorted block, a frequency table, a small histogram, or a lazy tag with occasional rebuilding, a block layout can be easier to reason about and easier to modify.',
-      ],
-    },
-    {
-      heading: 'Core mechanism',
-      paragraphs: [
-        'Split the array into contiguous blocks of length B. Store one summary per block. To answer a query, scan the left partial block until the next boundary, consume every full block by reading its summary, then scan the right partial block.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg', alt: 'Row-major and column-major array storage order', caption: 'Block decomposition is a layout decision over a linear array: adjacent cells are grouped so whole blocks can answer part of a query. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.'},
-        'For point updates, change the array cell and repair only the summary for the block containing that cell. For sums this is a constant-time delta update. For min, sorted blocks, or richer summaries, the containing block may need a local rebuild.',
-      ],
-    },
-    {
-      heading: 'Invariant and proof idea',
-      paragraphs: [
-        'The invariant is simple: every element belongs to exactly one block, and every block summary equals the aggregate of the current cells in that block. A range query is correct because it partitions [l, r] into disjoint pieces: a left tail, zero or more whole blocks, and a right tail.',
-        'The cost argument is the reason for the name. A query scans at most 2B edge elements and reads at most n / B block summaries. Choosing B near sqrt(n) balances those two terms, giving O(sqrt(n)) query work for the common range-sum version.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'The animation uses 12 values split into three blocks of four. For query [2, 9], positions 2 and 3 are the left tail, block B1 covering 4..7 is a whole block, and positions 8 and 9 are the right tail. The answer is scan(2..3) + sum(B1) + scan(8..9).',
-        'The point-update view uses index 6. The important thing to watch is how little changes: the array cell changes, the delta is computed, and only B1s summary is repaired. No other block summary is touched.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        'In the range-query view, the array-to-block frame establishes coverage, the block-sum table shows the maintained summaries, and the [2, 9] frame shows the three-part decomposition. The highlighted middle block is the work avoided by preprocessing.',
-        'In the point-update view, follow delta rather than the index. For sums, delta is enough to repair the summary. In the comparison table, notice how the same block layout changes behavior when the per-block summary changes from a sum to a min, sorted list, or lazy tag.',
-      ],
-    },
-    {
-      heading: 'Variants',
-      paragraphs: [
-        'For sum, a block stores one number. For min, a point update may need to recompute the whole block if the old minimum was changed. For order or threshold queries, each block can keep a sorted copy so full blocks answer by binary search while edge blocks still scan directly.',
-        'For range updates, some versions store lazy tags per block and push them only when a query or partial update touches the block interior. The same invariant remains: the fast block summary must describe the logical values currently represented by the block.',
-      ],
-    },
-    {
-      heading: 'Cost and tuning',
-      paragraphs: [
-        'With B near sqrt(n), range sums cost O(sqrt(n)), preprocessing costs O(n), and sum point updates cost O(1). More complex summaries change the update cost: rebuilding one block is O(B), and maintaining a sorted array can need a binary search plus local movement.',
-        'The best block size is workload dependent. Larger blocks reduce the number of summaries read but increase edge scans and rebuild costs. Smaller blocks make edge work cheap but force more block-summary reads. Cache locality and JavaScript array behavior can move the practical optimum away from the textbook square root.',
-      ],
-    },
-    {
-      heading: 'Real uses',
-      paragraphs: [
-        'This structure is useful in competitive-programming range queries, analytics dashboards with occasional corrections, offline-ish maintenance jobs, and systems where a block-local brute-force pass is cheap enough and easier to audit than a tree.',
-        'It is also a good teaching bridge. It shows the central data-structure move clearly: do expensive preprocessing only where the query can consume it as a whole, and fall back to direct work where alignment is messy.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'It loses to sharper tools when the algebra is friendly. Static idempotent range minimum belongs to Sparse Table. Dynamic associative aggregates often belong to Segment Tree. Prefix-like sums with point updates usually belong to Fenwick Tree.',
-        'It also fails when updates make the summary expensive or when the block-local state becomes a hidden second data structure with its own hard invariants. Blocks reduce global complexity; they do not erase local complexity.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Compute blockId = Math.floor(index / B), store block ranges explicitly or derive them from B, and centralize summary rebuilding so point updates and bulk rebuilds cannot drift. Query code should make the three regions visible: left tail, full blocks, right tail.',
-        'Watch the boundary cases: l and r inside the same block, a final short block, empty ranges if the caller allows them, and summaries whose identity value matters. Most wrong implementations accidentally double-count a boundary cell or skip the final partial block.',
-      ],
-    },
-    {
-      heading: 'Rule of thumb',
-      paragraphs: [
-        'Use square-root decomposition when a block summary makes the middle of a query cheap and the edge work remains tolerable. It is a strong choice when the operation is awkward for a standard tree but easy inside a block.',
-        'It is also a good engineering choice when clarity matters. A block array, a summary array, and a rebuild function are often easier to audit than a heavily customized segment tree with lazy propagation. The cost is that worst-case operations are usually slower than the sharpest specialized structure.',
-        'A useful test is whether you can explain the block invariant in one sentence. If each block summary has become a complicated mini-database, the decomposition may still work, but it no longer has the simplicity that made it attractive.',
-        'When in doubt, implement the direct scan, then the block version, and compare on the real query mix. Square-root decomposition is often chosen because its constants and cache behavior are good enough, not because its asymptotic bound is the best possible.',
-      ],
-    },
-    {
-      heading: 'Worked production example',
-      paragraphs: [
-        'Imagine a dashboard storing per-minute counters for a few weeks. Most queries ask for totals over ranges, and occasional corrections fix one minute. Blocks of a few hundred minutes let the dashboard sum long middle regions from block totals while scanning only the edges. A correction updates one cell and one block total.',
-        'If the dashboard later asks for percentile, top-k, or distinct-count summaries, the same block idea can still help, but each block summary becomes more complex. That is the decision point: keep block-local complexity manageable, or move to a data structure designed for that specific aggregate.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: CP-Algorithms sqrt decomposition at https://cp-algorithms.com/data_structures/sqrt_decomposition.html, USACO Guide square-root decomposition at https://usaco.guide/plat/sqrt, and Codeforces square-root decomposition applications at https://codeforces.com/blog/entry/83248.',
-        'Study Fenwick Tree for prefix-like updates, Segment Tree for general dynamic associative queries, Sparse Table and Disjoint Sparse Table for static range queries, and Mo\'s Algorithm for offline range-query reordering.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read each query as left edge scan, whole middle blocks, and right edge scan. Active cells are direct work, while found blocks are summaries being reused.', {type: 'image', src: './assets/gifs/sqrt-decomposition-range-queries.gif', alt: 'Animated walkthrough of the sqrt decomposition range queries visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}], },
+    { heading: 'Why this exists', paragraphs: ['Range queries repeat work over intervals of an array. Square-root decomposition keeps enough block summaries to skip the middle while leaving edge handling simple.', {type: 'callout', text: 'Square-root decomposition works by making the middle of a range cheap and keeping the messy edges small.'}], },
+    { heading: 'The obvious approach', paragraphs: ['The obvious query scans l through r and computes the answer directly. It is correct and update-friendly, but every long query repeats long scans.'], },
+    { heading: 'The wall', paragraphs: ['Fifty thousand queries over twenty thousand cells each means about one billion additions. Prefix sums answer static sums, but one point update changes every later prefix.'], },
+    { heading: 'The core insight', paragraphs: ['Split the array into blocks of length B and store one summary per block. A query scans at most two partial blocks and reads summaries for aligned middle blocks.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg', alt: 'Row-major and column-major array storage order', caption: 'Block decomposition is a layout decision over a linear array: adjacent cells are grouped so whole blocks can answer part of a query. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.'}], },
+    { heading: 'How it works', paragraphs: ['Precompute each block summary. A point update changes one array cell and repairs only that block summary, while a range query combines edge scans and full-block reads.'], },
+    { heading: 'Why it works', paragraphs: ['The invariant is that every cell belongs to one block and every block summary matches its current cells. A query is correct because its left tail, full blocks, and right tail are disjoint and cover the interval.'], },
+    { heading: 'Cost and complexity', paragraphs: ['With B near square root of n, a query scans at most about 2B edge cells and reads about n divided by B summaries. Sum preprocessing is O(n), and a sum point update is O(1).'], },
+    { heading: 'Real-world uses', paragraphs: ['It fits range-query workloads with occasional updates and custom block summaries. It is common in contest problems, dashboards, and systems where a block-local rebuild is easier to audit than a custom tree.'], },
+    { heading: 'Where it fails', paragraphs: ['It loses when a sharper structure matches the operation. Sparse tables win for static idempotent queries, Fenwick trees win for prefix-like updates, and segment trees win for many dynamic associative queries.'], },
+    { heading: 'Worked example', paragraphs: ['With 12 values and block size 4, query 2 through 9 scans 2..3, reads block 4..7, and scans 8..9. If edges sum to 19 and the middle block sum is 23, the answer is 42.'], },
+    { heading: 'Sources and study next', paragraphs: ['Study CP-Algorithms and USACO Guide on square-root decomposition, then compare Codeforces block variants. Continue with Prefix Sums, Fenwick Tree, Segment Tree, Sparse Table, and Mo Algorithm.'], },
   ],
 };

@@ -1,4 +1,4 @@
-﻿// Transaction isolation: two transactions run "at the same time" — but the
+// Transaction isolation: two transactions run "at the same time" — but the
 // database decides how much of each other's unfinished business they may
 // see. Each level of blindness has a name, a price, and a famous accident.
 
@@ -145,97 +145,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation shows two transactions running concurrently against the same database. Each row is a moment in time. The three columns show what Transaction A does, what Transaction B does, and what the committed truth in the database actually is.',
-        {type: 'callout', text: 'Isolation levels are promises about which concurrent histories the database will refuse to expose.'},
-        'Warning markers flag the dangerous moment: a transaction acting on data it should not trust. Compare markers highlight the two reads or checks that disagree. The gap between what a transaction sees and what is actually committed is the anomaly.',
-        'Switch between "the classic anomalies" view (dirty read, non-repeatable read, phantom read) and "the isolation ladder & MVCC" view (the four SQL levels, write skew, version mechanics, and engine defaults). Each frame is one clock tick in a concurrent schedule.',
-      
-        {type: 'image', src: './assets/gifs/isolation-levels.gif', alt: 'Animated walkthrough of the isolation levels visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Jim Gray formalized the transaction concept at IBM in the 1970s and received the 1998 Turing Award for it. The problem he solved: multiple users changing the same database at the same time need guarantees that their work will not corrupt each other. A bank cannot let two ATM withdrawals overdraw an account because they both checked the balance before either deducted. A hospital cannot let two doctors sign off shift because both saw two people on call.',
-        'The solution is ACID: Atomicity (a transaction either fully commits or fully rolls back), Consistency (committed data satisfies all declared constraints), Isolation (concurrent transactions behave as if they ran alone), and Durability (committed data survives crashes). Isolation is the hardest property because it directly trades correctness for throughput. The other three are binary promises; isolation is a spectrum.',
-        'Isolation levels name points on that spectrum. Each level blocks certain anomalies and permits others. Choosing a level means deciding which kinds of concurrent interference the application can tolerate and which would break a business rule.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Run every transaction one at a time. Transaction A finishes completely before Transaction B begins. No overlap, no interference, no anomalies. This is serialized execution, and it is perfectly correct.',
-        'Most databases could implement this with a single global lock: acquire the lock at BEGIN, release it at COMMIT. Every transaction sees a consistent, complete view. Every schedule is trivially serializable because it is literally serial.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Serialized execution kills throughput. If Transaction A holds the global lock for 50 ms while it reads ten rows, computes, and writes three rows, every other transaction on the system waits. A web application serving 1,000 requests per second cannot serialize them through a single lock. Disk I/O, network round trips, and application logic all happen inside the lock window, and none of them need exclusivity for unrelated data.',
-        'The database needs concurrency. But concurrency means two transactions can interleave their reads and writes, and interleaving is where anomalies appear. The entire field of transaction isolation exists to answer one question: how much interleaving can the engine permit before the application observes a state that could not have arisen from any serial ordering?',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'ACID properties divide the problem. Atomicity uses a write-ahead log (WAL): every change is written to a durable log before modifying data pages, so a crash can replay committed changes or discard uncommitted ones. Consistency is enforced by constraints (PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK) evaluated at commit time. Durability uses the same WAL plus fsync: the log record hits stable storage before the transaction reports success. Isolation is the complex one and uses concurrency control.',
-        'The SQL standard defines four isolation levels by the anomalies they permit. READ UNCOMMITTED allows dirty reads: a transaction can see another transaction\'s uncommitted writes, which may be rolled back. READ COMMITTED blocks dirty reads but allows non-repeatable reads: the same row queried twice in one transaction can return different committed values. REPEATABLE READ blocks non-repeatable reads but may allow phantom reads: a range query can return new rows inserted by a concurrent committed transaction. SERIALIZABLE blocks all three anomalies and adds protection against write skew.',
-        {type: 'image', src: 'https://cwiki.apache.org/confluence/download/attachments/170266055/Screen%20Shot%202021-04-13%20at%206.40.18%20PM.png?api=v2&modificationDate=1618364438000&version=1', alt: 'Isolation level ladder from read uncommitted through serializable', caption: 'The isolation ladder places snapshot isolation between read committed and serializable, matching the tradeoff the article explains. Source: Apache Hudi RFC 22.'},
-        'Two major implementation strategies exist. Two-Phase Locking (2PL) acquires locks as it accesses data and releases them only after commit. Strict 2PL holds write locks until commit, preventing dirty reads. Predicate locks or gap locks (as in MySQL InnoDB) protect against phantoms by locking index ranges, not just existing rows. The cost is blocking: readers wait for writers and writers wait for each other.',
-        'Multi-Version Concurrency Control (MVCC) takes a different approach. Each update creates a new version of the row. Readers see a snapshot defined by their transaction\'s start time and ignore newer versions. Writers still conflict with each other on the same row, but readers never block writers and writers never block readers. PostgreSQL, Oracle, MySQL InnoDB, and CockroachDB all use MVCC. The cost is version storage and cleanup: old versions linger until no active snapshot can see them (PostgreSQL VACUUM, InnoDB purge thread).',
-        'Serializable Snapshot Isolation (SSI), introduced by Cahill, Roeth, and Fekete in 2008 and implemented in PostgreSQL 9.1, extends MVCC to detect serialization anomalies. SSI tracks read and write dependencies between concurrent transactions and aborts any transaction that would create a dangerous cycle (two consecutive rw-antidependency edges). It provides true serializability without the blocking of 2PL, at the cost of occasional aborts that the application must retry.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The serializability guarantee is the theoretical anchor. A concurrent execution is correct if and only if its committed results are equivalent to some serial ordering of the same transactions. The database does not need to actually run transactions serially; it only needs to ensure that no observable outcome could distinguish the concurrent execution from some serial one.',
-        'This works as a correctness criterion because serial execution is trivially safe: each transaction sees the complete, committed results of all transactions that finished before it and none of the changes from transactions that have not committed. Any property that holds under serial execution (account balances never negative, seat counts never exceed capacity, at least one doctor on call) also holds under serializable concurrent execution.',
-        'Weaker isolation levels relax this by permitting specific deviations from serial equivalence. READ COMMITTED allows each statement to see a different committed snapshot, which is equivalent to reordering the serial schedule between statements. REPEATABLE READ fixes the snapshot for the whole transaction but may not detect conflicts involving rows that did not exist when the snapshot was taken. Each relaxation is a controlled sacrifice of reasoning simplicity for throughput.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Stricter isolation costs more. READ COMMITTED needs only short-duration row locks for writes; each statement can release read context immediately. REPEATABLE READ via MVCC holds a snapshot for the transaction lifetime, keeping old row versions alive and increasing VACUUM or purge pressure. SERIALIZABLE via 2PL adds predicate locks that can block concurrent inserts into index ranges. SERIALIZABLE via SSI adds dependency tracking and raises abort rates under contention.',
-        'The practical numbers: PostgreSQL under SSI typically sees 5-20% throughput reduction compared to READ COMMITTED for read-heavy OLTP workloads, with higher abort rates when transactions frequently read and write overlapping data. MySQL InnoDB REPEATABLE READ with gap locks can cause lock-wait timeouts when concurrent transactions scan and insert into adjacent index ranges. The overhead is workload-dependent: if transactions touch disjoint data, serializable costs almost nothing; if they contend on the same rows or ranges, blocking and aborts dominate.',
-        'MVCC trades lock contention for storage overhead. Every update creates a new row version. PostgreSQL stores old versions in the main table (heap) and relies on autovacuum to reclaim them. A long-running transaction at REPEATABLE READ or SERIALIZABLE prevents cleanup of any version it might see, which can cause table bloat. InnoDB stores old versions in a separate undo log, which has its own size pressure. Neither approach is free; both shift the cost from blocking to storage management.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'PostgreSQL defaults to READ COMMITTED and offers true SERIALIZABLE via SSI. This makes PostgreSQL the strongest off-the-shelf choice for applications that need serializability without manual locking. The retry cost is the only tax: wrap the transaction in a loop that catches serialization_failure (SQLSTATE 40001) and retries.',
-        'MySQL InnoDB defaults to REPEATABLE READ and implements it with MVCC plus next-key locks (gap locks on index ranges). This blocks phantoms in most practical cases, making InnoDB\'s REPEATABLE READ stronger than the SQL standard requires. InnoDB SERIALIZABLE adds shared locks on all reads, which increases blocking but catches more anomalies.',
-        'CockroachDB defaults to SERIALIZABLE for all transactions, using a timestamp-ordering protocol across distributed nodes. This simplifies application reasoning at the cost of higher abort rates and cross-node coordination latency. For distributed systems that need strong consistency, paying the serializable cost everywhere avoids the complexity of per-transaction isolation tuning.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Distributed transactions across multiple databases or services require Two-Phase Commit (2PC), which adds a coordinator, a prepare phase, and blocking if the coordinator crashes between prepare and commit. The latency and availability cost of 2PC often pushes systems toward eventual consistency, sagas, or single-database designs that avoid the problem entirely.',
-        'SERIALIZABLE isolation at high contention creates a tension between correctness and availability. If many transactions read and write overlapping data, abort rates climb, retry storms amplify load, and throughput collapses. The fix is usually schema redesign: partition the hot resource, replace a read-check-write pattern with an atomic UPDATE ... WHERE condition, or introduce a single-writer queue for the contended invariant.',
-        'Application-level invariants that span data outside the database (an email was sent, a payment was charged, an API was called) cannot be protected by database isolation alone. If a SERIALIZABLE transaction sends a side effect before commit and then aborts, the side effect is not rolled back. The standard mitigation is the transactional outbox pattern: write side-effect intents to a database table inside the transaction, and process them after commit.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Two transactions run concurrently. T1 transfers $100 from account A (balance $500) to account B. T2 reads the balance of account A to display on a dashboard.',
-        'At READ UNCOMMITTED: T1 writes A = $400 but has not committed. T2 reads A and sees $400. T1 aborts. T2 displayed a balance that never existed. The dirty read caused a false report.',
-        'At READ COMMITTED: T2 cannot see T1\'s uncommitted write; it reads A = $500. T1 commits, setting A = $400. If T2 reads again in the same transaction, it now sees $400. The two reads of the same row returned different values within one transaction. For a simple dashboard display this is fine. For a report that computes totals across multiple reads, the shifting snapshot can produce an internally inconsistent result.',
-        'At REPEATABLE READ: T2 gets a snapshot at transaction start showing A = $500. Even after T1 commits A = $400, T2 still sees A = $500 for the rest of its transaction. The view is stable. But if T2 also checks a range query (all accounts with balance > $300), a concurrent insert of a new qualifying account could appear as a phantom, depending on the engine.',
-        'At SERIALIZABLE: T2\'s snapshot is stable and the engine also tracks dependencies. If T2 reads data that T1 writes, and T1 reads data that another transaction writes, the engine checks for cycles in the dependency graph. Any cycle means the schedule is not equivalent to a serial ordering, and one transaction is aborted. The application catches the serialization failure and retries. The committed result is always equivalent to running the transactions one at a time.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Jim Gray and Andreas Reuter, "Transaction Processing: Concepts and Techniques" (1993) for the ACID formalization. Hal Berenson et al., "A Critique of ANSI SQL Isolation Levels" (SIGMOD 1995) for the anomaly taxonomy including snapshot isolation and write skew. Michael Cahill, Uwe Roeth, and Alan Fekete, "Serializable Isolation for Snapshot Databases" (SIGMOD 2008) for SSI. The PostgreSQL documentation on Transaction Isolation is the best freely available engine-specific reference.',
-        'Study Write-Ahead Logging next to understand how atomicity and durability are implemented physically. Study MVCC Internals to see how snapshots are constructed from version chains and transaction visibility maps. Study Two-Phase Commit for distributed atomicity across databases. Study the Saga Pattern for an alternative that replaces distributed isolation with compensating actions. Study Raft or Paxos to see how CockroachDB and Spanner maintain serializable isolation across distributed nodes.',
-      ],
-    },
+    {heading: 'How to read the animation', paragraphs: ['The animation shows two transactions interleaving over time. Warning markers show the moment a transaction sees a value or range that a stronger isolation level would hide.', {type: 'callout', text: 'Isolation levels are promises about which concurrent histories the database will refuse to expose.'}, {type: 'image', src: './assets/gifs/isolation-levels.gif', alt: 'Animated walkthrough of the isolation levels visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    {heading: 'Why this exists', paragraphs: ['A transaction is a group of database operations that should commit or roll back as one unit. Isolation exists because many transactions run at once, and their interleavings can expose states that could never happen in a serial run.']},
+    {heading: 'The obvious approach', paragraphs: ['The obvious approach is to run one transaction at a time with a global lock. That is correct, but it makes unrelated users wait behind each other.']},
+    {heading: 'The wall', paragraphs: ['A database needs concurrency for throughput, but concurrency creates dirty reads, non-repeatable reads, phantoms, write skew, and serialization failures. The wall is allowing overlap without breaking application invariants.']},
+    {heading: 'The core insight', paragraphs: ['A schedule does not need to run serially; it needs to satisfy the chosen isolation promise. Engines enforce that promise with locks, snapshots, version chains, predicate protection, dependency tracking, or abort-and-retry.', {type: 'image', src: 'https://cwiki.apache.org/confluence/download/attachments/170266055/Screen%20Shot%202021-04-13%20at%206.40.18%20PM.png?api=v2&modificationDate=1618364438000&version=1', alt: 'Isolation level ladder from read uncommitted through serializable', caption: 'The isolation ladder places snapshot isolation between read committed and serializable, matching the tradeoff the article explains. Source: Apache Hudi RFC 22.'}]},
+    {heading: 'How it works', paragraphs: ['Read Uncommitted may expose uncommitted writes, while Read Committed hides those writes but can change view between statements. Repeatable Read gives a stable transaction view, and Serializable rejects histories that cannot match any one-at-a-time order.']},
+    {heading: 'Why it works', paragraphs: ['Serial execution is safe because each transaction sees a complete committed prefix of history. Serializable isolation preserves that reasoning under overlap, while weaker levels deliberately make smaller promises for more concurrency.']},
+    {heading: 'Cost and complexity', paragraphs: ['Stronger isolation costs blocking, aborts, or metadata. MVCC keeps old row versions for readers, two-phase locking holds locks, and Serializable systems may force applications to retry.']},
+    {heading: 'Real-world uses', paragraphs: ['Read Committed fits many request-response applications where each statement can see a fresh committed view. Serializable fits money movement, scheduling, inventory, and any invariant that application code reasons about as if transactions ran alone.']},
+    {heading: 'Where it fails', paragraphs: ['Isolation does not roll back side effects outside the database, such as emails or payments. High-contention Serializable workloads can also collapse into retry storms unless the schema or workflow localizes the hot invariant.']},
+    {heading: 'Worked example', paragraphs: ['Account A starts at 500. If T1 subtracts 100 but aborts, Read Uncommitted may let T2 display 400 even though that value never committed.', 'At Read Committed, T2 first sees 500, then after T1 commits may see 400 in the same transaction. At Serializable, the database must commit only outcomes equivalent to some serial order or abort one transaction.']},
+    {heading: 'Sources and study next', paragraphs: ['Read Gray and Reuter on transaction processing, Berenson et al. on ANSI isolation anomalies, and Cahill, Roeth, and Fekete on Serializable Snapshot Isolation. Then study Write-Ahead Logging, MVCC Internals, Two-Phase Commit, Saga Pattern, Raft, and Paxos.']},
   ],
 };

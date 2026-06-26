@@ -266,33 +266,111 @@ export const article = {
           text: 'Byzantine fault tolerance is quorum math for systems where a faulty participant can create different realities for different peers.',
         },
         'The first view (the generals and 3f+1) walks through impossibility at N = 3, then consensus at N = 4 with one traitor, then the quorum arithmetic that generalizes the result. The second view (PBFT and the real world) shows the production protocol and deployment map. Watch for the relay round: it is the step where private contradictions become shared evidence.',
+        {type: 'image', src: './assets/gifs/byzantine-generals.gif', alt: 'Animated walkthrough of the byzantine generals visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'In 1982, Leslie Lamport, Robert Shostak, and Marshall Pease at SRI International published "The Byzantine Generals Problem." The question: how can distributed nodes reach agreement when some nodes are not just silent or crashed, but actively lying? A crashed node withholds information. A Byzantine node fabricates it -- sending different values to different peers while still participating in the protocol.',
+        'In 1982, Leslie Lamport, Robert Shostak, and Marshall Pease at SRI International published "The Byzantine Generals Problem." The question was concrete: several divisions of an army surround a city, and their generals must coordinate an attack or retreat through messengers. Some generals may be traitors who send contradictory messages to different peers. The authors proved that no protocol can guarantee agreement when the traitors number one-third or more of the participants.',
+        'The paper matters because it formalized a failure model that crash-fault protocols like Paxos and Raft never address. A crash fault is a node that stops -- it goes silent, contributes no votes, and the honest majority outvotes its absence. A Byzantine fault is a node that stays active and lies. It can send "attack" to one peer and "retreat" to another in the same round. It can relay fabricated messages. It can time its responses to maximize confusion. The danger is not absence but forgery.',
         {
           type: 'image',
           src: 'https://mermaid.ink/svg/pako:RcyxCsIwFEbhPU_xv4BDHR0EW0dxUeoQMlzTWxpME7m5tfTtxVJwOnCGr4959gOJ4l6bk31kiR2qA1QoaBb4PI6UOhaH3e6I1l4qFOYCUiX_wjtOBcIqTArhSIsz9cbs_0wMPCknSro5pl3b2BuNDP6EjpNnZ5p1n-01Q6bI8JRQSEPpFzyzDph_dHFf',
           alt: 'Two Byzantine fault worlds produce the same evidence for an honest lieutenant.',
           caption: 'The N = 3 impossibility comes from observational ambiguity: two different traitor placements can create the same local evidence. Source: https://mermaid.ink/svg/pako:RcyxCsIwFEbhPU_xv4BDHR0EW0dxUeoQMlzTWxpME7m5tfTtxVJwOnCGr4959gOJ4l6bk31kiR2qA1QoaBb4PI6UOhaH3e6I1l4qFOYCUiX_wjtOBcIqTArhSIsz9cbs_0wMPCknSro5pl3b2BuNDP6EjpNnZ5p1n-01Q6bI8JRQSEPpFzyzDph_dHFf',
         },
-        'The problem matters wherever participants cannot trust each other. Blockchain validators are strangers with money at stake. Flight computers share a fuselage but not a circuit board -- a cosmic-ray bit flip turns one into a liar. Any replicated system exposed to compromise, bugs, or adversarial operators faces the same question: can the honest majority still agree?',
+        'The problem matters wherever participants cannot trust each other. Blockchain validators are strangers with money at stake. Flight computers share a fuselage but not a circuit board -- a cosmic-ray bit flip turns one into a liar. Any replicated system exposed to compromise, bugs, or adversarial operators faces the same question: can the honest majority still agree, even when the dishonest minority actively works to prevent it?',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Majority vote. Each node broadcasts its value, every node counts the votes, and everyone picks whichever value appeared most often. This works perfectly against crash faults: a crashed node simply contributes fewer votes, and the honest majority wins.',
-        'The approach feels complete. With 3 generals and 1 traitor, 2 honest nodes still form a majority. What could go wrong?',
+        'Majority vote. Each node broadcasts its value, every node counts the votes, and everyone picks whichever value appeared most often. This works perfectly against crash faults: a crashed node simply contributes fewer votes, and the honest majority wins. With 3 nodes tolerating 1 crash fault, the 2 surviving honest nodes form a majority and agree.',
+        'The approach feels complete for Byzantine faults too. With 3 generals and 1 traitor, 2 honest nodes still form a numerical majority. A naive designer might conclude that simple majority voting handles liars the same way it handles silence.',
+        'The flaw is subtle: majority voting assumes every node sees the same set of votes. Against crash faults that assumption holds -- a crashed node sends nothing to anyone, so all surviving nodes observe the same evidence. A Byzantine node violates this assumption by sending different values to different peers. Two honest nodes can hold different vote tallies and compute different majorities, breaking the very agreement the vote was supposed to produce.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Three generals, one traitor, unsigned messages. The commander sends an order; each lieutenant relays what it heard. Lieutenant L1 receives "attack" directly from the commander and "he said retreat" from L2. This evidence is consistent with two completely different realities. In world 1, the commander is the traitor: he told L1 "attack" and L2 "retreat," and loyal L2 honestly relayed "retreat." In world 2, the commander is loyal and told everyone "attack," but traitor L2 lied about what he heard.',
+        'L1 sees byte-for-byte identical evidence in both worlds: a direct order of "attack" and a relay of "retreat." Yet the two worlds demand opposite behavior. World 2 says follow the loyal commander (attack). World 1 says ignore the traitor commander and agree with loyal L2 -- but L2 received "retreat," so agreement means retreating. No decision rule can produce the correct answer in both worlds simultaneously, because the input is identical and the required outputs differ. This is not a protocol failure. It is an information-theoretic impossibility: the evidence itself is ambiguous.',
+        'The wall is equivocation -- the ability of a single node to present different faces to different peers. Crash faults cannot equivocate; a crashed node is simply absent. Byzantine faults can, and that single extra capability breaks majority voting at small scales. The impossibility holds for any algorithm, not just voting: Lamport, Shostak, and Pease proved that no protocol using oral (unsigned) messages can tolerate f traitors among fewer than 3f + 1 participants.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Add one more general. With N = 4 and 1 traitor, introduce a relay round: after receiving the commander\'s order, every lieutenant tells every other lieutenant what it heard. Now each lieutenant holds three pieces of evidence -- the commander\'s direct order plus two relays -- and takes the majority. The relay round converts private, possibly contradictory messages into shared, cross-checkable evidence.',
+        'If the commander is the traitor and sends A, R, A to lieutenants L1, L2, L3 respectively, the relay round pools these into the multiset {A, R, A} visible to every loyal lieutenant. All three compute the same majority (attack) from the same evidence. If instead a lieutenant is the traitor, the loyal commander\'s consistent order (say, A to all) is relayed honestly by two lieutenants and dishonestly by one -- but the honest relays outvote the lie 2-to-1.',
+        'The insight generalizes: with N = 3f + 1 participants, you can wait for 2f + 1 replies (the remaining f may be silent liars). Any two quorums of size 2f + 1 drawn from 3f + 1 nodes must overlap in at least f + 1 members. Since at most f are liars, at least one node in the overlap is honest. That honest witness ensures any two quorums agree on at least one truthful report. This is the same pigeonhole principle that powers Paxos quorums, but the cargo is heavier: Paxos overlap carries history (which value was accepted), Byzantine overlap must carry honesty (which report is true).',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The oral-messages algorithm (OM) for f traitors among 3f + 1 generals operates recursively. At OM(0), no faults are tolerated: the commander sends a value and the lieutenant accepts it. At OM(f), the commander sends its value to all N - 1 lieutenants, then each lieutenant acts as a sub-commander and runs OM(f - 1) to relay its received value to the remaining N - 2 lieutenants. Each lieutenant collects all relayed values and decides by majority vote. The recursion bottoms out at OM(0), where direct messages are simply accepted.',
+        'For the practical case of f = 1 with N = 4: round 1, the commander sends its order to L1, L2, and L3. Round 2, each lieutenant relays what it heard to the other two. Each lieutenant now holds three data points: the commander\'s direct order plus two relays. Majority vote over these three values produces the decision. If the commander lied (sent different orders), the contradictions are pooled and the majority smooths them. If a lieutenant lied (relayed a false value), it is outvoted by two honest relays.',
+        'Castro and Liskov\'s Practical Byzantine Fault Tolerance (PBFT, 1999) turned this pattern into a deployable server protocol. PBFT uses three phases: pre-prepare (a primary node proposes a request with a sequence number), prepare (every replica re-broadcasts the proposal -- this is the relay round), and commit (every replica announces it saw 2f + 1 matching prepares). Collecting 2f + 1 commit messages means the decision is safe to execute and will survive primary replacement. The two all-to-all rounds cost O(n^2) messages per decision, which is why classical PBFT is practical only for small replica groups (4 to 10 nodes). HotStuff (2018) restructured the protocol to achieve O(n) message complexity by funneling communication through a rotating leader.',
+        'View changes handle a faulty primary. If the primary equivocates or stalls, replicas time out and elect the next primary in sequence. The new primary collects prepared certificates from the previous view, ensuring that any decision that reached the commit threshold in the old view is preserved. This is directly analogous to Paxos leader election: promises carry accepted values forward, preventing the new leader from overwriting committed state.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Safety rests on quorum intersection. With N = 3f + 1, any two quorums of 2f + 1 share (2f + 1) + (2f + 1) - (3f + 1) = f + 1 members. At most f of those are liars, so at least one overlap member is honest. That honest node witnessed both decisions and will report consistently. No pair of conflicting decisions can both achieve quorum support, because the honest overlap member would have to endorse both -- and honest nodes do not equivocate.',
+        'Liveness is not guaranteed deterministically. The FLP impossibility theorem (Fischer, Lynch, Paterson, 1985) proves that no deterministic asynchronous consensus protocol can guarantee termination when even one node may fail. Every BFT protocol buys liveness through timeouts (PBFT, HotStuff) or randomized coin flips (Ben-Or, 1983). Safety is unconditional -- the protocol never produces conflicting outputs regardless of network behavior. Liveness is conditional -- progress requires that the network eventually delivers messages within some bounded delay.',
+        'Signatures change the arithmetic in one specific way. With unforgeable digital signatures, a commander cannot deny its own signed messages. If L2 claims "the commander said retreat," L2 must produce a signature to prove it. The N = 3 impossibility dissolves in the synchronous model because slander becomes impossible -- forwarding a signed message is proof, not hearsay. However, in the asynchronous model (where slow and silent are indistinguishable), 3f + 1 nodes are still required even with signatures, because timing assumptions cannot distinguish a delayed honest node from a malicious one.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The replica cost is 3f + 1 nodes to tolerate f Byzantine faults, compared to 2f + 1 for crash faults. For f = 1, that is 4 replicas instead of 3 -- a 33% hardware overhead. For f = 2, it is 7 instead of 5 (40% overhead). The overhead converges toward 50% as f grows. Every Byzantine replica does the same work as a crash-fault replica plus the additional burden of cross-checking every message.',
+        'Message complexity in classical PBFT is O(n^2) per consensus decision. Each of the two all-to-all rounds (prepare and commit) requires every node to send a message to every other node: n * (n - 1) messages per round, roughly 2n^2 total. For n = 4, that is about 24 messages per decision. For n = 100, it is roughly 20,000. This quadratic cost is why PBFT deployments cap at small committee sizes. HotStuff and its descendants (used in Aptos and Sui) reduce this to O(n) by routing messages through a leader who aggregates signatures, at the cost of one additional round-trip of latency.',
+        'Latency is bounded by the number of communication rounds, not the number of nodes. PBFT requires 3 message delays (pre-prepare, prepare, commit) in the normal case. HotStuff requires 4 message delays but achieves pipelining that amortizes the cost across consecutive decisions. In both cases, the latency floor is the network round-trip time multiplied by the number of phases -- typically 10-100ms in a datacenter, seconds on a global blockchain network.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Proof-of-stake blockchains are the largest deployment of BFT consensus. Tendermint (used by Cosmos) and HotStuff descendants (used by Aptos and Sui) run PBFT-shaped protocols with quorums weighted by staked tokens rather than node count. Equivocation is economically punished: if a validator signs two contradictory messages for the same round, the signed evidence triggers slashing -- automatic confiscation of the validator\'s staked deposit. This makes Byzantine behavior not just detectable but financially ruinous.',
+        'Bitcoin deliberately sidesteps classical BFT. With no fixed membership, quorums are impossible to define. Proof-of-work substitutes computational cost for voting arithmetic: the longest chain wins, finality is probabilistic (each subsequent block makes reversal exponentially harder), and the security assumption shifts from "fewer than 1/3 are liars" to "fewer than 1/2 of the hashpower is adversarial." This is a fundamentally different trust model -- Nakamoto consensus, not Byzantine agreement.',
+        'Avionics uses BFT where the adversary is physics. Boeing 777 and 787 flight computers run three or more redundant processing channels built with dissimilar hardware and software. A cosmic-ray bit flip, a manufacturing defect, or a software bug in one channel is indistinguishable from a Byzantine traitor -- it produces wrong values while continuing to participate. Voting across channels with 3f + 1 redundancy is a regulatory requirement, not an optimization. SpaceX Dragon capsules use a similar architecture for flight-critical systems.',
+        'Ordinary distributed databases skip BFT entirely. Systems like etcd, ZooKeeper, Spanner, and CockroachDB run crash-fault protocols (Raft or Paxos) because they operate inside trusted datacenters. Authentication and access control eliminate the Byzantine threat model, and the 33% hardware savings plus O(n) message complexity of crash-fault protocols are too valuable to sacrifice for protection against an adversary that does not exist in that environment.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The most dangerous misconception is that majority voting alone solves Byzantine faults. It does not. With N = 4 and 1 traitor, majority voting without a relay round can still fail: if the traitor sends A to one peer and R to another, two honest nodes hold different evidence and may compute different majorities. The relay round -- where every node re-broadcasts what it received -- is the entire fix. Without cross-checking, votes are cast on different ballots.',
+        'The N = 3 impossibility holds only for unsigned (oral) messages. With cryptographic signatures, the commander cannot deny its own orders, and a lieutenant cannot forge the commander\'s signature. Lamport\'s signed-messages algorithm tolerates any number of traitors for agreement among the loyal in the synchronous model. But real networks are asynchronous: messages can be delayed arbitrarily, and slow is indistinguishable from silent. In the asynchronous model, signatures help but do not reduce the 3f + 1 requirement -- they buy simpler protocols and provable guilt (slashing), not smaller quorums.',
+        'BFT does not escape the FLP impossibility. No deterministic asynchronous consensus protocol can guarantee both safety and liveness when even one participant may fail. Every deployed BFT protocol resolves this with timeouts (PBFT triggers a view change after a timer expires) or randomness (some protocols use cryptographic coin flips to break symmetry). The consequence is that a sufficiently adversarial network scheduler can delay progress indefinitely -- safety holds, but the system stalls. In practice, stalls are bounded by timeout parameters tuned to the network\'s expected latency.',
+        'Finally, BFT assumes the fault threshold is never exceeded. If more than f of 3f + 1 nodes are compromised, all guarantees vanish -- the protocol can produce conflicting outputs, halt, or behave arbitrarily. There is no graceful degradation. This is why proof-of-stake chains set high staking requirements and use slashing: the economic design exists to keep the number of Byzantine validators below the f threshold that the consensus math requires.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Setup: 4 generals (N = 3f + 1 with f = 1). The commander C is the traitor. Lieutenants L1, L2, L3 are loyal. Round 1: C sends A to L1, R to L2, A to L3. Each lieutenant records its direct order: L1 holds {A}, L2 holds {R}, L3 holds {A}.',
+        'Round 2 (relay): L1 tells L2 and L3 "I received A." L2 tells L1 and L3 "I received R." L3 tells L1 and L2 "I received A." All lieutenants relay honestly. After the relay round, each lieutenant\'s evidence is: L1 holds {A (direct), R (from L2), A (from L3)} = {A, R, A}. L2 holds {R (direct), A (from L1), A (from L3)} = {R, A, A}. L3 holds {A (direct), A (from L1), R (from L2)} = {A, A, R}. All three multisets contain the same values: 2 A\'s and 1 R.',
+        'Decision: each lieutenant computes majority({A, R, A}) = A (2 votes for A, 1 for R). L1 decides ATTACK. L2 decides ATTACK. L3 decides ATTACK. All loyal lieutenants agree, despite receiving three different direct orders from the traitor commander. The relay round forced the traitor\'s contradictions into a single shared pool of evidence.',
+        'Flip the traitor: now C is loyal and sends A to all. L3 is the traitor. Round 1: L1 holds {A}, L2 holds {A}, L3 holds {A}. Round 2: L1 relays "A" honestly, L2 relays "A" honestly, L3 lies and relays "R" to both. Evidence: L1 holds {A, A, R}, L2 holds {A, R, A}. Both loyal lieutenants compute majority = A (2-to-1). The traitor\'s lie is outvoted. The loyal commander\'s order is obeyed. Total messages exchanged: 3 (round 1) + 6 (round 2) = 9. Total decisions: 3 (one per lieutenant). Unanimous result: ATTACK.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
         {
           type: 'image',
           src: 'https://mermaid.ink/svg/pako:VcqxCoMwFEbhPU_x78VBR4eCpYNDIcSOwSGEiIH0Xsm91tcvFTp0OnD4lsJHXENVPCbjWu92rvsLQ49uubQzmuYK6-071RK2Ht9nXPdjtz9m7NnRD4qSgiiYElamJIojKyWR2Ywnevp7ilkykyAGIlbIVrLOHw',
           alt: 'Two Byzantine quorums of size 2f plus 1 overlap in f plus 1 nodes, leaving at least one honest witness.',
           caption: 'The 3f+1 rule forces any two 2f+1 quorums to share at least one honest witness. Source: https://mermaid.ink/svg/pako:VcqxCoMwFEbhPU_x78VBR4eCpYNDIcSOwSGEiIH0Xsm91tcvFTp0OnD4lsJHXENVPCbjWu92rvsLQ49uubQzmuYK6-071RK2Ht9nXPdjtz9m7NnRD4qSgiiYElamJIojKyWR2Ywnevp7ilkykyAGIlbIVrLOHw',
         },
+        'The original paper is Lamport, Shostak, and Pease, "The Byzantine Generals Problem," ACM Transactions on Programming Languages and Systems, 1982. It defines oral messages (no signatures) and signed messages, proves the 3f + 1 bound for oral messages, and shows signed messages can tolerate any number of faults among 3 or more generals. Castro and Liskov\'s "Practical Byzantine Fault Tolerance" (OSDI 1999) turned the theory into a working protocol. Yin et al., "HotStuff: BFT Consensus with Linearity and Responsiveness" (PODC 2019) solved the O(n^2) message problem.',
+        'Study Paxos next to understand the crash-fault quorum that inspired the Byzantine overlap -- the same pigeonhole argument, weaker threat model, cheaper quorums. Study Raft for the leader-based crash-fault protocol that most production databases actually run. Explore read/write quorums and tunable consistency to see pigeonhole applied to data freshness instead of honesty. Study Merkle trees for the cryptographic commitments that let blockchain light clients verify state without trusting validators. Finally, study two-phase commit (2PC) to see the synchronous ancestor of PBFT\'s prepare/commit structure -- same two-round pattern, but with a coordinator instead of a quorum.',
       ],
-    }
+    },
   ],
 };

@@ -163,48 +163,103 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for t-SNE & UMAP: Seeing Embeddings. Squash 768 dimensions into 2 by preserving neighborhoods — then learn which parts of the picture are lies..",
-        {type: "callout", text: "Projection maps are neighborhood diagnostics, not geometry certificates; trust local neighbors and verify every global claim back in the source space."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/tsne-umap.gif', alt: 'Animated walkthrough of the tsne umap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Read the animation as a neighborhood-preservation test, not as a map with meaningful compass directions. A point is active when the layout is deciding where it should sit, and nearby points are useful only when they were also near in the original embedding space.',
+        {
+          type: 'callout',
+          text: 'Projection maps are neighborhood diagnostics, not geometry certificates; trust local neighbors and verify every global claim back in the source space.',
+        },
+        'Visited regions show relationships the optimizer has already arranged; found clusters show local neighborhoods that survived the squeeze into two dimensions. The safe inference rule is narrow: if two labels land close together, inspect whether they were nearest neighbors before projection.',
+        {
+          type: 'image',
+          src: './assets/gifs/tsne-umap.gif',
+          alt: 'Animated walkthrough of the tsne umap visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Embeddings often live in hundreds or thousands of dimensions, while humans inspect data on a two-dimensional screen. t-SNE and UMAP exist because we need a diagnostic view of high-dimensional neighborhoods: which points sit near one another, which labels look mixed, and which regions look suspicious enough to investigate.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f1/T-SNE_Embedding_of_MNIST.png', alt: 't-SNE projection of MNIST digits into colored two-dimensional clusters', caption: 'A t-SNE map can reveal local grouping, but the visual cluster area and axis direction are layout artifacts rather than measured facts. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:T-SNE_Embedding_of_MNIST.png.'},
-        'This is not a compression method for preserving every geometric fact. It is a visualization method with a narrow contract. The map is useful for local neighborhood structure and cluster debugging. It is dangerous when readers treat island size, axis direction, or gaps between islands as literal measurements.',
-        'The practical setting is usually messy. You may have millions of text chunks, product embeddings, image features, cells, customers, or failures, and a nearest-neighbor metric that only becomes meaningful after a model has converted raw objects into vectors. Projection gives you a first pass over that invisible geometry. It does not certify the model, but it can quickly show whether the model is worth deeper evaluation.',
+        'An embedding is a list of numbers that places an object inside a mathematical space. A sentence embedding might have 768 coordinates, which a model can compare but a person cannot inspect directly.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/f1/T-SNE_Embedding_of_MNIST.png',
+          alt: 't-SNE projection of MNIST digits into colored two-dimensional clusters',
+          caption: 'A t-SNE map can reveal local grouping, but the visual cluster area and axis direction are layout artifacts rather than measured facts. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:T-SNE_Embedding_of_MNIST.png.',
+        },
+        't-SNE and UMAP exist to turn those high-dimensional neighborhoods into a two-dimensional inspection surface. They help a reader see whether images, words, cells, customers, or documents that should be similar actually land near one another.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Visualize high-dimensional data. PCA projects onto the top-k principal components. It preserves global linear structure but cannot capture nonlinear manifolds: a curved surface in 100D squashed flat looks like a blob in 2D.',
-        'MDS (multidimensional scaling) preserves all pairwise distances. O(n^2) computation, and distant points dominate, distorting local neighborhoods.',
-        't-SNE (van der Maaten & Hinton, 2008) focuses on preserving LOCAL neighborhoods. Step 1: in high-D, compute pairwise similarities using Gaussian kernels -- nearby points have high similarity. Step 2: in low-D (2D or 3D), use Student\'s t-distribution (heavy tails) for similarities. Step 3: minimize KL divergence between high-D and low-D similarity distributions via gradient descent.',
-        'The t-distribution\'s heavy tails prevent crowding: in high-D, moderate-distance points can spread out more in low-D. Result: clusters and neighborhoods are faithfully preserved, but global distances between clusters are NOT meaningful.',
-        'The perplexity parameter (~5-50) controls the effective number of neighbors considered. Low perplexity produces tight clusters. High perplexity reveals more global structure.',
+        'The obvious approach is to choose two coordinates and plot them, or to use PCA, which means principal component analysis. PCA finds directions that preserve as much overall variance as possible, so it is sensible when the structure is mostly flat.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears when the interesting structure is local and curved. A handwritten digit manifold, a language embedding space, or a biological cell-state space can have neighborhoods that matter even though no single pair of raw axes carries the pattern.',
+        'Preserving every pairwise distance is also too expensive and too strict for many datasets. With 100,000 points, all pair distances mean about 5 billion relationships, most of which are far-away pairs that do not help the viewer understand local similarity.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is neighborhood preservation. Instead of asking the two-dimensional map to preserve every distance, t-SNE and UMAP ask it to preserve who is near whom. If cat, kitten, dog, and puppy are close in embedding space, the optimizer tries to place them close on the screen. If pizza and rust are far, it tries not to make them accidental neighbors.',
-        'This local focus is the strength and the limitation. Local neighborhoods can reveal mislabeled samples, embedding collapse, duplicate data, or unexpected semantic mixing. Global geometry is much less trustworthy. The map can rotate, stretch, split, or move islands without changing the local relationships the algorithm cared about.',
+        'The core insight is to preserve neighborhoods instead of preserving the whole geometry. t-SNE converts distances into probabilities that say which points are likely neighbors, while UMAP builds a nearest-neighbor graph that says which local connections should remain visible.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        't-SNE converts high-dimensional distances into neighbor probabilities. The perplexity parameter roughly controls how many neighbors matter. It then initializes points on a plane and uses gradient descent to make low-dimensional neighbor probabilities resemble high-dimensional ones. Nearby source points attract; other points repel. The heavy-tailed low-dimensional distribution helps separate groups that would otherwise crowd together.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/94/T-SNE_visualisation_of_word_embeddings_generated_using_19th_century_literature.png', alt: 't-SNE visualization of word embeddings with annotated local clusters', caption: 'This word-embedding projection is useful as an inspection surface: close labels invite source-space checks, while long-range distances should not be treated as semantic measurements. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:T-SNE_visualisation_of_word_embeddings_generated_using_19th_century_literature.png.'},
-        'UMAP starts by building a nearest-neighbor graph. It treats the high-dimensional data as a fuzzy topological structure, then optimizes a low-dimensional graph layout. Its n_neighbors parameter controls the local-versus-global tradeoff: smaller values focus on very local neighborhoods, while larger values preserve broader structure at the cost of local sharpness.',
-        'Many workflows run PCA first to reduce noise and dimensionality before t-SNE or UMAP. At larger scale, approximate nearest-neighbor methods such as HNSW may supply the neighbor graph. That makes projection a pipeline: clean vectors, find neighborhoods, optimize a layout, then validate claims back in the source space.',
+        't-SNE measures distances in the original space and turns them into neighbor probabilities. It then places points on a plane and moves them by gradient descent until the low-dimensional neighbor probabilities resemble the original ones.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/9/94/T-SNE_visualisation_of_word_embeddings_generated_using_19th_century_literature.png',
+          alt: 't-SNE visualization of word embeddings with annotated local clusters',
+          caption: 'This word-embedding projection is useful as an inspection surface: close labels invite source-space checks, while long-range distances should not be treated as semantic measurements. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:T-SNE_visualisation_of_word_embeddings_generated_using_19th_century_literature.png.',
+        },
+        'UMAP starts from a nearest-neighbor graph, which connects each point to its closest source-space neighbors. It optimizes a two-dimensional graph layout that keeps those edges likely while pushing unrelated points apart enough to make the view readable.',
       ],
-    }
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is about the objective, not about preserving every fact. If source points are strong neighbors, the loss charges the layout when they separate; if source points are not neighbors, the loss resists collapsing them into the same spot.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Exact neighbor computation can cost O(n^2), because n points can require comparing each point with every other point. Practical UMAP and large t-SNE pipelines use approximate nearest-neighbor indexes, trading a little neighbor accuracy for much lower runtime.',
+        'Cost behaves like a pipeline. More points make neighbor search and layout optimization heavier, more dimensions make each distance computation heavier, and more iterations make the map cleaner but slower.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Embedding evaluation is the common use. Teams project document, image, product, or cell embeddings to inspect duplicate clusters, mislabeled samples, outliers, and regions where categories mix.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The map fails when readers treat it as geography. Cluster size, empty space, rotation, and distance between islands can change with parameters, random seed, initialization, or sampling.',
+        'It also fails as a benchmark by itself. A pretty projection can hide bad nearest-neighbor quality, and a messy projection can come from a hard dataset rather than a bad model.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose four 3D embeddings are A = [1, 1, 0], B = [1.1, 1, 0], C = [8, 8, 0], and D = [8.2, 8.1, 0]. The distance from A to B is 0.1, while the distance from A to C is about 9.9, so A and B are strong neighbors and A and C are not.',
+        'A projection that places A at [0, 0], B at [0.2, 0.1], C at [5, 5], and D at [5.1, 4.9] preserves the two local pairs. If another run places the C-D island at [-3, 7], the local story is still similar; the global island position is layout artifact.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study van der Maaten and Hinton, Visualizing Data using t-SNE (2008), and McInnes, Healy, and Melville, UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction (2018). Study PCA first for linear projection, nearest-neighbor search for graph building, and clustering metrics for checking the picture against measurable structure.',
+      ],
+    },
   ],
 };

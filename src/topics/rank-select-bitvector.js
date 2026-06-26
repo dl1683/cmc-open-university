@@ -254,147 +254,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The "rank directory" view shows a 16-bit bitvector with three rows: raw bits, prefix 1-counts at every position, and stored superblock counters. Active highlights mark 1-bits the directory cares about. Found highlights mark the two superblock entries that are actually stored. The second frame decomposes a rank(10) query into its three additive pieces: superblock count, local block count, and popcount tail.',
+        'Read the animation as navigation over a bitvector, which is an array of 0 and 1 values stored compactly. rank counts how many target bits appear up to a position, and select finds the position of the k-th target bit.',
         {type: 'callout', text: 'Rank and select make bitstrings navigable: rank counts how far you have gone, and select jumps to the position where a count first becomes true.'},
-        'The "select directory" view works in the opposite direction. The first frame traces select(6) from goal through coarse jump through word scan to the final answer position. Later frames compare how density affects directory design: dense, sparse, clustered, and random layouts demand different sampling strategies.',
-        'At each frame, notice what is stored versus what is recomputed. The entire point of the structure is that almost nothing is stored, yet queries never scan from the beginning.',
-      
-        {type: 'image', src: './assets/gifs/rank-select-bitvector.gif', alt: 'Animated walkthrough of the rank select bitvector visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/rank-select-bitvector.gif', alt: 'Animated walkthrough of the rank select bitvector visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference rule is additive for rank: stored superblock count plus stored block count plus a small popcount tail equals the prefix count. Select runs the direction backward by using stored counts to jump near the desired occurrence.',
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          text: 'A bitvector of n bits with o(n) additional bits can support rank and select in constant time.',
-          attribution: 'Guy Jacobson, "Space-efficient static trees and graphs" (FOCS 1989)',
-        },
-        'Compressed data structures encode trees, sets, and strings as raw bitstrings. A LOUDS trie stores an entire tree as one bit per node. A wavelet matrix stores a permutation as one bit per level per element. An FM-index stores a full-text index as one character-alphabet worth of bitvectors. All of them are tiny -- until the code needs to navigate.',
-        'Navigation always asks the same two questions. rank1(i): how many 1-bits appear in positions 0 through i? select1(k): which position holds the k-th 1-bit? Without fast answers, every tree traversal, every range query, every backward search step costs O(n). With fast answers, compressed structures match pointer-based ones in query time while using a fraction of the memory.',
-        'Jacobson showed in 1989 that both operations can be answered in O(1) time using only o(n) extra bits -- sublinear overhead on top of the n-bit string itself. That result created the field of succinct data structures.',
+        'Succinct data structures store trees, strings, and sets close to their information-theoretic size. That saves memory, but raw bits are hard to navigate without extra indexing.',
+        'Rank and select exist because compressed structures still need pointer-like movement. A wavelet tree, FM-index, or LOUDS tree can be tiny only if it can answer prefix counts and occurrence positions quickly.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest rank implementation stores nothing beyond the raw bits. rank1(i) walks from position 0 to i, counting ones. select1(k) walks until it has seen k ones. Storage is n bits. Query time is O(n). For a wavelet matrix with log(sigma) levels, every single access triggers log(sigma) rank calls, each costing O(n). That makes the whole structure O(n log sigma) per query -- worse than an unsorted scan.',
-        'The opposite extreme precomputes every prefix count. Store an array P where P[i] = rank1(i). Now rank is a single lookup: O(1). But P has n entries, each needing log(n) bits. For a bitvector of one million bits, the prefix array uses roughly 20 million bits -- twenty times the original data. The compressed structure is no longer compressed.',
-        {
-          type: 'diagram',
-          text: 'Approach 1: scan every time\n  B = [1 0 1 1 0 0 1 0 1 1 1 0 0 1 0 1]\n  rank1(10) -> walk positions 0..10, count ones -> 7\n  Cost: O(n) per query, 0 extra space\n\nApproach 2: full prefix array\n  P = [1 1 2 3 3 3 4 4 5 6 7 7 7 8 8 9]\n  rank1(10) -> P[10] = 7\n  Cost: O(1) per query, n * ceil(log n) extra bits',
-          label: 'Two extremes: zero storage or zero query time, never both',
-        },
+        'The obvious approach is to scan the bitvector. rank1(i) counts ones from position 0 through i, and select1(k) scans until it has seen k ones.',
+        'That uses almost no extra space and is correct for small inputs. It fails when the bitvector is large or when each higher-level query performs many rank and select calls.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The constraint is simultaneous: the directory must answer rank and select in O(1) time while adding only o(n) bits -- strictly sublinear in the bitvector length. Scanning is too slow because every parent structure (wavelet tree, FM-index, LOUDS trie) calls rank on its inner loop. A full prefix array is too large because the entire reason for using a bitvector is that it is small.',
-        'This is not a vague scalability worry. An FM-index over a 3-billion-character human genome stores about 3 billion bits per wavelet level. A prefix array at 64 bits per entry would add 24 gigabytes of overhead per level. That overhead exceeds the size of the uncompressed text. The rank directory must use megabytes, not gigabytes, or the succinct approach fails at the point where it matters most.',
+        'The wall is repeated linear work. If a text index performs 20 rank calls per search step on a 1-billion-bit vector, scanning from the beginning is not a query algorithm.',
+        'A full prefix-count array fixes time but loses succinctness. Storing one 32-bit count beside every bit turns a 1-billion-bit vector into roughly 33 billion bits before the original data structure does any real work.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to store sparse checkpoints and finish locally with fast machine operations. Superblocks store global counts, smaller blocks store local counts, and popcount counts ones in the remaining word-level tail.',
+        'Select uses the same philosophy in reverse. It stores enough landmarks to jump near the k-th one, then scans a small local region instead of the whole bitvector.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The rank directory uses a two-level sampling hierarchy. Divide the n-bit string into superblocks of s bits each. For each superblock, store the absolute rank (total 1-count) up to its start. That costs (n/s) * log(n) bits. Then divide each superblock into blocks of b bits. For each block, store the local rank since its superblock. That costs (n/b) * log(s) bits. The remaining bits inside one block are resolved by masking and calling the hardware popcount instruction.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array to a target value', caption: 'Select can fall back to binary search over rank milestones when a faster select directory is not stored. Source: Wikimedia Commons, Binary Search Depiction.svg.'},
-        {
-          type: 'diagram',
-          text: 'Bitvector B (n bits):\n|<--- superblock 0 (s bits) --->|<--- superblock 1 (s bits) --->| ...\n| blk0 | blk1 | blk2 | blk3    | blk4 | blk5 | blk6 | blk7    | ...\n\nStored:  R[0]=0          R[1]=cumulative 1s up to position s\n         r[0]=0  r[1]=local  r[2]=local  r[3]=local  ...\n\nrank1(i):\n  1. superblock_count = R[ i / s ]         -- one table lookup\n  2. block_count     = r[ i / b ]         -- one table lookup\n  3. tail_count      = popcount(word & mask)  -- one CPU instruction\n  4. answer          = superblock_count + block_count + tail_count',
-          label: 'Two-level rank directory with popcount finish',
-        },
-        'Jacobson set s = log^2(n) and b = log(n)/2 to achieve o(n) total overhead. In practice, modern implementations set s and b to multiples of the machine word width (often s = 512 or 256 bits, b = 64 bits) so that every lookup and popcount aligns with cache lines and registers.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Rank query using precomputed directory + popcount\nfunction rank1(B, superRank, blockRank, i) {\n  const s = 512;               // superblock width in bits\n  const b = 64;                // block width = one 64-bit word\n  const si = Math.floor(i / s); // superblock index\n  const bi = Math.floor(i / b); // block index\n  const superCount = superRank[si];\n  const blockCount = blockRank[bi];\n  // Mask: keep only bits 0..rem within the word\n  const rem = i % b;\n  const word = B[bi];           // 64-bit word (BigInt or pair of 32-bit)\n  const mask = (1n << BigInt(rem + 1)) - 1n;\n  const tailCount = popcount64(word & mask);\n  return superCount + blockCount + tailCount;\n}\n\nfunction popcount64(x) {\n  // Hamming weight via bit-parallel reduction\n  x = x - ((x >> 1n) & 0x5555555555555555n);\n  x = (x & 0x3333333333333333n) + ((x >> 2n) & 0x3333333333333333n);\n  x = (x + (x >> 4n)) & 0x0f0f0f0f0f0f0f0fn;\n  return Number((x * 0x0101010101010101n) >> 56n);\n}',
-        },
-        'Select works differently. select1(k) asks: where is the k-th one? One approach stores sampled positions: record the position of every t-th one. To answer select1(k), jump to the nearest sample, then scan forward with popcount until the residual count reaches zero. More advanced designs (Clark 1996) combine sparse and dense cases to guarantee O(1) worst-case select with o(n) space, but the constant factors are large enough that many practical libraries use binary search over the rank directory instead.',
+        'For rank1(i), compute the superblock containing i, add the superblock total, add the local block total inside that superblock, and popcount the remaining bits up to i. Each term answers a different scale of the same prefix-count question.',
+        'For select1(k), find a sampled count range that contains the k-th one, then search inside that range with block counts and word popcounts. Dense vectors can sample regularly, while sparse vectors often store positions for some occurrences directly.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Rank is a prefix sum. Prefix sums decompose additively: the count over [0, i] equals the count over [0, superblock_start) plus [superblock_start, block_start) plus [block_start, i]. The three pieces are disjoint and exhaustive, so no bit is counted twice or missed. Each piece is either precomputed (table lookup) or small enough to compute in a single popcount instruction.',
-        'Select is correct because rank is monotone non-decreasing. If rank1(a) < k and rank1(b) >= k with a < b, then the k-th one is in [a+1, b]. The sampled positions narrow this interval to at most one superblock. Within that region, popcount over successive words finds the exact word containing the target, and a final bit-scan locates the precise position. Monotonicity guarantees the search never skips the answer.',
-        {
-          type: 'note',
-          text: 'The o(n) space bound is the key theoretical contribution. The directory adds strictly fewer bits than the bitvector itself -- under Jacobson original parameters, the overhead is O(n * log(log(n)) / log(n)) bits, which vanishes relative to n as n grows.',
-        },
+        'Correctness follows from prefix-count conservation. The number of ones up to i equals the number before the superblock, plus the number before the local block, plus the number in the tail; these ranges are disjoint and cover the prefix.',
+        'Select is correct because rank is monotone. As positions move right, rank never decreases, so the k-th one is the first position whose rank reaches k.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Naive scan: rank O(n), select O(n), and zero extra space. It keeps the bitvector small but makes every navigation step linear.',
-            'Full prefix array: rank O(1), select O(log n) by binary search, and O(n log n) extra bits. It answers fast but defeats compression.',
-            'Two-level Jacobson directory: rank O(1), select O(log log n) or O(1) depending on samples, and o(n) extra bits. Superblocks, blocks, and popcount make this the practical standard.',
-            'Broadword and hardware popcount variants: rank O(1) and practical select O(1) with o(n) extra bits, using CPU bit instructions for the tail.',
-            'RRR compression: rank and select O(1) with nH0 + o(n) bits. It adapts space to bit density but pays extra decoding cost.',
-          ],
-        },
-        'The two-level directory with hardware popcount is the workhorse. On x86, the POPCNT instruction counts the set bits in a 64-bit register in one cycle. ARM has equivalent instructions (CNT + ADDV). This makes the tail step essentially free, and the whole query costs two table lookups plus one instruction -- typically 2-3 cache line touches.',
-        'RRR compression goes further: it encodes each block as a (class, offset) pair where the class is the popcount of the block and the offset identifies which specific bit pattern within that class. For bitvectors far from 50% density, this can shrink the representation to near the zeroth-order entropy H0, plus o(n) bits for the directory. The tradeoff is slower queries due to table lookups for decoding.',
-        {
-          type: 'note',
-          text: 'Hardware popcount changed the landscape. Before POPCNT (introduced in Intel Nehalem, 2008, and AMD Barcelona, 2007), the tail step used lookup tables or broadword tricks. After it, the practical speed of rank queries roughly doubled, and simpler two-level designs became competitive with more complex layouts.',
-        },
+        'With a two-level directory, rank can run in O(1) time using a few table lookups and popcount. The extra space is sublinear when superblock and block sizes grow with n in the standard succinct construction.',
+        'Cost behaves as a memory-locality trade. Smaller blocks reduce tail work but store more counters, while larger blocks save counters but make each query inspect more bits.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Rank and select are the load-bearing primitives inside nearly every succinct and compressed data structure. The structures themselves are diverse, but they all reduce to "store topology or membership as bits, then navigate those bits with rank/select."',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Succinct structures often replace pointer graphs with bitstrings, then recover navigation through rank and select. Source: Wikimedia Commons, David W., public domain.'},
-        {
-          type: 'bullets',
-          items: [
-            'Wavelet tree or matrix: rank routes queries left or right at each level by counting 0s and 1s in a prefix; select helps recover original positions from leaf-level results.',
-            'FM-index over the Burrows-Wheeler transform: rank drives LF-mapping backward through the text; select helps locate sampled suffix-array positions.',
-            'LOUDS trie: rank on the level-order bitstring finds child ranges; select navigates from child positions back toward parents.',
-            'Compressed bitmap: rank counts set bits in a range for aggregation; select iterates set bits for intersection, union, or sparse-position recovery.',
-            'Succinct binary tree: rank and select navigate left child, right child, and parent relationships without explicit node pointers.',
-          ],
-        },
-        'In bioinformatics, a single FM-index over a human genome may call rank billions of times during read alignment. In web search, wavelet trees over posting lists use rank to intersect and count term occurrences. In databases, compressed bitmaps use rank to translate between dense logical row IDs and sparse physical positions. The structure is invisible to end users but sits on the hottest loop of each system.',
+        'Rank and select power FM-indexes for compressed text search, wavelet trees for sequence queries, LOUDS encodings for trees, and bitmap indexes for analytics. They replace pointer-heavy navigation with arithmetic over compact bits.',
+        'They are useful when memory bandwidth is the bottleneck. A smaller representation can beat a pointer structure even when each query does more arithmetic.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Rank/select bitvectors are static. Inserting or deleting a single bit shifts every position after it, invalidating every stored rank. Dynamic bitvectors exist (balanced trees of small bitvectors with local rank tables), but they are O(log n) per operation instead of O(1), and significantly more complex to implement.',
-        'The O(1) query time hides real constants. A rank query touches a superblock entry, a block entry, and a word -- potentially three different cache lines. On a cold cache, that is three memory round-trips. For bitvectors that fit in L2, this is fast. For bitvectors spanning gigabytes (genome-scale), cache misses dominate and the "constant time" label is misleading without prefetching.',
-        {
-          type: 'bullets',
-          items: [
-            'Dynamic updates: inserting one bit invalidates all subsequent ranks. Use a dynamic bitvector or rebuild.',
-            'Small n: for bitvectors under a few thousand bits, a plain scan is faster than the directory lookup overhead.',
-            'High-entropy workloads: RRR compression helps sparse or dense bitvectors but cannot shrink a 50%-density bitvector below n bits.',
-            'Multi-threaded construction: building the directory is sequential (prefix sums). Parallel construction requires careful segmentation.',
-            'Variable-width elements: rank/select counts bits, not variable-length records. Pairing it with Elias-Fano or other encodings adds a translation layer.',
-          ],
-        },
+        'Rank-select indexes are awkward for frequent updates. Inserting one bit can change every later rank, so dynamic variants need heavier trees, rebuilding, or buffered updates.',
+        'They also fail when the bitvector is too small or query volume is low. The directory may cost more code and memory than a direct scan over a few machine words.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Let B = 1 0 1 1 0 0 1 0 1 1 0 0 0 1 0 1, using zero-based positions. For rank1(10), there are 6 ones in positions 0 through 10: at 0, 2, 3, 6, 8, and 9.',
+        'With an 8-bit superblock size, the count before position 8 is 4. The tail from positions 8 through 10 is 1 1 0, whose popcount is 2, so rank1(10)=4+2=6; select1(6) returns position 9.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Guy Jacobson, "Space-efficient static trees and graphs" (FOCS 1989) -- the founding paper that introduced o(n)-space rank/select.',
-            'Raman, Raman, Rao, "Succinct indexable dictionaries with applications to encoding k-ary trees and multisets" (SODA 2002) -- RRR entropy-compressed bitvectors.',
-            'Navarro and Providel, "Fast, small, simple rank/select on bitmaps" (SEA 2012) -- practical engineering of two-level directories.',
-            'Vigna, "Broadword implementation of rank/select queries" (WEA 2008) -- popcount-free broadword tricks and benchmarks: https://sux.di.unimi.it/',
-            'Zhou, Andersen, Kaminsky, "Space-efficient, high-performance rank and select structures on uncompressed bit sequences" (SEA 2013) -- cache-aligned layouts for modern CPUs.',
-          ],
-        },
-        'Prerequisites: understand prefix sums and bitwise operations (popcount, masks, shifts). If those are unfamiliar, study them first.',
-        'Extensions: study LOUDS Succinct Trie to see rank/select navigate tree topology as a flat bitstring. Study Wavelet Matrix to see rank remap ranges through value bits level by level. Study FM-Index to see rank power full-text backward search over a BWT.',
-        'Alternatives: for compressed sets without the rank/select interface, study Roaring Bitmaps (hybrid run-length + array containers) and Elias-Fano Encoding (monotone integer sequences with nearly optimal space). Both solve overlapping problems with different tradeoff profiles.',
+        'Read Jacobson, Space-efficient Static Trees and Graphs, and Raman, Raman, and Rao on succinct indexable dictionaries. Then read practical library documentation such as SDSL for implementation choices.',
+        'Study bit operations, popcount, prefix sums, wavelet trees, FM-indexes, LOUDS, compressed bitmaps, and cache behavior next. These topics explain why a few counters can replace many pointers.',
       ],
     },
   ],

@@ -237,91 +237,104 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has two views. The "edge flips" view starts with five points connected into triangles and shows the circumcircle test that decides whether a shared edge is legal. When an edge fails the test, it gets flipped — replaced by the other diagonal of the quadrilateral formed by two adjacent triangles. Watch which edges survive and which get replaced.',
+        'The "voronoi dual" view shows four points with their Delaunay edges and then overlays the Voronoi structure: a vertex at each triangle\'s circumcenter, connected where the original triangles share an edge. A query point appears and finds its nearest site by landing inside that site\'s Voronoi cell. Use the slider to step through frames at your own pace.',
         {type: 'image', src: './assets/gifs/delaunay-triangulation-voronoi-dual.gif', alt: 'Animated walkthrough of the delaunay triangulation voronoi dual visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A Delaunay triangulation connects planar points into triangles such that no input point lies strictly inside the circumcircle of any triangle. Its dual is the Voronoi diagram: each site owns the region of points closer to it than to any other site.',
+        'You have a set of points scattered across a plane — elevation samples on a mountainside, cell tower locations, sensor positions, mesh vertices. You need to connect them into triangles for interpolation, or partition the plane into regions where each point "owns" the space closest to it. Both needs appear constantly in engineering, and both are solved by the same underlying structure.',
+        'A Delaunay triangulation connects the points into triangles such that no point lies strictly inside the circumcircle of any triangle. A circumcircle is the unique circle passing through all three vertices of a triangle. The Voronoi diagram is the dual: it partitions the plane so that every location belongs to the region of its nearest input point. These two structures encode the same neighborhood information, just read from opposite directions.',
         {type: 'callout', text: 'Delaunay and Voronoi are the same neighborhood structure read from opposite sides: one as legal triangles, the other as nearest-site regions.'},
-        'These structures exist because many spatial problems need a disciplined way to turn scattered points into local neighborhoods. Terrain models need triangles for interpolation. Mesh generators need triangles that do not become numerically awful. Nearest-site systems need a partition of space into regions. Delaunay and Voronoi are two linked answers to those needs.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/56/Delaunay_Voronoi.svg', alt: 'Delaunay triangulation overlaid with its Voronoi diagram', caption: 'Black Delaunay edges and red Voronoi boundaries expose the primal-dual relationship directly. Source: https://upload.wikimedia.org/wikipedia/commons/5/56/Delaunay_Voronoi.svg'},
-        'The important point is that this is not just drawing pretty triangles. The triangulation becomes a topology: which points are neighbors, which triangles share an edge, which region a query point belongs to, and where local changes can be repaired without rebuilding the whole world.',
+        'The reason both structures matter is that triangulation and nearest-region queries appear in completely different domains — finite-element meshing, terrain modeling, wireless coverage planning, game map generation — but they share the same geometric backbone. Build one, and you can derive the other.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious way to triangulate points is to connect non-crossing edges until the convex hull is filled. That produces a triangulation, but almost any point set has many possible triangulations. Some have long, skinny triangles that make interpolation unstable, finite-element meshes weak, and geometric predicates fragile.',
+        'Given n points, the simplest triangulation strategy is greedy: pick the shortest unused edge that does not cross any existing edge, add it, and repeat until the convex hull is filled with triangles. This produces a valid triangulation — no gaps, no overlapping triangles — but it makes no promise about triangle quality.',
+        'For nearest-site queries without any preprocessing, you compute the distance from the query point to every input site and return the closest one. That costs O(n) per query, which is fine for a handful of queries but painful for thousands.',
+        'Both approaches work. Neither is wrong. But both leave value on the table: the greedy triangulation often produces long, thin slivers that make interpolation numerically unstable, and brute-force nearest-site queries repeat work that could be precomputed once.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The greedy triangulation gives you triangles, but it cannot tell you whether those triangles are any good. Take four points arranged in a diamond: A at the left, B at the top, C at the right, D at the bottom. The greedy algorithm might connect the long diagonal A-C, producing two extremely flat triangles ABC and ACD. A human would immediately see that the short diagonal B-D gives two fat, well-shaped triangles instead.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1f/Delaunay_circumcircles_centers.svg', alt: 'Delaunay triangulation with circumcircles and circumcenters', caption: 'The circumcircle test is the local legality check that separates Delaunay topology from arbitrary triangulation. Source: https://upload.wikimedia.org/wikipedia/commons/1/1f/Delaunay_circumcircles_centers.svg'},
-        'The wall is that triangle quality is not purely about one triangle. A triangle can look acceptable by itself while a neighboring point makes its circumcircle illegal. The Delaunay condition turns the vague desire for "good triangles" into a local geometric test that can be checked and repaired.',
-        'For nearest-site regions, the obvious approach is to compare a query point against every site. That works for one query, but it throws away all preprocessing. A Voronoi diagram precomputes the regions where each site wins, so a point-location structure can answer nearest-site questions by finding the cell.',
+        'The deeper problem is that triangle quality is not a property of one triangle in isolation. A triangle can look perfectly reasonable on its own, but a neighboring point sitting inside its circumcircle proves that the local connectivity is wrong. You need a criterion that is local enough to check efficiently but global enough that fixing all local violations produces a globally good triangulation.',
+        'For nearest-site queries, the wall is similar: you want to precompute a partition of the plane so each query is a point-location lookup rather than a distance comparison against every site. But computing that partition from scratch — testing every point against every other point — seems to require O(n^2) work, which is no better than answering queries individually.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The empty-circumcircle test is the key. For every triangle, its circumcircle should contain no other input site in its interior. If two adjacent triangles fail that test, flipping their shared diagonal repairs the local configuration. Repeating local repairs removes the illegal edges that create unnecessarily skinny triangles.',
-        'The dual insight is just as important. Put a Voronoi vertex at the circumcenter of each Delaunay triangle. Connect circumcenters of adjacent Delaunay triangles. A Delaunay edge between sites A and B means the Voronoi cells for A and B share a boundary. The triangulation and the region diagram are the same planar subdivision viewed from opposite sides.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the edge-flip view, watch the shared diagonal between two adjacent triangles. The circumcenter marker is not decoration; it represents the circle used to decide whether the opposite point makes the current diagonal illegal. When the test fails, the repair is a diagonal flip, not a global redraw.',
-        'In the Voronoi-dual view, read each Delaunay triangle as producing one Voronoi vertex at its circumcenter. When two triangles share a Delaunay edge, their circumcenters connect. The query point belongs to the cell of its nearest site, so the dual explains why Delaunay adjacency can answer nearest-region questions.',
+        'The breakthrough is the empty-circumcircle property. For any triangle in the triangulation, draw the unique circle through its three vertices. If no other input point falls strictly inside that circle, the triangle is "legal." If some point does fall inside, the shared edge between this triangle and its neighbor is illegal and should be flipped — replaced by the other diagonal of the quadrilateral formed by the two triangles.',
+        'This test is local: you only look at two adjacent triangles and their four vertices at a time. But repeated local flipping converges to a global optimum. The resulting Delaunay triangulation maximizes the minimum angle across all possible triangulations of the same point set, which is precisely the property that prevents thin slivers.',
+        'The dual insight falls out for free. Every Delaunay triangle has a circumcircle, and that circumcircle has a center — the circumcenter. Place a Voronoi vertex at each circumcenter. Two Delaunay triangles that share an edge produce two circumcenters; connect them with a Voronoi edge. The result is the Voronoi diagram: each input point owns the region of the plane closer to it than to any other point. You built triangles, but you also solved nearest-site partitioning.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'One teaching implementation starts with any valid triangulation and repeatedly flips illegal edges. For a convex quadrilateral made by two adjacent triangles, test whether either opposite point lies inside the circumcircle of the neighboring triangle. If so, replace the current diagonal with the other diagonal. The local topology changes, but the point set and convex hull do not.',
-        'Production implementations usually use more structured algorithms: divide and conquer, randomized incremental insertion, sweep methods, or robust libraries. Incremental insertion locates the triangle containing a new point, splits the surrounding region, then flips illegal edges until the Delaunay invariant is restored. Efficient code needs adjacency links so it can walk from triangle to triangle and update neighbors after flips.',
-        'The Voronoi diagram can be derived after the triangulation is built. Each triangle face maps to a Voronoi vertex. Each Delaunay edge maps to a Voronoi edge segment or ray. Boundary triangles produce unbounded Voronoi cells, which is why diagrams at the convex hull extend outward.',
+        'The edge-flip algorithm is the simplest to understand. Start with any valid triangulation of the point set. For each internal edge (shared by two triangles), check whether the opposite vertex of one triangle lies inside the circumcircle of the other. If it does, the edge is illegal: delete it and insert the other diagonal of the quadrilateral. After the flip, re-check the edges of the affected triangles. Repeat until no illegal edges remain.',
+        'The incircle test for a point D against triangle ABC computes the sign of a 4x4 determinant. Columns are (ax, ay, ax^2+ay^2, 1) and likewise for B, C, D. If the determinant is positive (with the right orientation convention), D is inside the circumcircle and the shared edge is illegal. This is the core geometric predicate.',
+        'Production implementations use faster algorithms. Randomized incremental insertion adds points one at a time in random order: locate the triangle containing the new point (by walking from a known triangle), split it into sub-triangles, then flip illegal edges outward until the Delaunay property is restored. Expected time is O(n log n). Divide-and-conquer splits the points by x-coordinate, recursively triangulates each half, then merges along a vertical frontier. Worst-case time is O(n log n).',
+        'To extract the Voronoi diagram from a completed Delaunay triangulation: compute the circumcenter of each triangle (that becomes a Voronoi vertex), and for each pair of adjacent triangles, connect their circumcenters (that becomes a Voronoi edge). Triangles on the convex hull produce unbounded Voronoi edges — rays extending to infinity in the direction perpendicular to the hull edge.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'For points in general position, a triangulation is Delaunay exactly when every edge is locally legal under the empty-circumcircle test. That is why edge flips can be local while the result is globally meaningful. The algorithm does not need to compare every possible triangulation; it only needs to remove local violations until none remain.',
-        'Delaunay triangulations also have a useful angle property: among triangulations of the same point set, they avoid making the smallest angle worse than necessary in a precise lexicographic sense. That is why they are common in meshing and interpolation. They do not guarantee perfect triangles, but they are a strong default when the input sites are fixed.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose four points form a convex quadrilateral. There are two possible diagonals. Choose diagonal AC and you get triangles ABC and ACD. If point D lies inside the circumcircle of ABC, diagonal AC is illegal. Flip to diagonal BD, producing triangles ABD and BCD. The point set is unchanged, but the local neighborhood now satisfies the Delaunay test for that quadrilateral.',
-        'Now read the dual. The circumcenter of ABD becomes one Voronoi vertex, and the circumcenter of BCD becomes another. Because the triangles share edge BD, those two Voronoi vertices connect along the boundary between the regions owned by B and D. The flip changed triangle adjacency and therefore changed the nearest-site cell boundary.',
+        'The correctness argument has two parts. First, a triangulation is Delaunay if and only if every internal edge is locally Delaunay — meaning the circumcircle of each triangle on one side of the edge does not contain the opposite vertex. This is the Lawson flip theorem: local legality implies global legality. So repeatedly fixing local violations is guaranteed to reach the Delaunay triangulation without ever having to consider the global picture.',
+        'Second, the process terminates. Each edge flip strictly increases the minimum angle in the triangulation (in a lexicographic sense across the sorted angle vector). Since there are finitely many triangulations of n points and the angle vector strictly increases with each flip, the algorithm cannot cycle. It must converge.',
+        'The angle-optimality property explains why the result is useful: among all possible triangulations of the same point set, the Delaunay triangulation has the largest possible minimum angle. This is the max-min angle property. It does not guarantee that all angles are large — a very thin input point configuration will still produce some small angles — but it guarantees that no alternative triangulation would do better.',
+        'The duality works because circumcenters are equidistant from all three vertices of their triangle. A point inside a Voronoi cell is closer to its cell\'s site than to any other site. The Voronoi edge between two sites lies along the perpendicular bisector of the Delaunay edge connecting them. Every geometric fact about one structure has a dual fact about the other.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Delaunay triangulation can be built in O(n log n) time by standard algorithms under suitable assumptions. The main operations are point location, orientation tests, incircle tests, adjacency updates, and edge flips. The asymptotic bound is only part of the story; robust numeric predicates often decide whether an implementation is trustworthy.',
-        'Degenerate inputs matter. Four or more cocircular points can make the Delaunay triangulation non-unique. Nearly collinear points can amplify floating-point error. Practical systems use exact predicates, adaptive precision, symbolic perturbation, or library code rather than casual floating-point geometry.',
+        'The optimal Delaunay triangulation algorithms run in O(n log n) time for n points in the plane, and this is tight — you can reduce sorting to Delaunay triangulation, so no comparison-based algorithm can do better. The output size is O(n): a triangulation of n points has at most 2n - 5 triangles and 3n - 6 edges (by Euler\'s formula for planar graphs).',
+        'The edge-flip algorithm is simple but its worst case is O(n^2) flips because a bad initial triangulation can require many cascading repairs. Randomized incremental insertion achieves O(n log n) expected time: each point insertion does O(1) expected work for the split and O(1) expected flips, with the point-location walk costing O(log n) amortized using a history DAG or skip-list structure.',
+        'Space is O(n) for the triangulation itself. If you maintain a point-location structure (like the history DAG used in incremental insertion), that adds O(n) expected space. The Voronoi diagram also has O(n) vertices and edges, so extracting it is a linear-time pass over the triangulation.',
+        'The hidden constant in practice is robustness. The incircle and orientation predicates involve computing signs of determinants. Naive floating-point arithmetic can give wrong signs for nearly cocircular or nearly collinear points, producing topologically invalid triangulations — missing edges, crossing edges, infinite loops. Shewchuk\'s adaptive exact arithmetic predicates (used in Triangle, CGAL, and most serious implementations) solve this by computing with just enough precision to determine the correct sign, falling back to exact arithmetic only when needed.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'It wins in terrain models, surface interpolation, finite-element preprocessing, nearest-neighbor region sketches, geographic partitioning, game-map generation, and geometric cleanup where local neighborhoods matter. It is especially useful when you need both a triangle mesh and a meaningful adjacency graph.',
+        'Terrain modeling is the classic application. Given scattered elevation samples (from LiDAR, survey points, or GPS traces), a Delaunay triangulation builds a Triangulated Irregular Network (TIN). Elevation at any query point is interpolated across the triangle containing it. The Delaunay property ensures the triangles avoid thin slivers, which makes the interpolation smoother and more numerically stable than a greedy triangulation would.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d9/Voronoi_growth_euclidean.gif', alt: 'Animated Voronoi cells growing from seed points under Euclidean distance', caption: 'Voronoi cells can be read as simultaneous nearest-site growth, which makes the region ownership intuition concrete. Source: https://upload.wikimedia.org/wikipedia/commons/d/d9/Voronoi_growth_euclidean.gif'},
-        'A terrain system is a clean case. Given elevation samples, it builds a triangulated irregular network. Delaunay avoids many skinny triangles, so interpolation across triangle faces behaves better. A derived Voronoi diagram can then explain which sample owns which region or support natural-neighbor interpolation.',
+        'Finite-element analysis needs meshes where every element (triangle or tetrahedron) has bounded aspect ratio. Delaunay refinement algorithms (like Ruppert\'s algorithm) start with a Delaunay triangulation and insert Steiner points at circumcenters of bad triangles until all angles exceed a threshold (typically 20-30 degrees). The Delaunay property makes it easy to reason about which triangles need refinement.',
+        'Voronoi diagrams partition space into nearest-site regions. Cell tower coverage maps approximate service areas as Voronoi cells around tower locations. Logistics companies use Voronoi partitions to assign delivery zones. Natural-neighbor interpolation weights query results by the area of overlap between the query\'s would-be Voronoi cell and the existing cells. Procedural game maps use Voronoi cells as organic-looking territory boundaries.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails as a complete model when distance is not Euclidean or when domain rules dominate geometry. Wireless coverage depends on terrain, antennas, load, reflection, and spectrum. Road travel depends on the street graph. Watersheds depend on elevation and flow. A Voronoi cell is a useful baseline, not a substitute for those models.',
-        'It is also delicate under frequent dynamic updates. Inserting or deleting points requires point location and local repairs; moving many points can be easier to handle by rebuilding. If your objects are moving boxes rather than fixed sites, a dynamic AABB tree, spatial hash grid, or sweep-and-prune structure may be the right index.',
+        'The Delaunay/Voronoi framework assumes Euclidean distance in a flat plane. When the real metric is not Euclidean — travel time on a road network, radio propagation through buildings, cost of shipping across terrain — the Voronoi cells give misleading answers. A cell tower\'s actual coverage depends on antenna height, power, frequency, terrain blockage, and interference, not just straight-line distance. Voronoi is a starting approximation, not a substitute for a propagation model.',
+        'Degeneracies cause both theoretical and practical trouble. Four cocircular points make the Delaunay triangulation non-unique (any triangulation of those four points is equally valid). Nearly collinear points make the determinant-based predicates numerically fragile. Points on a regular grid are maximally degenerate — every cell of four grid points is cocircular. Without exact arithmetic or symbolic perturbation, implementations can crash or produce garbage on these inputs.',
+        'Dynamic updates are expensive. Inserting a single point costs O(log n) expected time with the right data structure, but deleting a point requires re-triangulating its former neighborhood, which can cascade. If your point set changes frequently — objects moving every frame in a simulation — rebuilding the triangulation from scratch each frame may be simpler than maintaining it incrementally. For moving-object collision detection, spatial hashing or AABB trees are usually better choices.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Guibas and Stolfi, "Primitives for the Manipulation of General Subdivisions and the Computation of Voronoi Diagrams", ACM DOI https://doi.org/10.1145/282918.282923, PDF mirror https://mesh.brown.edu/DGP/pdfs/Guibas-tog85.pdf. Study Convex Hull: Monotone Chain, Sweep Line Segment Intersection, k-d Tree, R-Tree Spatial Index, Dynamic AABB Tree Broad Phase, and A* Search next.',
+        'Take four points: A = (0, 0), B = (4, 0), C = (4, 3), D = (1, 2). Start with diagonal A-C, giving triangles ABC and ACD. The circumcircle of ABC passes through (0,0), (4,0), (4,3). Its circumcenter is at (2, 1.5) with radius sqrt(4 + 2.25) = sqrt(6.25) = 2.5. Check: is D = (1, 2) inside this circle? Distance from (2, 1.5) to (1, 2) is sqrt(1 + 0.25) = sqrt(1.25) ≈ 1.118, which is less than 2.5. D is inside the circumcircle, so edge A-C is illegal.',
+        'Flip: replace diagonal A-C with diagonal B-D. Now we have triangles ABD and BCD. The circumcircle of ABD passes through (0,0), (4,0), (1,2). Its circumcenter is at (2, -0.75) with radius sqrt(4 + 0.5625) = sqrt(4.5625) ≈ 2.136. Check: is C = (4,3) inside? Distance from (2, -0.75) to (4, 3) is sqrt(4 + 14.0625) = sqrt(18.0625) ≈ 4.25, which is greater than 2.136. C is outside. Check the other triangle BCD similarly — A will be outside its circumcircle. Both edges are now legal; the triangulation is Delaunay.',
+        'Read the dual. Triangle ABD has circumcenter (2, -0.75). Triangle BCD has circumcenter — compute it from (4,0), (4,3), (1,2) — at approximately (2.9, 1.7). These two triangles share edge B-D, so the Voronoi diagram connects (2, -0.75) to (2.9, 1.7). That edge segment is part of the perpendicular bisector of B-D, separating the Voronoi cell of B from the cell of D. Any query point on one side of that segment is closer to B; on the other side, closer to D.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The foundational paper is Guibas and Stolfi, "Primitives for the Manipulation of General Subdivisions and the Computation of Voronoi Diagrams" (ACM Transactions on Graphics, 1985), which introduced the quad-edge data structure that represents both the Delaunay triangulation and Voronoi diagram simultaneously. DOI: https://doi.org/10.1145/282918.282923.',
+        'For the incircle and orientation predicates with exact arithmetic, read Shewchuk, "Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates" (Discrete & Computational Geometry, 1997). His Triangle library implements Delaunay refinement and is widely used in meshing. For Delaunay refinement specifically, Ruppert, "A Delaunay Refinement Algorithm for Quality 2-Dimensional Mesh Generation" (Journal of Algorithms, 1995).',
+        'Study Convex Hull (Monotone Chain) next to understand the outer boundary that the triangulation fills. Then explore k-d Tree and R-Tree for alternative spatial query structures, Sweep Line Segment Intersection for the general line-sweep paradigm, and A* Search for pathfinding on the graphs that Delaunay triangulations produce.',
       ],
     },
   ],

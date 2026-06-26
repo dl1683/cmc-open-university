@@ -148,104 +148,92 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The animation walks through two analyses on a small control-flow graph: reaching definitions (forward) and liveness (backward). Each frame shows which block the worklist is processing, what facts enter and leave that block, and whether the output changed enough to schedule neighbors. Watch for the moment the worklist empties and the fixpoint is declared stable.',
         {type: 'image', src: './assets/gifs/data-flow-worklist-analysis.gif', alt: 'Animated walkthrough of the data flow worklist analysis visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'In the matrix view, rows are basic blocks and columns are fact slots (in, gen/def, out/live-in). Highlighted cells are the ones that just changed. When no cell changes after a full worklist pass, the analysis is done.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Compilers and static-analysis tools need to know facts about a program without running that program on every possible input. Which definition of x can reach this use? Which variables are live before this instruction? Which pointer may be null? Which user input can reach a dangerous sink? These questions are about all possible paths through code, not just the path taken by one test.`,
-        { type: 'callout', text: `A worklist analysis is useful because it repeats only the CFG blocks whose facts can still change.` },
-        `Data-flow analysis gives those questions a reusable engine. It represents the program as a control-flow graph, stores facts at each block, applies local transfer rules, and propagates changed facts through edges until the graph stabilizes. The worklist is the practical scheduler that decides which blocks deserve another visit.`,
-        `The reason this exists is loops. A single pass through the blocks can be wrong because information can travel around a cycle and change the facts at a block that was already processed. The analysis needs a disciplined repeat-until-stable process, not hope that one traversal order happened to see enough.`,
+        'A compiler needs to answer questions about every possible execution path, not just one test run. Which definitions of variable x could reach this print statement? Which variables still hold values that will be read later? Can user-controlled input reach this SQL query? These are all-paths questions, and testing cannot answer them because the number of paths grows exponentially with branches.',
+        { type: 'callout', text: 'A worklist analysis is useful because it repeats only the CFG blocks whose facts can still change.' },
+        'Data-flow analysis solves this class of problem with a single reusable engine. The program is represented as a control-flow graph (CFG) where each node is a basic block (a straight-line sequence of instructions with one entry and one exit) and each edge is a possible branch. The engine attaches a set of facts to every block, applies a local transfer function to compute new facts, and propagates changes through edges until nothing changes. That stable state is called the fixpoint.',
+        'The worklist is the scheduler inside this engine. Without it, the algorithm would re-examine every block on every pass, even blocks whose inputs have not changed. With loops in the CFG, some blocks must be visited more than once because information circles back, but most blocks stabilize quickly. The worklist ensures only blocks with new incoming information get another turn.',
       ],
     },
     {
-      heading: 'The baseline and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The simplest baseline is a syntax walk. Look at statements in source order, update a table, and report what the table says. That can work for straight-line code, but branches immediately weaken it. At an if statement, one path may define x as G and the other may define x as H. A later use of x must account for both.`,
-        `A second baseline is to run the transfer rule over every block again and again until nothing changes. That is correct for many finite monotone analyses, but it wastes work on blocks whose inputs did not change. The wall is scale: real programs have many blocks, loops, functions, and facts. A worklist keeps the fixpoint method but focuses the repeated work where new information could matter.`,
+        'The simplest idea is a syntax walk: scan statements from top to bottom, keep a table of facts, and report the table at the end. For straight-line code this works. But the moment the program branches (if/else, switch, loop), a single top-to-bottom pass sees only one path and misses the other. If the then branch sets x = 5 and the else branch sets x = 9, a later use of x must know about both possibilities, not just whichever branch the walk happened to visit first.',
+        'A slightly better idea is to repeat the walk over every block, around and around, until no fact changes. This is correct for many analyses, but it is wasteful. On each pass, most blocks produce the same output they produced last time. Only the blocks downstream of a recent change need recomputation. The wasted work is proportional to the number of unchanged blocks times the number of passes, which can be large in real programs with thousands of blocks.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        `The central idea is to separate the meaning of an analysis from the machinery that reaches a stable answer. The machinery is always similar: each block has input facts and output facts, neighboring facts are joined, a transfer function models the block, and changed outputs schedule more propagation.`,
-        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png`, alt: `Examples of control-flow graph shapes with branches and loops`, caption: `Data-flow facts move over CFG edges; branches and loops are the reason the analysis needs joins and fixpoints. Source: https://en.wikipedia.org/wiki/Control-flow_graph.` },
-        `The analysis author supplies the domain and rules. Reaching definitions uses sets of definitions. Liveness uses sets of variables. Constant propagation uses values such as unknown, constant 7, or not-a-constant. Taint analysis uses labels that describe where data came from. The worklist engine does not need to know the business meaning of those facts as long as it can join them, compare them, and apply transfer functions.`,
+        'The wall is loops in the CFG. A loop back-edge carries information from the end of the loop body back to the loop header. That means processing blocks in any single order can leave the header with stale facts: it was computed before the back-edge brought new information. The analysis must revisit the header, which may change its output, which may change the body, which may change the back-edge again.',
+        'Without a disciplined mechanism for deciding which blocks to revisit and when, you either miss the loop-carried facts (unsound) or you brute-force every block on every pass (correct but slow). A program with k loops and n blocks can require O(k * n) block visits in the brute-force approach, even though most of those visits produce no change. The worklist is the mechanism that breaks through this wall: it tracks exactly which blocks have pending changes and processes only those.',
       ],
     },
     {
-      heading: 'Facts, joins, and direction',
+      heading: 'The core insight',
       paragraphs: [
-        `A forward analysis moves facts along the same direction as control flow. Reaching definitions and many constant-propagation variants are forward: facts entering a block are computed from predecessor outputs, and the block produces an output for successors. A backward analysis moves against control flow. Liveness is backward because a future use makes a value live before that use.`,
-        `The join operation says how paths combine. For a may analysis, join often means union: a definition may reach this point if it can arrive from any predecessor. For a must analysis, join often means intersection: a property holds only if it holds on every incoming path. Choosing the wrong join changes the meaning of the analysis, not just its performance.`,
+        'Separate the meaning of an analysis from the machinery that reaches a stable answer. The machinery is always the same four parts: (1) a fact domain that describes what you are tracking (sets of definitions, sets of live variables, abstract values like "unknown" or "constant 7"), (2) a transfer function that says how one block transforms incoming facts into outgoing facts, (3) a join operator that combines facts from multiple incoming edges, and (4) a worklist that schedules blocks whose inputs just changed.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png', alt: 'Examples of control-flow graph shapes with branches and loops', caption: 'Data-flow facts move over CFG edges; branches and loops are the reason the analysis needs joins and fixpoints. Source: https://en.wikipedia.org/wiki/Control-flow_graph.' },
+        'The analysis author only supplies the domain and the rules. Reaching definitions uses sets of definition labels and union as the join. Liveness uses sets of variable names and union as the join. Constant propagation uses a lattice of values (bottom, concrete constants, top) and meet as the join. Taint analysis uses source labels. The worklist engine does not care what the facts mean. It only needs to join them, compare old versus new, and push neighbors when something changed.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
-        `A typical forward worklist starts by initializing facts for every block and putting entry or all blocks on the queue. It removes a block, computes its input by joining predecessor outputs, applies the transfer function to produce a new output, and compares that output with the old one. If the output changed, it pushes successors because their inputs may now change.`,
-        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Rust_MIR_CFG.svg/250px-Rust_MIR_CFG.svg.png`, alt: `Rust compiler MIR control-flow graph with basic blocks and branch edges`, caption: `Real compiler IR exposes the same graph skeleton: basic blocks, branch edges, and join points for facts. Source: https://en.wikipedia.org/wiki/Control-flow_graph.` },
-        `A backward worklist flips the edge direction. It computes a block's output from successor inputs, applies the backward transfer rule, and pushes predecessors when the input changes. The same queue, changed check, and fixpoint idea remain. Only the neighbor relation and transfer direction change.`,
-        `The changed check is not an optimization bolt-on; it is what makes the scheduler precise. If a block recomputes the same facts, its neighbors do not need another visit because no new information can reach them through that edge. If the facts change, the block has just learned something that could affect the rest of the graph.`,
+        'A forward worklist analysis (like reaching definitions) proceeds as follows. Initialize every block\'s in-facts and out-facts to the empty set (or bottom of the lattice). Put the entry block on the worklist. Then loop: pull a block off the worklist, compute its in-facts by joining the out-facts of all predecessors, apply the transfer function to get new out-facts, compare with the old out-facts. If they differ, store the new out-facts and push all successors onto the worklist. When the worklist is empty, every block is locally consistent and the fixpoint has been reached.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Rust_MIR_CFG.svg/250px-Rust_MIR_CFG.svg.png', alt: 'Rust compiler MIR control-flow graph with basic blocks and branch edges', caption: 'Real compiler IR exposes the same graph skeleton: basic blocks, branch edges, and join points for facts. Source: https://en.wikipedia.org/wiki/Control-flow_graph.' },
+        'A backward worklist analysis (like liveness) flips the edge direction. A block\'s out-facts come from joining the in-facts of all successors. The transfer function computes new in-facts from those out-facts. If in-facts changed, push predecessors. The queue, the changed-check, and the fixpoint logic are identical; only the neighbor direction and transfer direction reverse.',
+        'The changed-check is not an optimization. It is the correctness mechanism. If a block\'s output did not change, its neighbors\' inputs are still valid, so re-examining them would produce the same result. If the output did change, the neighbors have stale inputs and must be reprocessed. The worklist tracks exactly this: which blocks have unprocessed upstream changes.',
       ],
     },
     {
-      heading: 'Correctness invariant',
+      heading: 'Why it works',
       paragraphs: [
-        `The invariant is local consistency with the current neighbor facts. For a forward analysis, out[block] must equal transfer(block, join(out[pred] for pred in predecessors)) once the algorithm is finished. For a backward analysis, in[block] must equal transfer(block, join(in[succ] for succ in successors)) once finished.`,
-        `The worklist is correct because every time a fact changes, all blocks that depend on that fact are scheduled. When the queue is empty, no dependency has an unprocessed change. Every block is locally consistent with the latest facts from its neighbors, so running the transfer equations again would reproduce the same in and out facts. That stable solution is the fixpoint the analysis is seeking.`,
+        'Correctness rests on one invariant: when the worklist is empty, for every block B in the graph, out[B] equals transfer(B, join(out[pred] for each predecessor pred of B)). In words: every block\'s stored output is exactly what you would get if you recomputed it from the latest neighbor facts right now. The worklist maintains this by scheduling a block whenever any of its input edges carries new information. When the queue drains, no edge has unprocessed new information, so every block is locally consistent.',
+        'Termination depends on the fact domain having finite height. Height means the longest chain of strictly increasing (or decreasing) values in the lattice. For reaching definitions, the lattice is the power set of definition labels. Each label can be added to a set at most once and is never removed (monotonicity). With d definitions, the set can grow at most d times per block before it stops changing. With n blocks, the total number of fact-changes is bounded by O(n * d), so the algorithm terminates. More complex domains like numeric intervals may have infinite height; those require a widening operator that forces convergence by jumping to a safe over-approximation after a bounded number of iterations.',
       ],
     },
     {
-      heading: 'Why it terminates',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Termination depends on the fact domain and transfer rules. The standard textbook setting uses a finite-height lattice and monotone transfer functions. Monotone means that giving a transfer function more information cannot make its result move backward in the lattice. Finite height means there are only so many times a fact can strictly improve or degrade before it stops changing.`,
-        `That is why analyses such as reaching definitions with finite definition sets converge naturally. A definition can be added to a may set only once. Once all possible additions have happened, no more changes are possible. More complex domains, such as numeric ranges, may need widening to force convergence when the exact chain of facts could keep growing.`,
+        'Let n be the number of blocks, e the number of edges, and h the height of the lattice. Each block can change its output at most h times, and each change pushes at most (number of successors) entries onto the worklist. The total number of worklist iterations is at most O(n * h). Each iteration costs the time to join predecessor facts and apply the transfer function. For bitset domains (reaching definitions, liveness), join is a bitwise OR over predecessor bitsets, which takes O(d/w) time where d is the number of bits and w is the machine word size. Total time for a bitset-based analysis: O(n * h * e * d/w). In practice h is small (often 1-3 passes suffice), and the bitset operations are very fast.',
+        'Space is O(n * d) for storing in-facts and out-facts per block, plus O(n) for the worklist. The worklist itself can be a FIFO queue, a stack, or a priority queue ordered by reverse postorder. Reverse-postorder traversal minimizes redundant visits for acyclic regions of the graph because it processes a block only after all its non-back-edge predecessors, reducing the number of passes through loops to roughly the loop nesting depth.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Consider if (cond) x = G; else x = H; return x. Reaching definitions starts with no facts at entry. The then block generates definition x0. The else block generates definition x1. At the join, the incoming facts are joined, so the use of x can be reached by either x0 or x1. A one-branch answer would be unsound.`,
-        `Now use liveness on the same shape. return x makes x live before the return. That liveness flows backward through the join to both branches. In each branch, the assignment to x satisfies the future use and kills liveness for the old value before the assignment. This is exactly the sort of information a register allocator needs when building live intervals and interference graphs.`,
-      ],
-    },
-    {
-      heading: 'Operational data structures',
-      paragraphs: [
-        `A practical implementation stores the CFG as successor and predecessor lists, plus per-block in and out fact sets. The worklist can be a queue, deque, stack, priority queue, or reverse-postorder scheduler depending on the analysis. The important requirement is that dependency blocks are requeued when a relevant fact changes.`,
-        `Fact representation drives performance. Dense facts, such as definition ids or variable ids, are often best as bitsets because join becomes fast bitwise OR or AND. Sparse facts can be hash sets or maps. Expensive equality checks can dominate runtime, so production analyzers often intern facts, use version counters, or maintain delta sets. The abstract algorithm is simple, but the representation decides whether it scales.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Worklist data-flow wins when the analysis can be expressed as local transfer equations over a graph and those equations converge. It is the backbone of reaching definitions, available expressions, live variables, constant propagation, nullness analysis, taint tracking, definite assignment, and many security scanners.`,
-        `It also wins organizationally because it separates concerns. The CFG says where information may move. The domain says what information means. The transfer function says how one block changes it. The join says how paths combine. The worklist says when to repeat work. That separation lets new analyses reuse the same engine instead of rebuilding graph scheduling from scratch.`,
+        'Reaching definitions powers "find all assignments that could affect this variable" in IDEs and lint tools. Liveness analysis feeds register allocators in every production compiler (GCC, LLVM, HotSpot JIT): a variable that is not live after an instruction does not need a register, so the allocator can reuse that register immediately. Constant propagation discovers compile-time constants and eliminates dead branches. Nullness analysis in Java (NullAway, the Checker Framework, IntelliJ inspections) uses the same engine to track which references are guaranteed non-null at each point.',
+        'Security scanners use taint analysis, which is a data-flow analysis where the facts are taint labels. CodeQL, Semgrep, and the Clang Static Analyzer all run worklist-based data-flow to find SQL injection, XSS, and command injection by tracing user input from sources to sinks. The Rust borrow checker uses a related fixpoint over MIR to enforce lifetime constraints. These are all the same skeleton: CFG, facts, transfer functions, joins, worklist, fixpoint.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The framework can be imprecise when joins merge too much information. If two branches produce different values and the domain can only say unknown after joining them, later optimizations lose useful facts. Aliasing, heap mutation, reflection, dynamic property access, exceptions, and calls through unknown targets can force broad summaries that are correct but weak.`,
-        `It can also be too slow when the domain is huge, the CFG is large, or fact equality is expensive. Production analyzers use widening, summaries, sparse propagation, SSA form, demand-driven queries, incremental invalidation, and carefully chosen traversal order to keep the fixpoint affordable. The art is choosing enough precision to be useful without turning every query into whole-program theorem proving.`,
+        'The framework loses precision at joins. If one branch says x = 5 and another says x = 9, constant propagation must join them to "not a constant." That fact is safe but useless for later optimization. More precision (path-sensitive analysis, which tracks facts per path rather than per block) multiplies state exponentially. Heap aliasing is another precision killer: if two pointers might refer to the same memory, a write through one must conservatively affect the facts for the other, often forcing the analysis to say "unknown."',
+        'Scale is the other failure mode. A whole-program analysis of a million-line codebase with an expensive domain (e.g., numeric intervals with widening) can take minutes or hours. Production systems fight this with demand-driven analysis (only compute facts for blocks reachable from the query), sparse propagation (skip blocks that do not mention the relevant variables), function summaries (precompute the effect of a function call once instead of inlining it), and incremental invalidation (recompute only the blocks affected by a code change). The abstract algorithm is simple, but scaling it to real programs is an engineering discipline of its own.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Worked example',
       paragraphs: [
-        `The reaching-definitions view shows facts moving forward from definitions toward later uses. The join cell matters because it shows why one branch is not enough evidence: after a conditional, both branch definitions may reach the later use. The changed output is what schedules successors.`,
-        `The liveness view reverses the direction. A future use makes a value needed before that use, and a definition can stop the need from flowing farther backward on that path. Together the views show that direction changes, but the skeleton remains facts, transfer, join, changed check, queue, and fixpoint.`,
+        'Consider this four-block CFG for reaching definitions. Entry block: empty. Then block: x = G (generates definition d1). Else block: x = H (generates definition d2). Join block: use x. Initialize all facts to {}. Put Entry on the worklist.',
+        'Iteration 1: pull Entry. in[Entry] = {} (no predecessors). out[Entry] = transfer({}) = {} (no definitions generated). out unchanged from initial {}, so no successors pushed. But Then and Else are reachable from Entry, so they start on the worklist too. Pull Then. in[Then] = join(out[Entry]) = {}. out[Then] = {} union {d1} = {d1}. Changed from {}, so push Join. Pull Else. in[Else] = join(out[Entry]) = {}. out[Else] = {} union {d2} = {d2}. Changed, push Join (already there).',
+        'Iteration 2: pull Join. in[Join] = join(out[Then], out[Else]) = {d1} union {d2} = {d1, d2}. out[Join] = {d1, d2} (no new definitions). Changed from {}, but Join has no successors, so nothing pushed. Worklist is empty. Fixpoint reached. Result: the use of x at the join can be reached by both d1 and d2. A one-branch answer would be unsound because it would miss a definition the program can actually execute.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources worth reading are the Clang data-flow analysis introduction at https://clang.llvm.org/docs/DataFlowAnalysisIntro.html, the CodeQL overview at https://codeql.github.com/docs/writing-codeql-queries/about-data-flow-analysis/, the CodeQL JavaScript and TypeScript data-flow guide at https://codeql.github.com/docs/codeql-language-guides/analyzing-data-flow-in-javascript-and-typescript/, and Harvard CS153 data-flow lecture notes at https://groups.seas.harvard.edu/courses/cs153/2019fa/lectures/Lec20-Dataflow-analysis.pdf.`,
-        `Study Interference Graph Register Allocation to see liveness become register pressure. Study Dominance Frontier SSA Construction, Control Flow Graph and Dominator Tree, Static Single Assignment and Phi Nodes, MemorySSA Alias Graph, Sparse Conditional Constant Propagation, Abstract Interpretation and Interval Domain, eBPF Verifier Register State Case Study, Taint Analysis Source-to-Sink Case Study, and Symbolic Execution Path Constraints to see how the same fixpoint idea grows into production compiler and security systems.`,
+        'Primary sources: the Clang DataFlowAnalysis introduction at https://clang.llvm.org/docs/DataFlowAnalysisIntro.html, the CodeQL data-flow overview at https://codeql.github.com/docs/writing-codeql-queries/about-data-flow-analysis/, and the Harvard CS153 lecture notes at https://groups.seas.harvard.edu/courses/cs153/2019fa/lectures/Lec20-Dataflow-analysis.pdf. For the lattice-theoretic foundation, see Chapter 9 of the Dragon Book (Compilers: Principles, Techniques, and Tools by Aho, Lam, Sethi, Ullman).',
+        'Study next: Control Flow Graph and Dominator Tree to understand the graph the analysis runs on. Static Single Assignment and Phi Nodes to see how SSA form simplifies many data-flow problems. Interference Graph Register Allocation to see liveness facts become register pressure. Taint Analysis Source-to-Sink Case Study to see the same engine applied to security. Sparse Conditional Constant Propagation for a more precise variant that combines control-flow and data-flow reasoning. Abstract Interpretation and Interval Domain for the theoretical framework that generalizes all of these analyses.',
       ],
     },
   ],

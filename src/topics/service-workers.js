@@ -166,199 +166,108 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Service Workers & Offline-First. A programmable proxy between page and network: intercept every request, answer from cache, survive airplane mode..",
+        'Read the animation as a request path that changes after registration. A service worker is an event-driven worker script registered for an origin and scope; once active, it can intercept controlled fetches and choose a response.',
         {
           type: 'callout',
           text: 'A service worker moves fetch policy into a programmable browser-side proxy, so offline behavior becomes application logic.',
         },
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The active highlight marks the current lifecycle gate: register, install, activate, fetch, cache hit, network miss, or offline fallback. A visited cache entry is local state the worker may use; a found response is the response returned to the page.',
+        'The safe inference rule is simple: a controlled request reaches the worker first, but only after the worker is installed and activated for that scope. Before activation, the page behaves like a normal web page and the cache is only ordinary browser state.',
       
         {type: 'image', src: './assets/gifs/service-workers.gif', alt: 'Animated walkthrough of the service workers visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
-      heading: 'Problem',
+      heading: 'Why this exists',
       paragraphs: [
-        'A normal web page is dependent on the network path. A navigation, script fetch, image load, API request, and font request all travel through browser networking, DNS, TCP or QUIC, TLS, caches, CDNs, and origins. When the connection is slow or absent, the page often has no local decision point. It waits, errors, or shows a fallback built into the browser rather than the application.',
-        'A service worker adds that decision point. It is a worker-like JavaScript program that the browser can run between controlled pages and the network. Requests inside its scope fire fetch events in the worker first. The worker can answer from Cache Storage, forward to the network, synthesize a response, update a cache, or queue an action for later. That is the core mechanism behind offline-first web apps and many installable PWAs.',
-        'This power is intentionally constrained. Service workers are scoped to an origin and path, run without direct DOM access, and require secure contexts outside local development. They can control traffic, so the platform treats them as security-sensitive infrastructure rather than ordinary page scripts.',
+        'A normal web page depends on the network for navigation, scripts, images, API data, and fonts. If the train enters a tunnel, the browser can only wait, fail, or use whatever the HTTP cache happens to contain.',
+        'An application needs policy, not luck. It may want the shell to open offline, lesson data to fall back to a cached copy, and writes to wait in a durable outbox.',
+        'A service worker gives the browser app a programmable proxy near the user. The worker can answer from Cache Storage, forward to the network, synthesize a response, or combine local state with later synchronization.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive app lets every request go directly to the network and trusts the browser HTTP cache to help when it can. This is enough for many sites. Versioned assets can be cached by normal HTTP headers, and dynamic data can be fetched fresh.',
-        'The wall appears when the product is supposed to behave like an application. The user opens it on a train, on hotel Wi-Fi, or after the origin has a transient outage. The shell should still start. Previously viewed content should still be readable. A write should not disappear just because the connection failed. Ordinary network fetches do not provide that application-level policy.',
-        'Another wall is update coordination. A multi-file JavaScript app needs HTML, scripts, styles, fonts, and icons from the same release. If caching is accidental, old HTML can point to deleted chunks or a new script can run with old CSS. Offline support needs a release-aware cache plan, not a bag of remembered responses.',
+        'The obvious approach is to let every request go to the network and rely on HTTP caching headers. This works well for many assets, especially files with content hashes and long cache lifetimes.',
+        'The second approach is to add retry buttons and error screens. That helps a failed request, but it does not give the application a coherent offline startup path.',
+        'These approaches are reasonable because the browser already has a cache and fetch stack. They fail when the product needs release-aware caching, offline reads, queued writes, and fallback choices that depend on the request type.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that the browser HTTP cache does not know product meaning. It cannot know that hashed JavaScript is cache-first, a balance endpoint is network-only, and a lesson thumbnail is fine to serve stale while refreshing.',
+        'Update coordination is another wall. A cached old HTML file can point to deleted chunks, or a new script can run with old CSS if the release is not treated as one unit.',
+        'Offline writes add a harder boundary. A POST that fails because the user is offline must not silently disappear, and blindly replaying it later can duplicate work unless the server and client agree on idempotency.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to move request policy into a programmable proxy near the user. Instead of treating the network as the only source of truth, the application defines a route table. Some requests should be cache-first because they are immutable assets. Some should be network-first because freshness matters. Some should be stale-while-revalidate because instant display is worth being one version behind. Some should be network-only because stale truth would be dangerous.',
-        'Cache Storage is the main data structure. It is a browser-managed store of Request-to-Response entries that service workers can open by name. A precache cache can hold a versioned application shell. Runtime caches can hold images or API responses under size and freshness policies. IndexedDB can hold structured offline state and write queues. The worker coordinates these stores when fetch, sync, push, and message events arrive.',
+        'The service worker makes request handling explicit application code. The app can route by request destination, URL, method, cache name, version, freshness requirement, and offline behavior.',
+        'Cache Storage is the main data structure for responses. It stores request-response pairs in named caches, while IndexedDB is usually the better store for structured offline state and queued writes.',
+        'The lifecycle gives releases a boundary. Install can build a complete cache before the worker becomes usable, and activate can clean old caches after the new worker is ready.',
       ],
     },
     {
-      heading: 'Lifecycle',
+      heading: 'How it works',
       paragraphs: [
-        'Registration starts with a page calling navigator.serviceWorker.register("sw.js"). The browser downloads the worker script and associates it with a scope. A worker registered at the site root can control more URLs than a worker registered in a subdirectory. Scope is a security and routing boundary.',
+        'A page calls navigator.serviceWorker.register with a worker script URL. The browser downloads the script, binds it to a scope, and runs install when the script is new.',
         {
           type: 'image',
           src: 'https://web.dev/static/articles/service-worker-lifecycle/image/error-displayed-service.png',
           alt: 'Chrome DevTools showing a service worker registration error',
           caption: 'Service worker lifecycle bugs are visible in browser tooling because the worker persists outside the page reload path. Source: web.dev service worker lifecycle article https://web.dev/articles/service-worker-lifecycle.',
         },
-        'Install is the first gate. The worker receives an install event and often opens a versioned precache, then stores the required shell files. If the install promise rejects, the new worker does not become the offline layer. That is a feature: keeping the old worker is safer than activating an incomplete release.',
-        'Activate is the cleanup and ownership gate. A newly installed worker may wait while old tabs remain controlled by the previous worker. During activate, the worker can delete obsolete caches, enable navigation preload, and claim clients if the application deliberately wants open pages to switch controllers. This lifecycle is why update bugs often involve old tabs and old cache names.',
-        'Fetch is the serving gate. For each controlled request, the worker can call event.respondWith and provide a Response. The worker must return quickly enough to avoid making the app feel stuck, and it must handle cache misses as normal because browser storage can be evicted under pressure.',
-      ],
-    },
-    {
-      heading: 'Caching strategies',
-      paragraphs: [
-        'Cache-first checks Cache Storage first and goes to the network only on a miss. It is appropriate for hashed JavaScript chunks, CSS files, fonts, icons, and other immutable release assets. The safety requirement is versioned keys. If app.js can change without the key changing, cache-first can trap users on stale code.',
-        'Network-first tries the network and falls back to cache when offline or after a timeout. It is useful for HTML navigations, feeds, documents, and API data where freshness is preferred but stale content is better than a blank screen. Navigation preload is a companion optimization for network-first HTML because it lets the browser start the document request while the worker boots.',
-        'Stale-while-revalidate returns a cached response immediately and refreshes the cache in the background. It is a good fit for avatars, article images, documentation pages, and noncritical assets where instant display is more important than absolute freshness. It is a bad fit for balances, permissions, inventory, payments, and authentication state.',
-        'Network-only should be explicit for operations where stale data is unsafe. POST writes, payment confirmations, login flows, and security-sensitive decisions should usually hit the server or enter a durable outbox with clear retry semantics, not silently reuse an old cached response.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose a courseware PWA ships a shell made of index.html, app.44.js, app.44.css, a logo, and a small lesson index. During install, the worker opens app-shell-v44 and precaches those entries. If one required file returns an error, install fails and the old v43 worker continues serving users.',
-        'On a normal online navigation, the worker uses network-first for HTML so the user can receive the latest document. If the network fails, it returns the cached shell. For app.44.js and app.44.css, it uses cache-first because the content hash or release number is in the filename. For lesson thumbnails, it uses stale-while-revalidate because instant display is worth refreshing in the background.',
-        'Now the user goes offline. The shell still loads because the fetch handler can answer the navigation and assets from Cache Storage. A completed quiz attempt is written to IndexedDB and placed in an outbox. When connectivity returns, a background sync or foreground retry drains the outbox to the server. Offline-first is therefore more than cached files; it is a policy for reads, writes, conflicts, and eventual synchronization.',
-      ],
-    },
-    {
-      heading: 'What the animation shows',
-      paragraphs: [
-        'The proxy view shows the architectural change. Before the worker exists, the page sends a request directly toward the network. During install, the worker fills a cache with the shell. After activation, a page fetch reaches the worker first, and the worker chooses cache, network, or a synthetic response. In airplane mode, the network path disappears but the cache path can still produce the shell.',
-        'The strategy view shows that service workers are not one caching algorithm. Cache-first optimizes for speed and offline durability. Network-first optimizes for freshness with fallback. Stale-while-revalidate optimizes for instant display while refreshing the next visit. The matrix is the route table a production worker needs: assets, media, API data, auth, and writes each deserve different policies.',
-        'The most important lesson is that the service worker is not simply a faster HTTP cache. It is application code in the request path. That means it can express product policy, but it can also ship product bugs that persist across reloads.',
+        'During install, the worker often opens a versioned cache and precaches the application shell. During activate, it can delete obsolete caches and claim clients if the app deliberately wants open pages to switch.',
+        'During fetch, the worker receives a FetchEvent and calls respondWith with a Response promise. A cache-first route checks Cache Storage first, a network-first route tries the network before fallback, and stale-while-revalidate returns cached data while refreshing in the background.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because request handling becomes a state machine under application control. The worker can inspect the request, choose a route, consult a named cache, race the network, update storage, and return a Response. The browser still enforces origin boundaries, secure contexts, and storage policy, but the application chooses the freshness and fallback behavior.',
-        'It also works because install and activate give the cache lifecycle structure. Install can require a complete shell before the worker becomes active. Activate can delete old caches only after the new worker is ready. This turns offline support from opportunistic caching into a release process.',
-        'Finally, the pattern works because caches are local and fast. A shell cache hit avoids the network path entirely. Even when the worker eventually refreshes from the network, the user can see something useful first.',
+        'It works because the worker is between controlled pages and the network. If the worker returns a valid Response, the page does not need the origin server for that request.',
+        'The correctness argument is a routing argument. For each request class, the worker must define the source of truth, the fallback, the cache update rule, and the miss path.',
+        'The lifecycle prevents half-installed releases from becoming the active offline layer. If precaching required files fails during install, the old worker can continue controlling users instead of activating an incomplete cache.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Install cost is proportional to the number and size of precached assets. A large shell makes first install slow and increases quota pressure. Runtime caches need expiration rules because image and API caches can grow without bound.',
-        'Network-first can add latency when the network is slow but not fully down. A timeout fallback can improve user experience, but it creates a freshness choice that the product must own. Stale-while-revalidate spends background bandwidth and can show old content by design.',
-        'Service workers also increase debugging complexity. They persist across reloads, can control multiple tabs, and can keep serving old code until the lifecycle advances. Developers need to test unregister, update, skip-waiting, activate cleanup, offline mode, cache eviction, and multiple open tabs.',
+        'The install cost grows with the number and size of precached assets. A shell with 40 files totaling 8 MB costs more bandwidth and storage than a shell with 12 files totaling 900 KB.',
+        'Fetch cost becomes policy-dependent. Cache-first can be a local lookup, network-first can wait on a slow connection, and stale-while-revalidate spends background bandwidth to keep the next read fresh.',
+        'The hidden cost is persistence. A buggy worker can survive reloads, control multiple tabs, and keep serving old code until the lifecycle advances, so teams must test update, unregister, cache eviction, offline mode, and old-tab behavior.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Service workers win for app shells, documentation, education tools, dashboards, news readers, maps, media-heavy sites, and any product where repeat visits should start quickly or survive flaky connectivity. They are especially strong when the static shell is known at build time and dynamic data can be routed through explicit freshness policies.',
-        'They also win for background capabilities. A worker can receive push events, coordinate messages across controlled clients, and help drain an offline outbox when connectivity returns. Combined with IndexedDB, a service worker can make a browser app behave more like a resilient local application.',
-        'The pattern is a browser-scale version of edge caching. CDN Request Flow answers close to the user from a global edge. A service worker answers even closer, inside the browser, but with application-specific route logic.',
+        'Service workers fit app shells, documentation sites, education tools, maps, dashboards, media viewers, and repeat-visit products where startup should survive weak connectivity. The pattern works best when static assets are versioned and dynamic data has explicit freshness rules.',
+        'They also support background capabilities such as push events, cross-client coordination, and retrying queued work when connectivity returns. IndexedDB often carries the durable state while the service worker owns the request policy.',
+        'The same idea appears at larger scale in CDNs and edge caches. The service worker is closer to the user than any edge server, but it is also constrained by browser storage, security rules, and origin scope.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when teams cache mutable truth without a freshness policy. Balances, permissions, inventory, auth state, and payment results should not be served stale just because a cache entry exists. It fails when app assets are not versioned and users get trapped on old JavaScript.',
-        'It fails when cache cleanup races old tabs. If activate deletes v43 chunks while a v43-controlled tab still needs them, the app can break after a lazy import. It fails when the worker assumes storage is permanent. Browsers can evict origin data under pressure, so every cache read needs a miss path.',
-        'It also fails when developers forget that service workers do not bypass web security. They cannot read cross-origin responses that CORS would block. They cannot directly touch the DOM. They do not replace server-side authorization. They are powerful, but they are still inside the browser security model.',
+        'It fails when teams cache mutable truth without a policy. Balances, permissions, inventory, payment results, and authentication state should not be served stale just because a cached response exists.',
+        'It fails when release assets are not versioned. Cache-first only works for immutable or versioned files; otherwise users can be trapped on stale JavaScript or mismatched chunks.',
+        'It also fails when developers treat the worker as a security bypass. Service workers do not directly access the DOM, do not ignore CORS, and require secure contexts outside local development.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Web Workers for thread isolation, The Event Loop for worker events, Cache Storage Versioned Precache for manifest sets and activate cleanup, Service Worker Navigation Preload Race for faster network-first HTML, Background Sync Outbox Queue for offline writes, Web Push Subscription Delivery for server wakeups, Browser Message Channels for cross-tab coordination, URL Origin Parser for scope and same-origin boundaries, HTTP Cache ETag Revalidation for validators, HTTP Vary Cache-Key Normalization for cache keys, CORS Preflight Cache for cross-origin permission caching, Browser Storage Quota and Eviction Manager for pressure behavior, CDN Request Flow for the larger caching analogy, and Local-First Sync Engine Case Study for conflict-aware offline collaboration.',
-      ],
-    },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-    {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'How it works',
-      paragraphs: [
-        "Describe the mechanism as a sequence of state transitions, not as a story.",
-        "Each step should say what changes, what stays true, and why the move is legal.",
-        "The animation should look like this section made concrete.",
+        'A course app ships index.html, app.44.js, app.44.css, logo.svg, and lessons.json. During install, the worker opens app-shell-v44 and caches those 5 files.',
+        'On navigation, the worker uses network-first for index.html with a 1500 ms timeout, then falls back to the cached shell. For app.44.js and app.44.css it uses cache-first because the version is in the filename.',
+        'A user completes quiz attempt 817 while offline. The app writes the attempt to IndexedDB with idempotency key attempt-817, the worker or foreground app retries later, and the server accepts the write once instead of creating duplicates.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources: MDN Service Worker API at https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API, MDN Using Service Workers at https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers, the W3C Service Workers specification at https://w3c.github.io/ServiceWorker/, and web.dev service worker lifecycle at https://web.dev/articles/service-worker-lifecycle.',
+        'Study HTTP caching and ETags first, then Cache Storage, IndexedDB, background sync, push notifications, CORS, CDN request flow, and idempotency keys for offline writes.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Service Workers & Offline-First moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

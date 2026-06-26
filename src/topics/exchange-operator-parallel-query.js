@@ -261,108 +261,101 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has three views, selectable from the dropdown. "Vertical exchange" shows a parent operator pulling rows through an exchange node backed by two parallel producers with bounded queues. "Partitioned hash join" shows three scanners feeding rows through an exchange that hashes them into three partitions, each feeding a local join. "Flow control" shows the same vertical layout but highlights backpressure signals: credits, queue bounds, and cancellation.',
+        'Each step highlights active nodes and edges in the graph or matrix. Play through slowly the first time to follow which components are doing work at each moment.',
         {type: 'image', src: './assets/gifs/exchange-operator-parallel-query.gif', alt: 'Animated walkthrough of the exchange operator parallel query visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A query plan is a dataflow graph, but many classic executors expose it through a simple iterator contract: a parent asks its child for the next row. That contract is easy to compose, but it is not enough when a scan, join, or aggregation should run on many cores or many machines at once.`,
+        'A query plan is a tree of operators. In the Volcano execution model (Goetz Graefe, 1994), each operator exposes an iterator interface: open, next, close. A parent calls next() on its child to pull one row at a time. This is clean and composable, but it is inherently single-threaded. One call chain, one core.',
+        'Modern databases sit on machines with dozens of cores and clusters with hundreds of nodes. A single-threaded scan of a billion-row table wastes almost all available hardware. The exchange operator exists to insert parallelism into this iterator tree without rewriting every operator. It is the boundary where one thread becomes many, where local data becomes distributed, and where unbounded producer speed becomes controlled.',
         {
           type: `callout`,
           text: `Exchange is the control boundary that lets local query operators stay simple while data movement, worker orchestration, and backpressure become explicit plan nodes.`,
         },
-        `The exchange operator exists to hide that parallel machinery behind a normal plan node. It can start producers, move rows between workers, repartition by key, merge streams, buffer packets, and apply backpressure. The rest of the plan can still look like a tree of operators instead of a pile of thread, queue, and network code.`,
       ],
     },
     {
-      heading: 'The obvious solution',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious way to parallelize a database engine is to teach every physical operator about threads, remote workers, queues, cancellation, and network transfer. A parallel scan would own one version of that logic. A parallel join would own another. Sort, aggregate, and distinct would each grow their own orchestration layer.`,
-        `That fails because parallel control logic is hard and cross-cutting. Every operator would need to solve lifecycle, flow control, failures, memory bounds, and ordering. The code becomes duplicated, and worse, the query optimizer loses a clean way to reason about where data must move. Exchange localizes the movement and control boundary so ordinary operators can stay focused on local computation.`,
+        'The obvious way to parallelize query execution is to make every operator parallel internally. A parallel scan would manage its own thread pool, a parallel join would coordinate its own hash table access, and a parallel sort would partition and merge inside its own code. Each operator would contain its own concurrency, synchronization, and failure handling.',
+        'This duplicates the hardest parts of systems programming across every operator. Each one must handle thread lifecycle, memory bounding, partial failure, cancellation, and ordering guarantees. Worse, the query optimizer cannot reason about data distribution because movement is hidden inside operator internals. If the optimizer inserts a join after a scan, it has no way to express that the join needs data repartitioned by key before it can start.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        `The core insight from Volcano-style execution is encapsulation. Keep normal data-manipulation operators as local as possible, and insert exchange operators where the plan needs a change in execution mode. A parent can remain demand-driven while children run as parallel producers. A local join can remain local after exchange has arranged for all equal keys to meet on the same worker.`,
-        `Exchange is therefore not just a queue and not just a shuffle. It is the operator that changes a plan's physical distribution. It can convert one stream into many, many streams into one, local partitions into hash partitions, or asynchronous producers into a synchronous parent interface.`,
+        'The per-operator approach hits a wall on two fronts. First, correctness: a hash join produces wrong results if matching keys are split across workers but the join does not know it. A sort produces wrong output if partial results are not merged with the right ordering discipline. Every operator must solve distribution-dependent correctness individually, and getting any of them wrong is a silent data bug.',
+        'Second, performance isolation: without explicit boundaries, a fast producer can allocate gigabytes of intermediate results while a slow consumer lags behind. The system has no single point where it can measure queue depth, apply backpressure, or spill to disk. Parallelism without flow control is just a faster way to run out of memory.',
       ],
     },
     {
-      heading: 'Vertical exchange',
+      heading: 'The core insight',
       paragraphs: [
-        `A vertical exchange sits between a parent operator and one or more producer operators. The parent still asks for rows. Below the exchange, producers can scan partitions, apply filters, and fill bounded queues in parallel. Exchange drains those queues and returns rows through the expected interface.`,
-        `This form is useful when the plan shape above the exchange should not care how many workers are below it. The parent sees one child. The exchange owns worker startup, row packetization, queue draining, cancellation, and end-of-stream detection. If the parent requires order, exchange also owns the merge policy instead of returning whichever packet happened to arrive first.`,
+        'Graefe\'s insight in the Volcano parallel query model (1990) was to separate data movement from data manipulation. Keep every scan, join, sort, and aggregate as a purely local, single-threaded operator that processes whatever rows arrive through its iterator interface. Then insert a special operator, the exchange, at the points in the plan where the physical distribution must change.',
+        'Exchange is not a queue. It is not a shuffle. It is a plan operator that changes the physical distribution property of a data stream. It can convert one stream into many (scatter), many streams into one (gather), unpartitioned data into hash-partitioned data (repartition), or asynchronous producers into a synchronous pull interface (vertical exchange). Every other operator stays local and sequential.',
       ],
     },
     {
-      heading: 'Repartition exchange',
+      heading: 'How it works',
       paragraphs: [
-        `A repartition exchange sends each row to a worker chosen by a partitioning function. For a parallel hash join, the usual function hashes the join key. The invariant is simple and strict: equal keys must meet. If rows with the same key land on different workers, local joins miss matches and the query is wrong.`,
+        'Exchange has three forms, each visible in the animation. A vertical exchange sits between a parent operator and parallel producers. The parent calls next() on the exchange, which owns a set of bounded queues. Each producer runs on its own thread, scanning its data partition and filling its queue with packets of rows. Exchange drains whichever queue has data ready, unpacks the packet, and returns rows one at a time to the parent. The parent never knows how many producers exist.',
+        'A repartition exchange redistributes rows by a partitioning function. For a hash join on column user_id, exchange computes hash(user_id) mod N for each incoming row and sends it to the corresponding downstream partition. The invariant is strict: rows with equal join keys must land on the same partition. After repartitioning, each downstream join builds and probes a local hash table over its own partition only. No global coordination is needed during the join phase.',
         {
           type: `image`,
           src: `https://cdnd.selectdb.com/assets/images/Figure_10_en-e99cc952e6ef7e1500565bffbd73da18.png`,
           alt: `Bucket shuffle join routing rows into hash-selected buckets`,
           caption: `Bucket shuffle join is the same invariant in a production SQL engine: route rows by a hash rule so matching keys meet. Source: Apache Doris blog, https://doris.apache.org/blog/principle-of-Doris-SQL-parsing/`,
         },
-        `The same shape appears in group by, distinct, distributed aggregation, and windowed systems. The exchange does the global movement so the downstream operator can be local again. After repartitioning, each join worker builds or probes a hash table for its own partition instead of needing every row in the cluster.`,
-      ],
-    },
-    {
-      heading: 'Flow control',
-      paragraphs: [
-        `Exchange also controls how far producers may run ahead of consumers. Without bounded queues or credits, a fast scan can materialize a huge intermediate result while a slow parent is still processing earlier rows. That is not useful parallelism. It is memory pressure wearing a useful name.`,
-        `Bounded queues, credit counts, spill policies, and cancellation signals make the plan self-limiting. If the parent slows down, queues fill. When queues fill, producers stop receiving credits or block at the boundary. This lets the query overlap work while still carrying backpressure toward the source.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The vertical-exchange view proves that the parent interface can stay stable while execution below it becomes parallel. Parent demand enters one exchange node. Producer work happens behind queues. The boundary is the point where asynchronous packets become rows again.`,
-        `The partitioned-hash-join view proves the key distribution rule. Scans feed rows to exchange, exchange hashes them to partitions, and each local join owns a disjoint key subset. The flow-control view proves that useful exchange includes pressure signals, not just movement. Bounded queues are the difference between overlapped execution and unbounded materialization.`,
+        'A flow-control exchange adds backpressure. Each producer starts with a credit count, say 4 packets. When it exhausts its credits, it blocks until the consumer drains a packet and returns a credit. This bounds memory to (number of producers * credit count * packet size). If the consumer is slow, producers stop. If a producer is cancelled, exchange propagates the stop signal and cleans up its thread and queue.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Exchange works because it makes distribution a first-class physical property. The optimizer can choose a plan that says this stream is hash partitioned by user_id, this one is gathered to a single coordinator, and this one remains locally partitioned. Operators then declare what distribution they require or preserve.`,
-        `Correctness comes from matching those properties. A hash join is correct after repartitioning only if both sides use the same key expression, hash compatibility, null policy, and partition count or compatible routing. A merge exchange is correct only if each input stream is ordered and the merge respects the global order the parent requires.`,
+        'Exchange works because it turns data distribution into a declarative plan property. The query optimizer annotates each edge in the plan with a distribution requirement: hash-partitioned by user_id, replicated, gathered to coordinator, or any-distribution. When adjacent operators disagree, the optimizer inserts an exchange to reconcile them. This is the same idea as type checking: if the types do not match, insert a cast.',
+        'Correctness of a repartition exchange reduces to one invariant: rows with equal keys land on the same partition. If the hash function, partition count, and null handling are consistent between both sides of a join, every matching pair meets on exactly one worker. No pair is missed, no pair is duplicated. The local join on each worker is correct because its input is complete for its key range.',
+        'Correctness of a merge exchange requires that each input stream is already sorted and that the merge respects the global ordering. Exchange performs an N-way merge, comparing the head of each queue and returning the smallest. This is correct if and only if each producer\'s output is individually sorted by the same key and direction.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Exchange buys wall-clock speed by spending CPU, memory, serialization, network, coordination, and sometimes disk. The best case is balanced partitions with heavy local work after the shuffle. The worst case is shuffling many bytes to perform little computation, or sending most rows to one hot partition while other workers wait.`,
-        `Queue sizing is a real tradeoff. Large queues allow more overlap and absorb jitter, but they increase memory footprint and can hide downstream slowness. Tiny queues keep memory tight but may force producers and consumers into lockstep. Spill protects memory at the cost of extra IO and more complicated cleanup.`,
+        'Exchange trades wall-clock time for resource overhead. The direct costs are serialization (packing rows into packets), memory (bounded queues per producer), network transfer (for distributed exchange), and synchronization (mutex or lock-free queue operations per packet). For a local exchange with 8 producers and 1024-row packets, the per-row overhead is roughly one mutex acquire per 1024 rows plus one memcpy per row into the packet buffer.',
+        'The speedup from N-way parallelism is bounded by Amdahl\'s law applied to the serial fraction. If the exchange itself (draining, merging, routing) takes 10% of wall time, the maximum speedup from adding more producers approaches 10x regardless of core count. In practice, 4-16 way parallelism is common; beyond that, coordination costs and skew usually dominate.',
+        'Queue sizing is a real tradeoff. Large queues (say 8 packets of 1024 rows) absorb producer jitter and allow overlap, but consume more memory and can hide downstream bottlenecks. Small queues (2 packets) keep memory tight but risk forcing producers and consumers into lockstep, where neither can make progress while the other works. Most engines default to 2-4 packets and let the operator spill to disk if memory pressure rises.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Exchange wins when data movement creates independent local work. Parallel hash join, large group by, distributed distinct, fanout scans, partial aggregation trees, and sorted stream merging all use the same idea. The plan pays movement cost once so several workers can make progress at the same time.`,
-        `It also wins as an engineering boundary. Engines can improve queue implementations, packet formats, metrics, cancellation, spilling, and network transport inside exchange without rewriting every join or aggregate. That is why the old Volcano idea still appears inside modern vectorized, distributed, and cloud data systems.`,
+        'Every major analytical database uses exchange or its equivalent. PostgreSQL\'s Gather and Gather Merge nodes are vertical exchanges. Spark\'s ShuffleExchange repartitions RDDs by key before joins and aggregations. SQL Server\'s Parallelism operator (Distribute Streams, Repartition Streams, Gather Streams) is Graefe\'s exchange directly. Snowflake, BigQuery, Redshift, and DuckDB all use the same decomposition internally.',
+        'The pattern extends beyond SQL. MapReduce\'s shuffle phase is a batch-mode repartition exchange. Stream processing engines like Flink use network shuffles with credit-based flow control between task slots. Even ML pipeline parallelism (splitting model layers across devices) uses the same producer-queue-consumer structure with bounded buffers at the device boundary.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `Skew is the classic failure. If one tenant, product, or user owns a huge share of rows, hashing by that key creates one overloaded partition. Salting hot keys, splitting heavy partitions, broadcasting a small side, or using adaptive query execution can repair the plan, but only after the engine detects the imbalance.`,
-        `Other failures are semantic. The plan may repartition on the wrong expression, lose required order, allow producers to outrun memory, fail to propagate cancellation, or leak child workers after an error. A query that is slow because of exchange should be diagnosed with shuffle bytes, partition sizes, queue depth, blocked time, spill rate, and final reducer time before blaming the local join algorithm.`,
+        'Skew is the primary failure mode. If one key value (a popular product, a default tenant ID, a null) accounts for 80% of rows, hashing by that key sends 80% of work to one partition. The other partitions finish quickly and sit idle. Wall-clock time equals the slowest partition, so the effective parallelism drops to nearly 1x. Fixes include salting the hot key (appending a random suffix, then aggregating the salt groups), broadcasting the small side of a join, or using adaptive query execution to detect skew at runtime and split overloaded partitions.',
+        'Semantic failures are subtler. If the two sides of a join use different hash functions, different null-handling rules, or different partition counts without compatible routing, rows with equal keys land on different workers and the join silently misses matches. If a merge exchange does not verify input ordering, it produces a stream that looks sorted but contains out-of-order runs. These bugs produce wrong results, not crashes, and are hard to detect without end-to-end result validation.',
       ],
     },
     {
-      heading: 'Design checklist',
+      heading: 'Worked example',
       paragraphs: [
-        `Before adding exchange, ask what distribution the next operator requires. A hash join needs both sides partitioned by the same join key. A final order by needs a merge or gather that preserves order. A partial aggregate may need local aggregation before shuffle so fewer bytes cross the boundary. Placing exchange too early can move raw data that filters would have removed.`,
-        `After adding exchange, ask how it stops. The operator needs bounded buffers, cancellation propagation, worker cleanup, error reporting, and metrics that name the blocked side. Without those controls, the plan may be logically parallel but operationally fragile.`,
+        'Suppose we join an Orders table (12 million rows, columns order_id and user_id) with a Users table (1 million rows, column user_id) on user_id, using 4 workers. Without exchange, a single-threaded hash join builds a hash table on Users (1M rows, roughly 64 bytes per entry = 64 MB) and probes it with all 12M Orders rows. At 50 ns per probe, the probe phase alone takes 12M * 50 ns = 600 ms.',
+        'With a repartition exchange using hash(user_id) mod 4, each worker receives roughly 3M Orders rows and 250K Users rows (assuming uniform distribution). Each worker builds a 16 MB hash table and probes it with 3M rows. Probe time per worker: 3M * 50 ns = 150 ms. The four workers run in parallel, so wall-clock probe time drops from 600 ms to 150 ms, a 4x speedup on the compute-bound phase.',
+        'The exchange itself must ship all 12M Orders rows and 1M Users rows across the partition boundary. At 100 bytes per row and 10 Gbps network bandwidth, transferring 13M * 100 bytes = 1.3 GB takes about 1.04 seconds. With 4 producers each sending 325 MB, the transfer parallelizes to roughly 260 ms if the network bisection bandwidth is sufficient. Total wall time: 260 ms shuffle + 150 ms probe = 410 ms, versus 600 ms single-threaded. The shuffle cost is real but the probe speedup pays for it.',
+        'Now introduce skew: user_id 0 appears in 6M of the 12M orders. Partition 0 receives 6M orders while partitions 1-3 split the remaining 6M evenly (2M each). Partition 0 takes 6M * 50 ns = 300 ms to probe. The other three finish in 100 ms each and wait. Wall-clock time is now 260 ms shuffle + 300 ms probe = 560 ms, only 7% faster than single-threaded. Salting user_id 0 into four sub-keys (0_a, 0_b, 0_c, 0_d) spreads its 6M rows across all partitions, restoring balanced probe times of roughly 150 ms each.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study next: Volcano Iterator Query Execution for the local operator protocol, Volcano Exchange for encapsulated parallelism, SQL Join Algorithms Primer for the operators exchange enables, Backpressure for bounded producer-consumer control, Message Queues for buffering mechanics, Dremel Query Engine Case Study for fanout and merge trees, Spark Adaptive Query Execution for runtime skew repair, and Pipeline Parallelism for a related boundary in ML systems.`,
+        'The foundational paper is Goetz Graefe, "Encapsulation of Parallelism in the Volcano Query Processing System" (SIGMOD 1990). It introduced exchange as the single operator that encapsulates all parallel execution. Graefe\'s later survey "Query Evaluation Techniques for Large Databases" (ACM Computing Surveys, 1993) covers the full Volcano model including iterator protocol, exchange variants, and flow control.',
+        'For related topics on this site: Volcano Iterator Query Execution covers the pull-based operator protocol that exchange extends. SQL Join Algorithms covers the hash join and sort-merge join operators that exchange enables to run in parallel. Backpressure covers the general theory of bounded-buffer flow control. Message Queues covers the producer-consumer buffering mechanics that exchange queues implement. Spark Adaptive Query Execution covers runtime skew detection and partition splitting.',
       ],
     },
   ],

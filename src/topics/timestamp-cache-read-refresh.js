@@ -222,90 +222,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/timestamp-cache-read-refresh.gif', alt: 'Animated walkthrough of the timestamp cache read refresh visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Serializable databases must make concurrent transactions look as if they ran one at a time. In an MVCC system, reads and writes carry timestamps, so the problem becomes concrete: a write must not sneak into the past before a read that already happened, and a transaction pushed to a later timestamp must not commit using stale facts.',
-        'The timestamp cache and read refresh solve those two parts of the problem. The timestamp cache remembers recent read constraints so conflicting writes are forced later. Read refresh rechecks a transaction reads when its commit timestamp moves forward, allowing safe commits without restarting every transaction that was merely delayed.',
-        {type: 'callout', text: 'Timestamp cache entries turn served reads into future write constraints, and refresh turns a pushed timestamp into a proof obligation instead of an automatic abort.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to lock every key or range that any transaction reads until the transaction finishes. That can work, but it harms concurrency and creates painful blocking in distributed systems where range ownership, network delay, and long read-only transactions are common.',
-        'Another tempting approach is to let timestamps sort everything out at commit time. That fails when a write chooses an old timestamp after a read has already observed the old value. Without remembered read evidence, the system can accept a history that violates the serial order it promised.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'A timestamp cache records read high-water marks for keys or spans. If a transaction read span S at timestamp 100, a later writer that wants to write S at timestamp 80 must be pushed above 100. The read happened first in real execution, so the write cannot be serialized before it.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Serialization constraints form a directed dependency graph: read-before-write edges must not be reversed by timestamp movement. Source: Wikimedia Commons, David W., public domain: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        'Read refresh handles the opposite pressure. If a transaction originally read at timestamp 50 but gets pushed to commit at timestamp 90, its earlier reads may no longer be valid. Instead of aborting immediately, the system checks whether any read key or span changed between 50 and 90. No change means the transaction can safely commit at the later timestamp.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'When a leaseholder serves a read, it inserts or updates timestamp-cache entries for the key or range that was read. Point reads protect individual keys. Predicate reads, missing-key checks, and scans protect spans, because a future inserted key inside the span could invalidate the read result.',
-        'When a write arrives, the concurrency layer checks whether its target overlaps a timestamp-cache entry with a higher read timestamp. If so, the write timestamp is pushed above that read. The write can still happen, but not at a logical time that would make the earlier read wrong.',
-        'When a transaction timestamp is pushed forward, the transaction attempts a refresh. It revalidates its read set at the new timestamp. If every previously read value is still the value that would be visible at the new timestamp, the transaction can commit. If a relevant value or span changed, the transaction must retry with a fresh read view.',
-        'The read set is therefore a first-class artifact. The system must remember not only values returned to the application, but also spans that were scanned, absence checks that were trusted, and index ranges that made a predicate true or false. Refresh can only be as correct as that recorded dependency set.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The timestamp-cache view proves that a read leaves evidence behind. It is not just a value returned to a client. It becomes a constraint on future writes that overlap the same key or span. The write push is the system preserving a serial order that matches already served reads.',
-        'The read-refresh view proves that pushed timestamps are not automatically fatal. A transaction can move from timestamp 50 to timestamp 90 if the facts it depended on are unchanged across that interval. The visual should be read as validation of a read set, not as generic cache invalidation.',
-        'A useful way to read the example is to separate conflict detection from conflict repair. The cache detects that an old write would violate a newer read. Refresh repairs a pushed transaction only if its own reads remain true. They solve different halves of timestamp movement.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The timestamp cache works because serializability only requires a valid order, not the original timestamp every transaction hoped for. If a write conflicts with a prior read, pushing the write later preserves the order read-before-write. The database is not guessing; it is enforcing a timestamp relationship backed by observed reads.',
-        'Read refresh works because MVCC can ask what value would be visible at the new timestamp. If every read returns the same result after the push, the transaction behavior is indistinguishable from having read at the later timestamp in the first place. If any result changes, committing would depend on stale evidence, so retry is required.',
-        'The design is optimistic but not casual. It lets transactions proceed without holding every read lock, then pays for validation only when timestamps move. That is the difference between ignoring conflicts and proving that the apparent conflict did not change the transaction answer.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'The timestamp cache spends memory on recent read spans and needs efficient overlap checks. Fine-grained entries reduce false pushes but use more memory. Coarse spans are cheaper but conservative: a write may be pushed even though it would not have changed the transaction result.',
-        'Read refresh trades extra validation work for fewer full restarts. It is valuable when read sets are small or changes are rare. It becomes expensive for long transactions, wide scans, and hot ranges where intervening writes are likely. In those cases the refresh often fails after doing extra work.',
-        'There is also a user-facing tradeoff. Successful refresh hides harmless concurrency from the application. Failed refresh becomes a retry error, so client code still needs retry loops and idempotent transaction bodies. The database reduces retries; it cannot promise they vanish.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'The design is strongest in optimistic distributed SQL systems where reads are common, writes should not block unnecessarily, and most timestamp pushes are harmless. It keeps the fast path lock-light while still preserving serializable behavior.',
-        'It is especially useful for transactions that read configuration, account metadata, or small index spans, then get pushed by unrelated conflicts. Refresh lets those transactions commit instead of forcing the application into avoidable retry loops.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'A missing span read is a correctness bug. Checking that a username does not exist is not just a point read of one absent key; it is a predicate over the keyspace where that username would be inserted. If the system fails to protect that span, a concurrent insert can violate serializable uniqueness.',
-        'Eviction and lease transfers are another source of risk. The structure is called a cache, but losing detail must be conservative. After restart or ownership change, the system may need low-water marks or other safe initialization so it never forgets a read in a way that allows an old conflicting write.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study MVCC Internals and Vacuum for version visibility, Hybrid Logical Clocks for timestamp generation, Transaction Isolation Levels for the user-facing contract, Snapshot Isolation for the anomaly boundary, Raft Log Replication for range ownership, and CockroachDB Transaction Layer material for the production version of timestamp pushes and refresh.',
-        'When implementing a toy version, start with point keys and a read set, then add range reads only after the point-key logic is clear. Most mistakes in real systems come from forgetting that absence and predicates also create dependencies.',
-        'Then test it with adversarial histories: read-before-write, write-before-read, missing-row uniqueness, and a transaction pushed after reading. If each case has an explicit reason to commit or retry, the mechanism is becoming understandable instead of mystical.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the animation as serializability repair with timestamps. Serializability means concurrent transactions behave like some one-at-a-time order. The timestamp cache records reads, and refresh checks whether a pushed transaction still read valid facts.', {type: 'image', src: './assets/gifs/timestamp-cache-read-refresh.gif', alt: 'Animated walkthrough of the timestamp cache read refresh visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: ['MVCC databases store versions at timestamps, so a write must not sneak before a read that already observed the old value. A transaction pushed to a later timestamp also must not commit with stale reads. The cache and refresh turn both problems into explicit proof obligations.', {type: 'callout', text: 'Timestamp cache entries turn served reads into future write constraints, and refresh turns a pushed timestamp into a proof obligation instead of an automatic abort.'},], },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is locking every key or range read until commit. That preserves order but blocks heavily in distributed systems. Checking only at commit is cheaper but can forget that a read already escaped to a client.'], },
+    { heading: 'The wall', paragraphs: ['Reads create dependencies even when they do not write. A missing-row check is a span dependency because a concurrent insert inside that span can change the answer. A pushed timestamp creates a second dependency: earlier reads must still be true at the later time.'], },
+    { heading: 'The core insight', paragraphs: ['Record read high-water marks and recheck read sets when timestamps move. If a span was read at time 100, overlapping writes must happen after 100. If a transaction read at 50 and commits at 90, every read must be unchanged across that interval.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Serialization constraints form a directed dependency graph: read-before-write edges must not be reversed by timestamp movement. Source: Wikimedia Commons, David W., public domain: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},], },
+    { heading: 'How it works', paragraphs: ['Serving a read inserts a timestamp-cache entry for the key or span. A later overlapping write below that timestamp gets pushed above the read. A pushed transaction refreshes by checking MVCC versions for each recorded read dependency between the old and new timestamps.'], },
+    { heading: 'Why it works', paragraphs: ['The timestamp cache preserves read-before-write edges in timestamp order. Read refresh is observational equivalence: if every value visible at the old timestamp is still visible at the new timestamp, the transaction could have read at the new timestamp all along. If any dependency changed, retry is required.'], },
+    { heading: 'Cost and complexity', paragraphs: ['The cache costs memory and overlap lookup for recent read spans. Refresh costs a pass over the transaction read set, so 5 keys are cheap and 2 million scanned rows are not. Coarse spans reduce metadata but create false pushes.'], },
+    { heading: 'Real-world uses', paragraphs: ['Distributed SQL systems use this pattern to keep serializable isolation with less blocking than read locks. It is useful for configuration reads, metadata reads, uniqueness checks, and small index spans that often remain stable despite timestamp pushes.'], },
+    { heading: 'Where it fails', paragraphs: ['It fails when the read set is incomplete, especially for absence checks and predicates. It also performs poorly on hot ranges where refresh usually fails after doing work. Client transaction bodies still need retry-safe behavior because refresh can reject a commit.'], },
+    { heading: 'Worked example', paragraphs: ['R reads account A at timestamp 50 and sees balance 100. A write to A at timestamp 40 arrives later, but the cache pushes it above 50 because it cannot serialize before the served read.', 'T reads B = 7 at timestamp 60 and is pushed to commit at 90. If B stayed 7 from 60 to 90, refresh succeeds. If B changed to 8 at 75, refresh fails and T retries.'], },
+    { heading: 'Sources and study next', paragraphs: ['Study CockroachDB transaction docs, MVCC, serializable isolation, snapshot isolation, optimistic concurrency control, hybrid logical clocks, and predicate locking. Then test read-before-write, missing-row insert, refresh success, and refresh failure histories.'], },
   ],
 };

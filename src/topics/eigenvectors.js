@@ -163,8 +163,8 @@ export const article = {
         },
         'The power-iteration view shows a fan of arrows. Each arrow is the result of one more multiply-and-normalize step. The fan converges toward 45 degrees because the dominant eigenvalue (3) amplifies its component faster than the subdominant (1). The final arrow, marked found, is the dominant eigenvector.',
         'The five-fields view shows a table. Each row is the same equation Av = lambda v wearing a different costume: web ranking, statistics, deep learning, graph clustering, physics. Read it as a census of where eigenvectors appear, not as separate algorithms.',
-      
-        {type: 'image', src: './assets/gifs/eigenvectors.gif', alt: 'Animated walkthrough of the eigenvectors visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/eigenvectors.gif', alt: 'Animated walkthrough of the eigenvectors visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -195,12 +195,19 @@ export const article = {
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'Rewrite Av = lambda v as (A - lambda I)v = 0. A nonzero solution v exists only when the matrix (A - lambda I) is singular -- its determinant is zero. That determinant is a polynomial in lambda (the characteristic polynomial), and its roots are the eigenvalues. Each root pins down one special direction; the matrix\'s entire geometric behavior decomposes into those directions and their stretch factors.',
+        'The payoff: once you know the eigenvectors and eigenvalues, the matrix stops being a black box. In the eigenvector coordinate system, A acts as a diagonal matrix -- pure scaling along each axis, no rotation, no coupling. Every application of eigenvectors (PCA, PageRank, vibration modes) exploits this same reduction: replace a complicated transformation with independent stretches along a handful of directions.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
-        'The defining equation Av = lambda v rearranges to (A - lambda I)v = 0. For a nonzero v to exist, the matrix (A - lambda I) must be singular, which means det(A - lambda I) = 0. This is the characteristic equation -- a polynomial of degree n in lambda whose roots are the eigenvalues.',
-        'For A = [[2,1],[1,2]]: det([[2-lambda, 1],[1, 2-lambda]]) = (2-lambda)^2 - 1 = lambda^2 - 4lambda + 3 = (lambda-3)(lambda-1) = 0. The eigenvalues are lambda = 3 and lambda = 1.',
+        'The characteristic equation det(A - lambda I) = 0 is a polynomial of degree n whose roots are the eigenvalues. For A = [[2,1],[1,2]]: det([[2-lambda, 1],[1, 2-lambda]]) = (2-lambda)^2 - 1 = lambda^2 - 4lambda + 3 = (lambda-3)(lambda-1) = 0. The eigenvalues are lambda = 3 and lambda = 1.',
         'For each eigenvalue, solve (A - lambda I)v = 0 for the eigenvector. For lambda = 3: (A - 3I) = [[-1,1],[1,-1]], so v = (1,1). For lambda = 1: (A - I) = [[1,1],[1,1]], so v = (1,-1). Check: A(1,1) = (3,3) = 3(1,1). A(1,-1) = (1,-1) = 1(1,-1).',
-        'Power iteration finds the dominant eigenvector without solving the polynomial. Start with any nonzero vector, repeatedly multiply by A and normalize. The dominant eigenvalue\'s component grows exponentially relative to all others, so the vector converges to the dominant eigenvector. Each step costs one matrix-vector multiply.',
+        'Solving the characteristic polynomial directly is practical only for small matrices. For large or sparse matrices, iterative methods dominate. Power iteration is the simplest: start with any nonzero vector, repeatedly multiply by A and normalize to unit length. The dominant eigenvalue\'s component grows exponentially relative to all others, so the vector converges to the dominant eigenvector. Each step costs one matrix-vector multiply.',
+        'To find additional eigenvectors beyond the dominant one, deflation subtracts the found component (A_new = A - lambda1 * e1 * e1^T for symmetric matrices), then power iteration runs again on A_new. In practice, the QR algorithm finds all eigenvalues simultaneously by applying a sequence of orthogonal similarity transformations that drive the matrix toward upper-triangular form.',
       ],
     },
     {
@@ -208,15 +215,15 @@ export const article = {
       paragraphs: [
         'If the matrix has a full set of eigenvectors, any starting vector v decomposes as v = a1*e1 + a2*e2 + ... + an*en, where each ei is an eigenvector. Multiplying by A scales each component by its eigenvalue: Av = lambda1*a1*e1 + lambda2*a2*e2 + ... After k multiplications, the coefficients become lambda1^k*a1, lambda2^k*a2, and so on.',
         'If |lambda1| > |lambda2| >= ... >= |lambdan|, then lambda1^k dominates all other terms exponentially. After normalization, the vector points along e1. The convergence rate depends on the spectral gap |lambda2/lambda1|: a ratio of 1/3 (as in this demo) means each iteration triples the dominance of e1 over e2. Ten iterations give a ratio of 3^10 = 59,049 to 1.',
-        'Eigenvectors of a symmetric matrix are orthogonal. This is not a coincidence -- it follows from the identity (Av)^T w = v^T (A^T w), which for symmetric A gives lambda_i (v_i^T v_j) = lambda_j (v_i^T v_j). When lambda_i differs from lambda_j, the inner product must be zero.',
+        'Eigenvectors of a symmetric matrix are orthogonal. This follows from the identity (Av)^T w = v^T (A^T w). For symmetric A, A^T = A, so lambda_i (v_i^T v_j) = lambda_j (v_i^T v_j). When lambda_i differs from lambda_j, the dot product v_i^T v_j must be zero. Orthogonality means the eigenvectors form a coordinate system with no interference between axes -- each direction captures an independent mode of the transformation.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Finding all eigenvalues of a dense n-by-n matrix via the QR algorithm costs O(n^3) time and O(n^2) space. The characteristic polynomial is never solved directly for n > 4 because root-finding on high-degree polynomials is numerically unstable.',
-        'Power iteration costs O(n^2) per step for a dense matrix (one matrix-vector multiply) or O(nnz) for a sparse matrix with nnz nonzero entries. The number of iterations depends on the spectral gap: a gap of |lambda2/lambda1| = 0.9 needs about 44 iterations for 4 digits of accuracy (since 0.9^44 is approximately 0.01), while a gap of 1/3 needs only 9.',
-        'Lanczos iteration (symmetric) and Arnoldi iteration (general) find the top k eigenvalues in O(k * nnz) time for sparse matrices, making them practical for matrices with millions of rows -- the scale needed for PageRank and spectral graph clustering.',
+        'Finding all eigenvalues of a dense n-by-n matrix via the QR algorithm costs O(n^3) time and O(n^2) space. Double n from 1,000 to 2,000 and the work increases roughly 8-fold. The characteristic polynomial is never solved directly for n > 4 because root-finding on high-degree polynomials is numerically unstable -- small coefficient errors amplify into large root errors (Wilkinson\'s polynomial is the textbook example).',
+        'Power iteration costs O(n^2) per step for a dense matrix (one matrix-vector multiply) or O(nnz) for a sparse matrix with nnz nonzero entries. The number of iterations depends on the spectral gap: a gap of |lambda2/lambda1| = 0.9 needs about 44 iterations for 4 digits of accuracy (since 0.9^44 is approximately 0.01), while a gap of 1/3 needs only 9. The dominant cost is the matrix-vector product, so sparsity is the key lever.',
+        'Lanczos iteration (symmetric) and Arnoldi iteration (general) find the top k eigenvalues in O(k * nnz) time for sparse matrices, making them practical for matrices with millions of rows -- the scale needed for PageRank and spectral graph clustering. These methods build a small Krylov subspace and solve the eigenvalue problem on that reduced basis, trading full accuracy for feasibility at scale.',
       ],
     },
     {
@@ -239,18 +246,19 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Non-symmetric matrices can have complex eigenvalues. A 90-degree rotation matrix [[0,-1],[1,0]] has eigenvalues i and -i -- no real direction stays on its line. Power iteration on such a matrix oscillates instead of converging.',
-        'Degenerate eigenvalues (algebraic multiplicity greater than 1) may not have enough independent eigenvectors. The matrix [[1,1],[0,1]] has eigenvalue 1 with multiplicity 2, but only one eigenvector direction. Such defective matrices cannot be diagonalized; they require Jordan normal form.',
-        'Numerical instability is a practical hazard. Matrices with eigenvalues very close together make the characteristic polynomial ill-conditioned: small changes in entries produce large changes in eigenvalues. The QR algorithm handles this by never forming the characteristic polynomial, but even QR can struggle with near-singular or highly non-normal matrices.',
-        'Eigendecomposition does not exist for all matrices, and even when it does, it may not be the right tool. SVD works for every real matrix (including non-square ones) and decomposes the input-output stretching even when eigenvectors are awkward. For many applications, SVD is the safer default.',
+        'Degenerate eigenvalues (repeated roots) may not have enough independent eigenvectors. The matrix [[1,1],[0,1]] has eigenvalue 1 with algebraic multiplicity 2, but only one eigenvector direction (1,0). Such defective matrices cannot be diagonalized. They require Jordan normal form, which replaces clean diagonal entries with small upper-triangular blocks.',
+        'Numerical instability is a practical hazard. Matrices with eigenvalues very close together make the characteristic polynomial ill-conditioned: small entry perturbations produce large eigenvalue shifts. The QR algorithm avoids this by never forming the characteristic polynomial, but even QR can struggle with highly non-normal matrices where eigenvectors are nearly parallel.',
+        'Eigendecomposition does not exist for all matrices, and even when it does, it may not be the right tool. SVD works for every real matrix (including non-square ones) and decomposes the input-output geometry even when eigenvectors are complex or defective. For many applications, SVD is the safer default.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Matrix: A = [[2,1],[1,2]]. Characteristic equation: (2-lambda)^2 - 1 = 0, so lambda^2 - 4lambda + 3 = 0. Roots: lambda = 3 and lambda = 1.',
-        'Eigenvector for lambda = 3: solve (A - 3I)v = 0. A - 3I = [[-1,1],[1,-1]]. First row gives -v1 + v2 = 0, so v = (1,1). Verify: A(1,1) = (2+1, 1+2) = (3,3) = 3(1,1).',
-        'Eigenvector for lambda = 1: solve (A - I)v = 0. A - I = [[1,1],[1,1]]. First row gives v1 + v2 = 0, so v = (1,-1). Verify: A(1,-1) = (2-1, 1-2) = (1,-1) = 1(1,-1).',
-        'Power iteration from v0 = (1,0): decompose as 0.5(1,1) + 0.5(1,-1). After one step: A*v0 = (2,1); normalized: (0.894, 0.447), angle 26.6 degrees. After six steps the angle is within 0.1 degrees of 45 degrees. After ten steps the lambda=3 component is 59,049 times larger than the lambda=1 component before normalization.',
+        'Matrix: A = [[2,1],[1,2]]. Characteristic equation: det(A - lambda I) = (2-lambda)^2 - 1 = lambda^2 - 4lambda + 3 = (lambda-3)(lambda-1) = 0. Roots: lambda = 3 and lambda = 1.',
+        'Eigenvector for lambda = 3: solve (A - 3I)v = 0. A - 3I = [[-1,1],[1,-1]]. First row gives -v1 + v2 = 0, so v = (1,1). Verify: A(1,1) = (2*1+1*1, 1*1+2*1) = (3,3) = 3*(1,1). Correct.',
+        'Eigenvector for lambda = 1: solve (A - I)v = 0. A - I = [[1,1],[1,1]]. First row gives v1 + v2 = 0, so v = (1,-1). Verify: A(1,-1) = (2*1+1*(-1), 1*1+2*(-1)) = (1,-1) = 1*(1,-1). Correct.',
+        'Diagonalization check: the eigenvectors (1,1) and (1,-1) are orthogonal (dot product = 1*1 + 1*(-1) = 0), confirming the spectral theorem for this symmetric matrix. In the eigenvector basis, A acts as diag(3,1) -- pure stretching, no rotation.',
+        'Power iteration from v0 = (1,0): decompose as 0.5*(1,1) + 0.5*(1,-1). After one multiply: A*v0 = (2,1), normalized to (0.894, 0.447), angle 26.6 degrees from the x-axis. After two: angle 38.7 degrees. After six: within 0.1 degrees of 45 degrees (the eigenvector direction). After ten steps: the lambda=3 component is 3^10 = 59,049 times the lambda=1 component before normalization, so the vector is effectively pure eigenvector.',
       ],
     },
     {

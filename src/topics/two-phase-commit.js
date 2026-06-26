@@ -121,97 +121,97 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        `The node labeled C is the coordinator. The three lower nodes (pay, stock, order) are participants, each owning a separate database. Edges represent network messages between coordinator and participants.`,
-        {type: `callout`, text: `Two-phase commit makes every participant durable before any participant becomes visible, then lets one logged coordinator decision resolve all local promises.`},
-        `When edges light up, the coordinator is sending PREPARE requests (phase 1) or COMMIT/ABORT decisions (phase 2). When participant nodes show "voted YES" or "voted NO," that participant has written its vote durably and replied. "committed" means the participant finalized its local work and released locks.`,
-        `Run the "coordinator crashes" scenario to see the blocking problem. The coordinator disappears, participants show "BLOCKED," and no edges remain. Those participants are holding locks on real rows with no way to learn the outcome. That frozen state is 2PC's defining tradeoff.`,
-      
-        {type: 'image', src: './assets/gifs/two-phase-commit.gif', alt: 'Animated walkthrough of the two phase commit visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The top node is the coordinator, which is the process responsible for choosing one final transaction outcome. The lower nodes are participants, each owning local data that must either commit or abort with the others.',
+        {
+          type: 'callout',
+          text: 'Two-phase commit makes every participant durable before any participant becomes visible, then lets one logged coordinator decision resolve all local promises.',
+        },
+        'Messages in phase one ask whether each participant can promise to finish later. Messages in phase two carry the single decision, and a blocked participant is one that promised yes but has not learned the decision.',
+        {
+          type: 'image',
+          src: './assets/gifs/two-phase-commit.gif',
+          alt: 'Animated walkthrough of the two phase commit visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A single database gets atomicity from its write-ahead log: if the process crashes, recovery replays the log and either finishes the transaction or rolls it back. One log, one decision, no ambiguity.`,
-        `Distributed transactions break that model. A checkout might debit a card in one database, reserve inventory in another, and create an order in a third. The customer expects one outcome: all three effects persist, or none of them do. But no single log spans all three machines.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/86/Two_phase_commit_seq_diagram_success_01.png`, alt: `Sequence diagram of a successful two-phase commit between a coordinator and two participants`, caption: `The message sequence shows the core shape: prepare all participants first, then broadcast one final commit decision. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Two_phase_commit_seq_diagram_success_01.png.`},
-        `Jim Gray formalized this problem in his 1978 paper "Notes on Data Base Operating Systems." The question is not how to prevent failures; it is how to prevent partial success. Two-phase commit is the protocol that provides an all-or-nothing boundary across machines that share no disk, no lock manager, and no write-ahead log.`,
+        'A transaction is atomic when its effects happen all together or not at all. A single database can enforce that with one log, but a distributed checkout may touch payment, inventory, and order databases that do not share a log.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/86/Two_phase_commit_seq_diagram_success_01.png',
+          alt: 'Sequence diagram of a successful two-phase commit between a coordinator and two participants',
+          caption: 'The message sequence shows the core shape: prepare all participants first, then broadcast one final commit decision. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Two_phase_commit_seq_diagram_success_01.png.',
+        },
+        'Two-phase commit exists to prevent partial success across those machines. It gives separate participants one shared yes-or-no outcome even when each participant can only make its own local writes durable.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The simplest idea is to commit each service in sequence: payment commits, then inventory commits, then orders commits. If everything works, the result looks atomic. Teams reach for this because it avoids any coordination protocol.`,
-        `The problem surfaces on the unhappy path. If payment commits but the inventory service crashes, the system has charged a card for stock it cannot reserve. Reversing a committed transaction from another service is not a database operation. It is ad-hoc compensation that each pair of services must invent and maintain separately.`,
-        `A slightly better idea: ask each service "are you ready?" before telling anyone to commit. That sounds like coordination, but it fails without durability. A service that says "yes" from memory can crash and forget what it promised. When it reboots, the coordinator believes it agreed, but the service has no record of the agreement. A volatile promise is a handshake, not a protocol.`,
+        'The obvious approach is to commit services one after another. Charge the card, reserve the item, create the order, and return success if all calls finish.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `Sequential commits fail because a committed effect cannot be unseen. Once payment has committed, the charge is visible to downstream systems and to the customer. If a later participant fails, there is no general way to "uncommit" the earlier one.`,
-        `Asking "are you ready?" fails because volatile readiness does not survive crashes. The coordinator records a yes, the participant reboots, and their states disagree. The gap between "I said yes" and "I can still act on yes after a crash" is where correctness breaks.`,
-        `The wall is the combination of these two facts: effects become visible on commit, and promises must survive crashes. Any protocol that solves distributed atomicity must make participants promise durably before any of them commit, and must centralize the final decision so that no participant can unilaterally contradict it.`,
+        'The wall is that a committed local effect cannot be uncommitted by another service. If payment commits and inventory then fails, the system has charged a customer for an item it did not reserve.',
+        'A second wall is crash memory. A participant that merely says yes from RAM can reboot and forget the promise, so correctness requires a durable yes before anyone is allowed to commit visibly.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Split the transaction into a promise phase and a decision phase. First every participant writes enough local log state to guarantee it can later commit or abort, then the coordinator logs one final decision.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Phase 1 is prepare. The coordinator sends a PREPARE message to every participant. Each participant checks constraints, performs the local work (inserts, updates, deletes), writes undo and redo information to its own write-ahead log, holds locks on all affected rows, and replies YES or NO.`,
-        `A YES vote is a durable promise: "I have done the work, written it to my log, and I am able to commit or abort this transaction even if I crash and recover." A NO vote means the participant cannot complete its part, and the transaction must abort.`,
-        `Phase 2 is the decision. If every participant voted YES, the coordinator force-writes a commit record to its own log and broadcasts COMMIT to all participants. If any participant voted NO, timed out, or failed to respond, the coordinator force-writes an abort record and broadcasts ABORT. Each participant then finalizes (commit or rollback), releases its locks, and acknowledges completion.`,
-        `Recovery follows the logs. A participant that finds a prepared-but-unresolved transaction in its log contacts the coordinator to learn the decision. A coordinator that finds a decision record re-sends it. Repeating COMMIT or ABORT is safe because the action is idempotent. The protocol never changes a decision once it is logged.`,
+        'In phase one, the coordinator sends PREPARE to every participant. A participant checks constraints, writes undo and redo records to its write-ahead log, holds the required locks, and votes YES or NO.',
+        'In phase two, the coordinator commits only if every vote was YES. It force-writes COMMIT to its own log and sends COMMIT, or it force-writes ABORT and sends ABORT if any participant voted NO or failed to answer.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Atomicity rests on two durable facts lining up. First, every YES-voting participant has written enough state to its WAL that it can commit later, even after a crash. Second, the coordinator logs exactly one decision before telling anyone to act on it.`,
-        `If commit is logged, every prepared participant can finish because its WAL contains the redo information. If commit is not logged (because some participant voted NO, or prepare never completed), abort is safe because no participant has finalized yet. The prepare phase moves participants to a state where they can go either way; the decision phase resolves the ambiguity exactly once.`,
-        `The unanimity requirement is not majority rule. Atomic commit means all-or-nothing. If even one participant cannot commit, forcing the others to commit would break the transaction. A single NO vote must abort the entire transaction because the alternative is partial success, which is the exact problem 2PC exists to prevent.`,
+        'Atomicity follows from the durable promise. A YES vote means the participant can still commit or abort after a crash, so the coordinator can safely choose commit only after all participants have reached that state.',
+        'The coordinator decision is the single source of truth. Re-sending COMMIT or ABORT is safe because the decision does not change, and each participant applies the same logged outcome.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `The protocol costs two coordinator round trips and 4n messages for n participants: n PREPARE messages, n votes back, n COMMIT/ABORT messages, n acknowledgments. Each round trip includes a forced log write (fsync) at the coordinator and at each participant, so latency is dominated by disk flush time, not network time.`,
-        `The larger cost is lock duration. Prepared rows, unique keys, inventory counts, and account balances are locked from the moment the participant votes YES until it receives the phase 2 decision and finalizes. Every unrelated transaction that touches those rows blocks for the entire window.`,
-        `2PC is a blocking protocol. If the coordinator crashes after collecting YES votes but before broadcasting the decision, every prepared participant is stuck. It cannot commit (maybe the coordinator decided abort) and cannot abort (maybe the coordinator decided commit and told someone else). The participants hold locks and wait for the coordinator to recover. One machine's downtime becomes every participant's outage.`,
+        'With n participants, the protocol sends n prepare messages, n votes, n decision messages, and n acknowledgments. It also needs forced log writes, so latency is often controlled by disk flush and replication delay rather than by CPU.',
+        'The behavioral cost is lock time. Rows prepared by a YES vote remain locked until phase two finishes, so a slow coordinator or network pause can block unrelated user work that needs the same rows.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Distributed databases use 2PC for cross-shard commits. MySQL supports XA transactions (xa_prepare, xa_commit, xa_rollback). PostgreSQL supports PREPARE TRANSACTION for explicit two-phase commits. Oracle, SQL Server, and DB2 implement the XA interface, making 2PC the standard mechanism for enterprise distributed transactions.`,
-        `Message queue plus database coordination is a classic use case: dequeue a message and insert a row atomically, so the message is consumed if and only if the database write commits. Without 2PC, the system either loses messages (dequeue then crash before insert) or processes them twice (insert then crash before dequeue acknowledgment).`,
-        `Financial transactions that must maintain hard invariants across systems (debit one account, credit another across different banks or ledgers) rely on 2PC or protocols built on top of it. The protocol works best with a small number of participants, short transactions, and predictable storage latency.`,
+        'Distributed databases use two-phase commit for cross-shard transactions. It is the mechanism behind XA-style database transactions and many systems that need one atomic commit across independent storage partitions.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The blocking problem is the defining weakness. When the coordinator is unreachable, prepared participants hold locks indefinitely. In production, this means orphaned prepared transactions that block all conflicting work. Database administrators need monitoring, timeouts, and manual xa_recover cleanup tools to handle this failure mode.`,
-        `Three-phase commit (3PC), proposed by Skeen in 1981, adds a PRE-COMMIT phase so that surviving participants can decide without the coordinator. But 3PC breaks under network partitions: if one side saw PRE-COMMIT and the other did not, the two halves make opposite decisions. Partitions are more common than clean crashes, so 3PC is rarely deployed.`,
-        `The real fix for blocking is to replicate the coordinator's decision using a consensus protocol. Spanner runs 2PC where the coordinator is a Paxos group, so a backup can answer if the leader fails. CockroachDB and TiDB do the same with Raft. This eliminates the single point of failure but adds quorum latency.`,
-        `For long-running workflows, 2PC is the wrong tool entirely. Holding locks across services for minutes or hours is not viable. The Saga pattern commits each local step immediately and runs compensating actions if a later step fails. Sagas give up strict atomic visibility but avoid the lock-holding problem. 2PC and sagas solve different problems: 2PC guarantees atomicity over short database operations; sagas manage eventual consistency over long business processes.`,
+        'Two-phase commit is blocking. If every participant voted YES and the coordinator becomes unreachable before the decision is known, participants cannot safely commit or abort, so they hold locks and wait.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `A customer checks out with one item. Three databases are involved: payment (card charge), stock (inventory reservation), and order (order record). The coordinator begins by sending PREPARE to all three.`,
-        `Success case: Payment writes a pending $50 debit to its WAL, locks the customer's balance row, votes YES. Stock writes a pending reservation for item #4412, locks the inventory count row, votes YES. Order writes a pending order record, locks the order ID sequence, votes YES. The coordinator receives three YES votes, force-writes "commit" to its own log, then broadcasts COMMIT. Each participant finalizes its pending write, releases locks, and acknowledges. The customer sees one confirmation. Three databases changed as one.`,
-        `Abort case: Same setup, but stock discovers item #4412 is out of stock during prepare. Stock votes NO. The coordinator does not wait for unanimity it will never get. It force-writes "abort" to its log and broadcasts ABORT. Payment rolls back the pending debit and releases the balance lock. Order rolls back the pending record. The customer sees one clean "out of stock" error. No card was charged, no phantom order exists.`,
-        `Blocking case: All three vote YES. The coordinator crashes before writing or broadcasting a decision. Payment, stock, and order are each holding locks on rows they prepared. They cannot commit (maybe the coordinator decided abort before crashing). They cannot abort (maybe the coordinator wrote commit and sent it to one participant before crashing). They wait, holding locks, blocking every other transaction that touches those rows, until the coordinator recovers and reads its log.`,
+        'A checkout touches three participants: payment, stock, and order. Payment prepares a $50 debit, stock prepares a reservation for item 4412, and order prepares a new order row.',
+        'If all three vote YES, the coordinator logs COMMIT and sends it to all three. Payment finalizes the debit, stock subtracts one unit, and order exposes the row, so the customer sees one completed checkout.',
+        'If stock votes NO because quantity is 0, the coordinator logs ABORT. Payment removes the pending debit and order removes the pending row, so the customer sees an out-of-stock error and no partial purchase exists.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Jim Gray, "Notes on Data Base Operating Systems," 1978 -- the original formalization of 2PC within transaction processing theory. Skeen, "Nonblocking Commit Protocols," 1981 -- introduces 3PC and proves that no deterministic protocol can be both non-blocking and safe under arbitrary failures. Lamport and Gray, "Consensus on Transaction Commit," 2004 -- Paxos commit, the fault-tolerant alternative to a single coordinator.`,
-        `Prerequisite: Write-Ahead Log (WAL) -- 2PC's prepared promises survive crashes only because the WAL makes them durable. Understand WAL mechanics before reasoning about recovery.`,
-        `Consensus protocols: Raft and Paxos -- these are how production systems replicate the coordinator's decision so blocking disappears. Spanner (Corbett et al., OSDI 2012) runs 2PC over Paxos groups with TrueTime for globally ordered timestamps.`,
-        `Concurrency control: MVCC (Multi-Version Concurrency Control) -- understand what happens to readers while 2PC holds locks on prepared rows. MVCC lets reads proceed against older snapshots, but the interaction with prepared-but-uncommitted transactions is subtle.`,
-        `Alternatives: Saga pattern for long-running workflows where holding locks across services is unacceptable. CAP Theorem for the theoretical backdrop -- 2PC chooses consistency over availability when the coordinator is unreachable.`,
+        'Study Jim Gray, Notes on Data Base Operating Systems (1978), Skeen, Nonblocking Commit Protocols (1981), and Lamport and Gray, Consensus on Transaction Commit (2004). Then study write-ahead logging, Raft, Paxos, MVCC, and sagas.',
       ],
     },
   ],

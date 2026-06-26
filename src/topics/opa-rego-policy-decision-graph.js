@@ -188,166 +188,91 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for OPA Rego Policy Decision Graph. A policy-as-code primer: structured input, data documents, Rego rules, partial decisions, bundles, enforcement points, explain traces, and audit records..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type: "callout", text: "OPA turns authorization into a replayable data query: input, data, rules, decision, and enforcement all have named boundaries."},
-        {type: "image", src: "https://developer.gs.com/blog/blog-posts/scaling-opa-through-oces/oces_1_v2.png", alt: "Open Policy Agent policy decision point in a service request path", caption: "OPA separates the policy decision point from the application code that enforces the result. Source: Goldman Sachs Developer Blog."},
-      
-        {type: 'image', src: './assets/gifs/opa-rego-policy-decision-graph.gif', alt: 'Animated walkthrough of the opa rego policy decision graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Read the decision graph as a request path. The policy enforcement point, or PEP, sends structured input to OPA; OPA evaluates Rego rules with input and data documents; the decision returns to the PEP for enforcement. Active nodes show the current boundary, and audit nodes show what must be retained for replay.',
+        'Read the bundle lifecycle as the control plane for policy code. Rego files move through tests, bundle build, digest or signature, distribution, local cache, serving, and metrics. A safe inference is that a correct rule in a stale bundle can still make the wrong decision.',
+        {type: 'callout', text: 'OPA turns authorization into a replayable data query: input, data, rules, decision, and enforcement all have named boundaries.'},
+        {type: 'image', src: 'https://developer.gs.com/blog/blog-posts/scaling-opa-through-oces/oces_1_v2.png', alt: 'Open Policy Agent policy decision point in a service request path', caption: 'OPA separates the policy decision point from the application code that enforces the result. Source: Goldman Sachs Developer Blog.'},
+        {type: 'image', src: './assets/gifs/opa-rego-policy-decision-graph.gif', alt: 'Animated walkthrough of the opa rego policy decision graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        "Authorization and compliance rules tend to spread through a system as request-handler if statements, configuration flags, firewall exceptions, deployment scripts, and emergency patches. Each local rule may look reasonable, but the whole policy becomes hard to review. When an auditor asks why a request was allowed, the team has to reconstruct behavior from scattered code paths.",
-        "Open Policy Agent, usually called OPA, exists to separate policy decision-making from policy enforcement. A service, gateway, controller, or CI job remains responsible for enforcement. OPA receives structured input, evaluates Rego rules over that input and slower-changing data documents, and returns a decision the caller knows how to apply.",
+        'Authorization rules often spread through request handlers, deployment scripts, CI checks, firewall rules, and emergency exceptions. Each local check may be understandable, but the organization loses one reviewable policy surface. When an auditor asks why a request was allowed, engineers reconstruct behavior from scattered code.',
+        'Open Policy Agent, or OPA, exists to separate policy decisions from enforcement. Rego is the declarative policy language used by OPA. The caller still enforces the answer, but the policy logic becomes a query over named input and data instead of hidden branches across services.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        "The naive approach is to keep policy beside the business operation. A handler checks whether the user owns the tenant, whether the image registry is approved, whether a namespace has the right label, or whether a workflow has a required approval. For a small service, that is direct and easy to understand.",
-        "The design fails as soon as the same policy must be shared across services. One service calls the field image, another calls it container_image, and a third forgets to include the digest. A deny rule is added to one codebase but not another. A rule change requires application redeploys. A production incident leaves no single policy version to replay.",
+        'The obvious approach is to put policy beside the operation. An API handler checks tenant ownership, a deploy script checks image registry, and a CI job checks approvals. For one service with one team, that direct style is fast and understandable.',
+        'This approach works until the same rule must be shared across many services. One caller sends image, another sends container_image, and another forgets the digest. A deny rule lands in one repository but not another, and the incident trail has no single policy version to replay.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "The wall is not just duplication. The wall is loss of invariants. A policy is supposed to mean the same thing wherever it is enforced, but application-local checks drift with schema changes, team ownership, emergency exceptions, and partial rollouts. Security bugs often come from one forgotten path, not from the main path everyone reviewed.",
-        "Centralizing policy introduces its own wall. OPA can only decide from the input and data it receives. If the enforcement point sends incomplete input, uses stale data, ignores the deny result, or falls open after a timeout, the policy engine can look correct while the system is unsafe. Policy-as-code improves reviewability, but it does not remove the need for enforcement discipline.",
+        'The wall is invariant loss. A policy is supposed to mean the same thing wherever it is enforced, but application-local checks drift with schema changes, ownership changes, exceptions, and partial rollouts. Security bugs usually come from one forgotten path, not from the main path everyone reviewed.',
+        'Central policy creates a second wall: OPA can only decide from the input and data it receives. If the enforcement point omits a field, ignores a denial, falls open on timeout, or uses stale data, the rule can be correct while the system is unsafe. The enforcement boundary is part of the design.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "The core insight is that a policy decision is a query over structured data. The input document describes the current request: subject, action, resource, environment, and relevant metadata. Data documents describe slower-changing facts: roles, group membership, trusted builders, approved registries, risk tiers, namespace settings, or service ownership.",
-        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg", alt: "Directed graph with nodes connected by arrows", caption: "A directed graph is the right mental model for policy evaluation: input facts feed derived facts, and derived facts feed decisions. Source: Wikimedia Commons, David W., public domain."},
-        "Rego rules define derived facts and decision values over those documents. The useful mental model is a decision graph. Input and data flow into rules. Rules feed an evaluation query. The query produces a structured decision. The enforcement point applies that decision. Explain traces and decision logs preserve enough of the graph to debug it later.",
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A directed graph is the right mental model for policy evaluation: input facts feed derived facts, and derived facts feed decisions. Source: Wikimedia Commons, David W., public domain.'},
+        'The core insight is that a policy decision is a data query. Input describes the current request: subject, action, resource, environment, and metadata. Data documents describe slower-changing facts such as roles, groups, approved registries, trusted builders, risk tiers, or namespace labels.',
+        'Rego rules derive facts from those documents and return a decision shape. That shape can be a boolean allow, deny reasons, filtered data, required approvals, risk scores, or routing metadata. The useful mental model is a decision graph from facts to derived facts to enforceable result.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "At request time, the policy enforcement point builds an input document. For API authorization, that might include user id, tenant id, groups, method, path, resource owner, request time, device posture, and source network. For Kubernetes admission, it might include pod spec, image digests, namespace labels, user identity, and requested capabilities.",
-        "OPA evaluates a query against input, data, and loaded Rego modules. The result does not have to be a single boolean. It can be allow or deny, a set of deny reasons, a filtered data document, a required-approval object, a risk score, or routing metadata. The caller must know exactly which result shape it asked for and how to enforce it.",
-        "For production rollout, policies are packaged as bundles. A bundle contains Rego modules and optional data. It should move through review, test fixtures, build, signing or digest pinning, distribution, local cache, staged rollout, and metrics. Decision logs should include a decision id, bundle version, input shape, result, and key reasons while avoiding secret leakage.",
+        'At request time, the PEP builds an input document and asks OPA a query. OPA evaluates loaded Rego modules against input and data, then returns the result. The caller must know exactly which result schema it asked for and how to apply it.',
+        'Policies are usually packaged as bundles for production. A bundle contains Rego modules and optional data, moves through tests, receives a digest or signature, and is distributed to OPA instances. Decision logs should include decision id, bundle version, selected input shape, result, and reasons without leaking secrets.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branch conditions and outcomes', caption: 'A decision tree is not Rego, but it makes the policy shape visible: branch over facts, produce a constrained outcome, then enforce it. Source: Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "OPA works because it makes hidden policy dependencies explicit. The rules cannot silently read arbitrary application state. They read declared input, declared data, and other declared rules. That makes it possible to test policies with fixtures, review rules without reading the whole service, and replay a decision after an incident.",
-        "The graph is also compositional. A policy can derive helper facts such as trusted_image, production_namespace, admin_actor, or missing_required_label, then use those facts to compute allow or deny reasons. This is easier to review than one large imperative branch because intermediate decisions can be named and tested.",
-        "Bundle versioning makes policy decisions reproducible. If a request was denied under bundle v42 and data snapshot d17, the team can replay the same input against the same policy state. That is the policy equivalent of using a write-ahead log or event log: preserve the ordered artifact that explains what happened.",
+        'OPA works when the policy boundary is explicit. Rules read declared input, declared data, and declared helper rules rather than arbitrary application state. That makes policies testable with fixtures and replayable after incidents.',
+        'Correctness is a contract across two sides. The policy must compute the intended decision from its documents, and the PEP must enforce that decision consistently. If both contracts hold, the same input and bundle version reproduce the same result.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Consider a Kubernetes admission controller. A developer submits a pod creation request. The admission webhook is the enforcement point. It builds input with the user, namespace, labels, service account, image registry, image digest, security context, requested capabilities, resource limits, and whether the namespace is production.",
-        "OPA receives that input plus data documents listing approved registries, required labels, trusted service accounts, and production namespace constraints. Rego rules compute deny reasons: image registry not approved, privileged mode requested, missing owner label, or production deployment without required service account. If the deny set is empty, allow is true. If it is not empty, the admission controller rejects the request and returns the reasons.",
-        "The same structure works for a supply-chain gate. Input contains artifact digest, signer, source repository, builder id, branch, and attestation summary. Data contains trusted builders, allowed repositories, and minimum SLSA level. Rego evaluates whether the artifact satisfies policy. The CI gate enforces the result and records the bundle version for audit.",
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        "The decision-graph view shows the runtime flow. A policy enforcement point sends input. OPA combines input with data documents and Rego rules. Evaluation produces a decision. The decision returns to the caller. Trace and audit nodes are not decorative; they are what make a production denial explainable after the fact.",
-        "The bundle-lifecycle view shows the control plane. Policies begin in a repository, pass tests, build into bundles, receive a digest or signature, distribute to services, land in local caches, and emit metrics. This view matters because many OPA failures are rollout failures rather than rule-language failures.",
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "OPA adds latency, schema discipline, policy tests, bundle distribution, cache freshness, decision logging, and operational ownership. The main cost is usually not learning Rego syntax. The main cost is keeping input contracts stable and making every enforcement point handle denial, timeout, stale bundle, and logging behavior deliberately.",
-        "Deployment shape is a tradeoff. A sidecar, host-local daemon, or embedded library keeps policy decisions close to the caller and avoids a central bottleneck, but each instance needs bundle freshness and failover rules. A centralized OPA service is easier to update and observe, but it can become a dependency on the critical request path.",
-        "Rich decisions are useful but dangerous if callers interpret them inconsistently. If one caller treats missing deny reasons as allow and another treats missing allow as deny, the policy contract is unclear. The decision schema should be tested the same way an API schema is tested.",
+        'OPA adds request latency, input-schema maintenance, policy tests, bundle distribution, cache freshness, logs, and ownership. The main cost is usually not Rego syntax; it is keeping input contracts stable and making every enforcement point handle deny, timeout, stale bundle, and break-glass behavior deliberately.',
+        'Deployment shape changes cost. Sidecars and embedded libraries keep decisions local but require cache and rollout management per service. A central service is easier to observe but can become a critical-path dependency and a bottleneck.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "OPA wins when many components need shared, reviewable policy. Common uses include Kubernetes admission control, API authorization, infrastructure-as-code checks, CI gates, software supply-chain policy, data filtering, feature gates, service-mesh authorization, and model-action guardrails.",
-        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png", alt: "Decision tree diagram with branch conditions and outcomes", caption: "A decision tree is not Rego, but it makes the policy shape visible: branch over facts, produce a constrained outcome, then enforce it. Source: Wikimedia Commons, CC BY-SA 4.0."},
-        "It is strongest when policies are declarative, input schemas are explicit, rule modules are small enough to review, data freshness is known, and tests cover both allow and deny behavior. It also helps organizations that need explainability: a denial can point to policy version, rule, input field, and reason instead of a buried branch in one service.",
+        'OPA fits Kubernetes admission control, API authorization, infrastructure-as-code checks, CI gates, software supply-chain policy, service-mesh authorization, data filtering, and model-action guardrails. It is strongest when many components need the same reviewable policy and decisions need audit context.',
+        'A common production pattern is a supply-chain gate. Input contains artifact digest, signer, source repository, builder id, branch, and attestation summary. Data contains trusted builders and allowed repositories, and Rego returns allow or a set of deny reasons.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "OPA fails when enforcement is optional. If services can bypass the policy call, ignore a denial, or fall open after a timeout without an explicit risk decision, central policy becomes theater. The enforcement point is part of the algorithm, not an implementation detail.",
-        "It also fails when rules become a second unmaintainable codebase. Tangled modules, unclear data ownership, unbounded helper rules, untested input shapes, and broad exceptions can make policy-as-code harder to reason about than application code. Rego improves policy expression, but it cannot compensate for weak software engineering.",
+        'OPA fails when enforcement is optional. If a service can bypass the policy call, ignore a denial, or fail open without an explicit risk decision, central policy becomes paperwork. A policy engine does not secure a path that the application does not actually enforce.',
+        'It also fails when rule modules become an unmaintainable second codebase. Tangled helper rules, unclear data ownership, stale bundles, untested input shapes, broad exceptions, and secret-heavy logs can make policy-as-code harder to trust than local code.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Worked example',
       paragraphs: [
-        "Important failure modes include input drift, stale bundle drift, stale data drift, accidental fail-open behavior, missing decision logs, secret leakage in logs, shadow-mode differences, unreviewed emergency exceptions, and decision schema mismatch between policy and caller. Each one can produce wrong authorization even when the rule text looks reasonable.",
-        "The mitigation pattern is boring and necessary: schema tests for input, fixtures for policy behavior, staged rollout, digest-pinned bundles, clear data-source ownership, dry-run or shadow mode for risky policy changes, metrics for deny rates by slice, and an audited break-glass path for emergencies.",
+        'Consider a Kubernetes admission request for a pod in namespace prod-payments. Input says user = dana, image = registry.example/pay:v7, digest = sha256:abc, privileged = true, labels = {owner: payments}, and service_account = default. Data says approved registries include registry.example, privileged is forbidden in prod, and prod service accounts must be deployer-payments.',
+        'Rules compute deny reasons. The registry check passes because registry.example is approved. The privileged check adds deny because privileged = true in prod, and the service account check adds deny because default is not deployer-payments. Since the deny set has two strings, allow is false and the admission controller rejects the request with those reasons and bundle version.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Primary sources are the OPA documentation, the Rego policy-language guide, the OPA testing guide, and OPA performance guidance. Those sources explain the product contract: decouple policy decisions from enforcement, evaluate rules over structured data, test policies with fixtures, and pay attention to query and data shape.",
-        "Study Zanzibar Authorization Case Study for relationship authorization, OAuth PKCE Token Lifecycle Case Study and JWT Verification for identity inputs, LLM Guardrail Policy Engine for model-action policy, Software Supply Chain Provenance Graph and SLSA Build and Source Trust Ladder for artifact gates, Kubernetes Admission Policy Gate for a common OPA deployment, Distributed Tracing for decision observability, and Hash Table or JSON data modeling for the underlying structured lookups.",
+        'Primary sources: the OPA documentation, Rego policy-language guide, OPA testing guide, bundle documentation, decision-log documentation, and Kubernetes admission-controller examples that use OPA or Gatekeeper.',
+        'Study Zanzibar-style authorization, JWT verification, OAuth token lifecycle, Kubernetes admission policy, SLSA supply-chain provenance, distributed tracing, and schema versioning next. The durable lesson is that policy correctness is a data contract plus an enforcement contract.',
       ],
     },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why OPA Rego Policy Decision Graph moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

@@ -172,98 +172,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Each row is one suffix of the input text. The "start" column is the integer position where that suffix begins in the original string. The "suffix" column shows the characters from that position to the end. Before sorting, rows appear in text order (0, 1, 2, ...). After sorting, they appear in lexicographic order. That permutation of starting positions is the suffix array.',
+        'Each row is one suffix of the text, which means the substring that starts at a position and continues to the end. The suffix array is the list of starting positions after those suffixes are sorted lexicographically. In the search frames, the active range is the binary-search interval over sorted suffixes.',
         {type: 'callout', text: 'A suffix array flattens the suffix tree idea into sorted integers: every substring search becomes a prefix search over neighboring suffixes.'},
-        'During the search steps, highlighted cells mark the active binary-search window. The compared cell is the midpoint. When matches appear, notice that they occupy a contiguous block of rows -- no gaps. That contiguity is the structural guarantee that makes binary search over suffixes correct: all suffixes sharing a prefix are neighbors in sorted order.',
-        'In the LCP view, each row carries the count of leading characters shared with the previous sorted suffix. A high LCP value means a long repeated substring. The operations table shows what the LCP array unlocks beyond basic search: longest repeated substring, distinct substring count, and suffix-tree-equivalent queries via range-minimum.',
-      
+        'A green match means the pattern is a prefix of that suffix. The safe inference is contiguity: if two sorted suffixes start with the same pattern, every suffix between them starts with that pattern too. The LCP view adds longest-common-prefix lengths between neighboring sorted suffixes.',
         {type: 'image', src: './assets/gifs/suffix-array.gif', alt: 'Animated walkthrough of the suffix array visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Any text that will be searched many times deserves a one-time index. The human genome is 3 billion characters. A log corpus can be terabytes. Scanning the text from scratch for every query wastes the structure that sorting could expose.',
-        'Suffix trees (Weiner 1973, Ukkonen 1995) solve this: build a compressed trie of every suffix in O(n) time, then search for any pattern of length m in O(m) time. The catch is memory. Each node needs child pointers, suffix links, and edge labels -- roughly 20 bytes per input character. A suffix tree for the human genome eats about 60 GB of RAM.',
+        'A long text is often searched many times. Scanning the whole text for each query costs O(nm) for text length n and pattern length m, and it repeats the same comparisons across queries. An index pays preprocessing once so later substring searches can skip most of the text.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Suffix_tree_BANANA.svg/250px-Suffix_tree_BANANA.svg.png', alt: 'Suffix tree for the text BANANA with suffix links and leaves', caption: 'Suffix arrays keep the suffix order that a tree exposes, but store it as a flat integer array instead of pointer-heavy topology. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Suffix_tree_BANANA.svg.'},
-        'Manber and Myers introduced the suffix array in 1993 to get the same substring-search power in far less space. A suffix array stores just n integers -- the starting positions of every suffix, sorted lexicographically. At 4 bytes per integer (32-bit indices), the human genome needs about 12 GB. Same query ability, five times less memory. The core observation: every substring of a text is a prefix of some suffix, so sorting suffixes makes every substring binary-searchable.',
+        'Suffix trees already give fast substring queries, but their pointer-heavy layout is expensive. A suffix array keeps the essential sorted-suffix order as integers. The original text is stored once, and each array entry points back into it.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Suffix trees. Ukkonen algorithm builds one in O(n) time and supports O(m) pattern search, longest repeated substring, longest common substring of two texts, and many other operations through tree traversal. For moderate-sized texts that fit in memory, suffix trees work well and the implementation (while nontrivial) is well-documented.',
-        'An even simpler first attempt: store all n suffixes as separate strings in a sorted array. Binary search then finds any pattern as a prefix match. For "banana$", that means storing "$", "a$", "ana$", "anana$", "banana$", "na$", "nana$" as seven independent strings.',
+        'The obvious approach is to store every suffix as a separate string and sort those strings. Then a pattern query is a binary search for suffixes that start with the pattern. For banana$, the stored strings would include banana$, anana$, nana$, ana$, na$, a$, and $.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie containing words with shared prefixes', caption: 'The suffix tree begins from the trie idea: share common prefixes, then compress paths and finally flatten order into an array. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
+        'That approach is easy to understand because every row is a real string. It is also a reasonable bridge from tries, where shared prefixes are represented explicitly. The problem is that the string copies are far larger than the text they came from.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Storing suffixes as separate strings costs O(n^2) total characters: n + (n-1) + ... + 1 = n(n+1)/2. For n = 1,000,000, that is half a trillion characters just for the string copies. Sorting them is worse -- each comparison scans O(n) characters on average, so O(n log n) comparisons cost O(n^2 log n) total work.',
-        'Suffix trees avoid the copy problem but pay a pointer tax. Each internal node carries child pointers (often one per alphabet symbol), a suffix link, and edge label indices. In practice this is 20+ bytes per character. For the human genome at 3 billion characters, the tree needs roughly 60 GB -- more RAM than most machines have. Ukkonen construction is O(n) but the output itself is too large.',
-        'The problem is not algorithmic speed. It is physical memory. You need the search power of a suffix tree in the memory footprint of a flat array. The suffix array stores neither copied strings nor tree pointers -- just n integers pointing back into the original text.',
+        'Storing all suffix strings takes 1 + 2 + ... + n characters, which is n(n+1)/2. A one-million-character text would require about 500 billion copied characters. Sorting those copies also compares long overlapping prefixes again and again.',
+        'A suffix tree avoids copies but pays in pointers, maps, suffix links, and edge metadata. The wall is physical memory and cache behavior, not only Big-O notation. The index needs the search power of suffix order without carrying a tree full of heap objects.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Every substring occurrence begins at some text position, so every substring is a prefix of some suffix. If all suffixes are sorted, finding a substring becomes finding a range of suffixes with that prefix. The array only has to store the starting positions in sorted order.',
+        'This trades pointer topology for order. Binary search finds the left and right boundary of the matching prefix range. The LCP array restores some lost tree information by recording how much neighboring suffixes share.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Sort all n suffixes of the text lexicographically. Store only their starting positions in an array SA of n integers. SA[0] is the start of the lexicographically smallest suffix, SA[1] the next, and so on. The text itself is stored once; suffixes are never copied. Any comparison during construction reads characters directly from the text at the stored positions.',
-        'Construction has three tiers. Naive: generate start positions 0..n-1, sort them with a comparator that compares the corresponding suffixes character by character. Cost: O(n^2 log n) worst case. Prefix doubling (Karp, Miller, Rosenberg): rank suffixes by their first character, then iteratively rank by the first 2, 4, 8, ... characters using pairs of previously computed ranks. After ceil(log n) rounds, ranks are final. Cost: O(n log^2 n) with comparison sort, O(n log n) with radix sort. SA-IS (Nong, Zhang, Chan 2009): classify each suffix as S-type or L-type, identify leftmost-S-type (LMS) suffixes, recursively sort a reduced problem of at most n/2 symbols, then induce all remaining positions. Cost: O(n) time, O(n) space.',
-        'Search. To find pattern P of length m, binary search SA for the leftmost suffix that has P as a prefix and the rightmost suffix that has P as a prefix. Every position in between is an occurrence. Each comparison checks at most m characters, and there are O(log n) comparisons, so the total is O(m log n).',
-        'The LCP array accelerates this. LCP[i] is the length of the longest common prefix between the suffix at SA[i] and the suffix at SA[i-1]. Kasai algorithm builds the LCP array in O(n) time from the suffix array and the text. With LCP information cached at binary-search boundaries, search drops to O(m + log n): the m characters of P are compared only once total, and log n steps navigate the suffix array using precomputed prefix lengths to skip redundant character comparisons.',
+        'Build starts from positions 0 through n-1 and sorts the suffixes beginning at those positions. Practical algorithms do not copy suffix strings; they compare or rank positions against the original text. Prefix-doubling ranks suffixes by 1, then 2, then 4 characters, while SA-IS builds the order in linear time by inducing sorted groups.',
+        'Search compares the pattern with the suffix at the middle array position. If the suffix is lexicographically smaller than the pattern prefix, move right; if it is larger, move left. A second boundary search finds the first and last suffix whose prefix equals the pattern.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Every occurrence of pattern P at position j means the suffix starting at j has P as its prefix. Searching for a substring in the text is therefore searching for a prefix among the suffixes. Sorting the suffixes makes prefix search reducible to binary search.',
-        'Contiguity guarantee: if suffix A and suffix B both start with "ana", every suffix sorted between A and B must also start with "ana". Otherwise the lexicographic order would be violated -- a suffix without the "ana" prefix would be interleaved between two that have it, which contradicts sorted order. This means all occurrences of any pattern form a contiguous interval in SA, and binary search finds the interval boundaries.',
-        'The LCP array recovers the tree structure that was discarded when moving from suffix trees to suffix arrays. In a suffix tree, the lowest common ancestor of two leaves tells you their longest shared prefix. In the suffix array, the longest common prefix between any two suffixes SA[i] and SA[j] equals the minimum value in LCP[i+1..j]. Range-minimum queries over the LCP array therefore answer the same questions as tree ancestor queries, at O(1) per query with a Sparse Table.',
+        'Correctness starts from the suffix fact: an occurrence of pattern P at position i means suffix text[i..] has P as its prefix. Therefore the answer positions are exactly the suffix-array entries whose suffixes begin with P. No other position can contain the occurrence because every position has exactly one suffix.',
+        'The matching entries form one contiguous interval. If suffix A and suffix B both begin with P, any sorted suffix between them must also lie between strings with prefix P. A suffix without that prefix would compare either before the whole P block or after it, so binary search can find the interval boundaries safely.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Construction: O(n) with SA-IS, O(n log n) with optimized prefix doubling, O(n^2 log n) with naive sorting. SA-IS is the standard choice in production -- linear time, linear space, and small constants.',
-        'Search: O(m log n) with plain binary search, O(m + log n) with LCP-accelerated search. Once the matching interval [lo, hi] is found, the occurrence count is hi - lo + 1, and listing all positions costs O(k) where k is the count.',
-        'Space: the suffix array is n integers. With 32-bit indices, that is 4n bytes. The LCP array adds another 4n bytes. The text itself takes n bytes (one byte per character for ASCII). Total: about 9n bytes. A suffix tree for the same text costs 20n bytes or more. For the human genome (n = 3 x 10^9): suffix array + LCP + text is roughly 27 GB; a suffix tree is roughly 60 GB. The suffix array fits in commodity RAM where the tree does not.',
-        'Scaling behavior: doubling the text doubles the array sizes and SA-IS construction time (both linear). Search time grows by one binary-search step because log n increases by 1. The structure is cache-friendlier than a suffix tree because arrays are contiguous in memory while trees chase scattered pointers.',
+        'Construction cost depends on the algorithm: naive sorting can be quadratic or worse, prefix doubling is commonly O(n log n), and SA-IS is O(n). Space for the suffix array is n integers, often 4n or 8n bytes. The LCP array adds another n integers when longest-common-prefix queries are needed.',
+        'A plain search costs O(m log n) character comparisons for pattern length m because each binary-search step can inspect up to m characters. With LCP acceleration, repeated comparisons are skipped and the cost approaches O(m + log n). When the text doubles, the array doubles in memory and binary search adds one comparison level.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Bioinformatics is the dominant consumer. BWA (Burrows-Wheeler Aligner) and Bowtie build FM-indexes, which are compressed suffix arrays, to align billions of short DNA reads against a reference genome. The suffix array provides the sorted suffix order that the Burrows-Wheeler Transform needs. Without suffix-array-based indexing, mapping a single sequencing run against the human genome would take weeks instead of hours.',
-        'Full-text search uses suffix arrays when queries are arbitrary substrings rather than whole words. This matters for languages without whitespace separators (Chinese, Japanese, Thai) and for code search tools that match arbitrary byte sequences. Inverted word indexes cannot handle these cases.',
-        'Data compression. The Burrows-Wheeler Transform reorders the text by suffix-array order: BWT[i] = text[SA[i] - 1], the character preceding each sorted suffix. This clusters characters with similar contexts, making the result highly compressible. bzip2 applies BWT followed by move-to-front coding and Huffman coding.',
-        'Deduplication and plagiarism detection use longest common substrings via LCP maxima to find shared content blocks between documents, without comparing every pair of positions.',
+        'Bioinformatics indexes use suffix-array order inside compressed structures such as FM-indexes. Genome alignment needs to search billions of short reads against a large reference without scanning the reference for each read. The suffix order is the base that lets backward search and compression work.',
+        'Full-text search, compression, deduplication, and plagiarism detection use the same sorted-suffix view. The Burrows-Wheeler Transform reads characters preceding sorted suffixes, which clusters similar contexts. LCP maxima expose long repeats without comparing every pair of positions.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Construction complexity. SA-IS is O(n) and elegant in theory, but the implementation is subtle. Bugs in suffix classification (S-type vs L-type), LMS identification, or the induction step are hard to catch because they produce plausible-looking but incorrect arrays. Most practitioners rely on a tested library (libdivsufsort, SDSL) rather than reimplementing.',
-        'Static text only. Inserting or deleting a character can change the relative order of many suffixes. Suffix arrays must be rebuilt from scratch after edits. For text editors, collaborative documents, or streaming logs, ropes, piece tables, or periodic rebuilds are more practical.',
-        'Some operations are easier with suffix trees. Suffix links in trees allow O(1) transitions when shortening a pattern, which suffix arrays do not natively support. Algorithms that traverse suffix links heavily (some variants of Ukkonen-style online matching) do not translate cleanly to suffix arrays.',
-        'For very short patterns with simple matching needs, inverted word indexes or hash-based approaches (Rabin-Karp) may be simpler to build, query, and maintain. The suffix-array power is substring-level generality; if you only need word-level lookup, simpler tools suffice.',
+        'Suffix arrays are static. Inserting one character can change the relative order of many suffixes, so mutable editors and live logs usually need periodic rebuilds or different structures. The array is excellent for read-heavy text and awkward for frequent middle edits.',
+        'They also lose explicit branching topology. Some suffix-tree algorithms use suffix links and tree nodes directly, while a suffix array needs LCP and range-minimum structures to recover similar information. For one pattern against one text, KMP or Boyer-Moore is simpler and avoids index construction.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Text: "banana$". The sentinel $ is lexicographically smaller than any letter, guaranteeing every suffix is unique. List the 7 suffixes with their starting positions: 0: banana$, 1: anana$, 2: nana$, 3: ana$, 4: na$, 5: a$, 6: $.',
-        'Sort them lexicographically: $ (start 6), a$ (5), ana$ (3), anana$ (1), banana$ (0), na$ (4), nana$ (2). The suffix array is SA = [6, 5, 3, 1, 0, 4, 2]. Seven integers, not seven strings.',
-        'Build the LCP array by comparing each sorted suffix with its predecessor. LCP[0] = 0 (no predecessor). LCP[1] = 0 ("$" vs "a$": no shared characters). LCP[2] = 1 ("a$" vs "ana$": share "a"). LCP[3] = 3 ("ana$" vs "anana$": share "ana"). LCP[4] = 0 ("anana$" vs "banana$": nothing shared). LCP[5] = 0 ("banana$" vs "na$": nothing). LCP[6] = 2 ("na$" vs "nana$": share "na"). The full LCP array is [0, 0, 1, 3, 0, 0, 2]. The maximum value is 3, so "ana" is the longest repeated substring.',
-        'Search for "ana". Binary search the suffix array. The midpoint is rank 3, suffix "anana$". Compare the first 3 characters: "ana" matches "ana". Now find the boundaries. Rank 2, suffix "ana$", also starts with "ana". Rank 1, suffix "a$", does not (only 1 character matches). Rank 4, suffix "banana$", does not (0 characters match). The match interval is ranks 2-3, corresponding to SA values 3 and 1. Pattern "ana" occurs at text positions 1 and 3.',
+        'For banana$, list suffixes by start: 0 banana$, 1 anana$, 2 nana$, 3 ana$, 4 na$, 5 a$, and 6 $. Sorting gives $, a$, ana$, anana$, banana$, na$, nana$. The suffix array is [6, 5, 3, 1, 0, 4, 2].',
+        'Search for ana. The matching sorted suffixes are ana$ at rank 2 and anana$ at rank 3. Their starting positions are 3 and 1, so ana occurs at text positions 1 and 3 after sorting the answer positions.',
+        'The LCP array with previous suffixes is [0, 0, 1, 3, 0, 0, 2]. The value 3 between ana$ and anana$ means the longest neighboring repeat has length 3. That repeat is ana, found from the suffixes starting at 3 and 1.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Manber & Myers, "Suffix Arrays: A New Method for On-Line String Searches," SIAM Journal on Computing, 1993 -- the original suffix array paper introducing the structure and O(n log n) construction. Karkkäinen & Sanders, "Simple Linear Work Suffix Array Construction," ICALP 2003 -- the DC3 algorithm, a clean linear-time construction. Nong, Zhang, Chan, "Two Efficient Algorithms for Linear Time Suffix Array Construction," 2009 -- SA-IS, the most widely used O(n) algorithm. Kasai et al., "Linear-Time Longest-Common-Prefix Computation in Suffix Arrays and Its Applications," 2001. Burrows & Wheeler, "A Block-sorting Lossless Data Compression Algorithm," 1994.',
-        'Prerequisites: Binary Search (the query mechanism over the sorted array), sorting algorithms (construction foundation), Trie (the tree structure that suffix arrays flatten).',
-        'Extensions: Burrows-Wheeler Transform (suffix-array-derived reordering for compression), FM-index (compressed suffix array enabling search in space proportional to the compressed text), suffix trees (pointer-heavy alternative with O(m) search and suffix links).',
-        'Alternatives: KMP and Rabin-Karp for single-pattern search without indexing the text, Aho-Corasick for multi-pattern search, Sparse Table for O(1) range-minimum queries over the LCP array, inverted indexes for word-level rather than substring-level search.',
+        'Read Manber and Myers, "Suffix Arrays: A New Method for On-Line String Searches," 1993, for the original structure. Then study Kasai et al. for linear-time LCP construction and Nong, Zhang, and Chan for SA-IS construction.',
+        'Study binary search and tries before this topic. Afterward, study suffix trees, suffix automata, Burrows-Wheeler Transform, FM-indexes, and range-minimum queries over LCP arrays.',
       ],
     },
   ],

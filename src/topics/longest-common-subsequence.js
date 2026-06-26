@@ -122,114 +122,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The grid has one row per character of X (plus a row for the empty prefix) and one column per character of Y (plus a column for the empty prefix). Cell (i, j) holds the length of the longest common subsequence of the first i characters of X and the first j characters of Y.',
-        {type: 'callout', text: 'LCS works because every cell is a promise about two prefixes, so the full sequence problem becomes a grid of reusable prefix facts.'},
-        'Active cells (highlighted) are the row currently being filled. Visited cells mark the neighbors that determined the active cell\'s value: the diagonal cell (used when characters match) and the cells above and to the left (used when they do not). When a character match occurs, the value increases by one from the diagonal. When there is no match, the value copies the larger of the two neighbors.',
-        'After the table is complete, the found marker lands on the bottom-right corner — the LCS length for the full sequences. The backtrack path then lights up, tracing from that corner back toward the origin. Each diagonal step corresponds to a matched character in the LCS. Horizontal and vertical steps skip characters that are not part of the LCS.',
-      
-        {type: 'image', src: './assets/gifs/longest-common-subsequence.gif', alt: 'Animated walkthrough of the longest common subsequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Two sequences can share characters without those characters being adjacent. "ABCBDAB" and "BDCAB" both contain "BCAB" in order, but not as a contiguous block. The longest common subsequence (LCS) measures how much structure two sequences share, ignoring gaps.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/Nubio_Diff_Screenshot3.png/500px-Nubio_Diff_Screenshot3.png', alt: 'Diff view showing changed and unchanged lines between two text versions', caption: 'A diff view is the practical face of LCS: shared ordered lines become the stable spine, and the rest becomes insertions or deletions. Source: Wikimedia Commons, Nubio Diff screenshot.'},
-        'This matters wherever you need to compare sequences without requiring exact contiguous matches. Unix diff compares files line by line: the lines that both versions share, in order, form the LCS, and everything else is an insertion or deletion. Git diff works the same way. DNA sequence alignment finds shared genetic segments across species. Plagiarism detectors find the longest ordered overlap between documents. Merge-conflict resolution tools identify the common base between divergent edits.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Enumerate every subsequence of X and check whether it also appears as a subsequence of Y. A sequence of length m has 2^m subsequences. For each candidate, scanning Y to verify membership costs O(n). Total: O(n · 2^m). For m = 20 that is over a million candidates; for m = 40, over a trillion.',
-        'This is correct but hopelessly slow. The problem is not difficulty — it is redundancy. The same prefix comparisons get recomputed in every branch of the enumeration.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Exponential subsequences make brute force impossible at scale. But notice: the LCS of X[1..i] and Y[1..j] depends only on the LCS of shorter prefixes. Whether X[i] = Y[j] or not, the answer reduces to at most two smaller subproblems that overlap heavily. The prefix pair (i, j) is encountered over and over through different enumeration paths.',
-        'There are only (m+1)(n+1) distinct prefix pairs. Solving each one once, using previously solved smaller pairs, collapses the exponential tree into a flat table.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Build an (m+1) × (n+1) table. dp[i][j] = length of the LCS of X[1..i] and Y[1..j].',
-        'Base cases: dp[i][0] = 0 and dp[0][j] = 0 for all i, j. Any sequence compared to the empty sequence has an LCS of length zero.',
-        'Recurrence: for each cell (i, j), compare X[i] and Y[j]. If they are equal, both characters can extend the LCS of the shorter prefixes: dp[i][j] = dp[i-1][j-1] + 1. If they differ, at least one character is not in the LCS, so take the better of the two options: dp[i][j] = max(dp[i-1][j], dp[i][j-1]).',
-        'Fill the table row by row, left to right. Each cell is O(1) — one comparison and at most one max operation. The answer is dp[m][n].',
-        'Backtracking recovers the actual subsequence. Start at dp[m][n]. If X[i] = Y[j], that character is in the LCS — record it and move diagonally to (i-1, j-1). Otherwise, move toward the larger neighbor: up to (i-1, j) or left to (i, j-1). When you reach an edge, stop. The recorded characters, reversed, spell the LCS.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Optimal substructure: consider the last characters of X[1..i] and Y[1..j]. If X[i] = Y[j], this matching pair must belong to an optimal LCS (if it did not, appending it would create a longer common subsequence, contradicting optimality). So dp[i][j] = dp[i-1][j-1] + 1.',
-        'If X[i] ≠ Y[j], at least one of them is absent from the LCS. The LCS either does not use X[i] (so it equals the LCS of X[1..i-1] and Y[1..j]) or does not use Y[j] (so it equals the LCS of X[1..i] and Y[1..j-1]). Taking the max covers both cases.',
-        'Induction on i + j: the base cases (i = 0 or j = 0) are trivially correct. If every cell with smaller i + j is correct, the recurrence produces the correct value for (i, j). The table fills in order of increasing i + j, so every dependency is already solved.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Time: O(mn). The table has (m+1)(n+1) cells, each filled in O(1). Backtracking walks at most m + n steps. For two 1,000-character strings, one million cells — a few milliseconds. Doubling both lengths quadruples the work.',
-        'Space: O(mn) for the full table. If only the length is needed, two rolling rows suffice — O(min(m, n)) space — but backtracking requires the full table (or Hirschberg\'s divide-and-conquer trick to recover the LCS in O(min(m, n)) space at the cost of a constant-factor slowdown).',
-        'For sequences with few matching character pairs, the Hunt-Szymanski algorithm runs in O(r log n) time, where r is the number of (i, j) pairs where X[i] = Y[j]. When the alphabet is large and matches are sparse, r is much smaller than mn.',
-        'The Myers diff algorithm, used by git diff, finds the shortest edit script (equivalent to LCS) in O(nd) time where d is the number of differences. When two files are mostly identical, d is small and this is much faster than O(mn).',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Diff and patch: Unix diff computes the LCS of two files (treating each line as a character). Lines in the LCS are unchanged; lines not in the LCS are insertions or deletions. The output is a minimal edit script. Git diff, diff3, and merge tools all build on this.',
-        'DNA and protein alignment: matching nucleotides or amino acids across two biological sequences is LCS with a scoring matrix. The Needleman-Wunsch algorithm is LCS generalized to allow weighted matches and gap penalties.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Needleman-Wunsch_pairwise_sequence_alignment.png/250px-Needleman-Wunsch_pairwise_sequence_alignment.png', alt: 'Needleman Wunsch alignment table with arrows for traceback', caption: 'Sequence-alignment DP uses the same grid dependency pattern as LCS, with scoring added for gaps and mismatches. Source: Wikimedia Commons.'},
-        'Plagiarism detection: the LCS of two documents (at the word or sentence level) reveals ordered overlap that simple substring matching would miss. A long LCS relative to document length suggests copying.',
-        'Version control merge: three-way merge identifies a common ancestor, computes the LCS of each branch against the ancestor, and combines the non-overlapping changes. Conflicts arise only where both branches modify the same region outside the LCS.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'O(mn) is slow for very long sequences. Comparing two 100,000-line files fills 10 billion cells. Practical diff tools cope by pre-filtering (hashing lines, removing common prefixes and suffixes) and using output-sensitive algorithms like Myers that scale with the number of differences rather than sequence length.',
-        'LCS does not handle substitutions. If one character is replaced by another, LCS sees a deletion and an insertion — two operations — while edit distance counts it as one substitution. For measuring how close two strings are, edit distance is usually more appropriate.',
-        'LCS length alone does not capture alignment quality. Two sequences can have the same LCS length but very different alignment structures. For tasks like DNA alignment where gap placement matters, gap penalties and scoring matrices (as in Needleman-Wunsch and Smith-Waterman) give more biologically meaningful results.',
-        'The LCS is not unique. Multiple subsequences of the same maximum length may exist. The backtracking procedure returns one; finding all optimal subsequences requires exploring all tied branches, which can be exponential.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'X = "ABCBDAB" (m = 7), Y = "BDCAB" (n = 5). Build an 8 × 6 table.',
-        'Base cases: row 0 and column 0 are all zeros.',
-        'Row 1 (A): A vs B = 0, A vs D = 0, A vs C = 0, A vs A = dp[0][3] + 1 = 1, A vs B = max(1, 0) = 1. Row 1 = [0, 0, 0, 0, 1, 1].',
-        'Row 2 (B): B vs B = dp[1][0] + 1 = 1, B vs D = max(dp[1][2], dp[2][1]) = max(0, 1) = 1, B vs C = max(1, 1) = 1, B vs A = max(1, 1) = 1, B vs B = dp[1][4] + 1 = 2. Row 2 = [0, 1, 1, 1, 1, 2].',
-        'Row 3 (C): C vs B = max(1, 0) = 1, C vs D = max(1, 1) = 1, C vs C = dp[2][2] + 1 = 2, C vs A = max(2, 1) = 2, C vs B = max(2, 2) = 2. Row 3 = [0, 1, 1, 2, 2, 2].',
-        'Row 4 (B): B vs B = dp[3][0] + 1 = 1, B vs D = max(dp[3][2], dp[4][1]) = max(1, 1) = 1, B vs C = max(dp[3][3], dp[4][2]) = max(2, 1) = 2, B vs A = max(2, 2) = 2, B vs B = dp[3][4] + 1 = 3. Row 4 = [0, 1, 1, 2, 2, 3].',
-        'Row 5 (D): D vs B = max(dp[4][1], dp[5][0]) = max(1, 0) = 1, D vs D = dp[4][1] + 1 = 2, D vs C = max(dp[4][3], dp[5][2]) = max(2, 2) = 2, D vs A = max(2, 2) = 2, D vs B = max(3, 2) = 3. Row 5 = [0, 1, 2, 2, 2, 3].',
-        'Row 6 (A): A vs B = max(dp[5][1], dp[6][0]) = max(1, 0) = 1, A vs D = max(dp[5][2], dp[6][1]) = max(2, 1) = 2, A vs C = max(2, 2) = 2, A vs A = dp[5][3] + 1 = 3, A vs B = max(3, 3) = 3. Row 6 = [0, 1, 2, 2, 3, 3].',
-        'Row 7 (B): B vs B = dp[6][0] + 1 = 1, B vs D = max(dp[6][2], dp[7][1]) = max(2, 1) = 2, B vs C = max(2, 2) = 2, B vs A = max(3, 2) = 3, B vs B = dp[6][4] + 1 = 4. Row 7 = [0, 1, 2, 2, 3, 4].',
-        'Answer: dp[7][5] = 4. Backtrack from (7,5): B = B → diagonal to (6,4), collect B. (6,4) A = A → diagonal to (5,3), collect A. (5,3) mismatch, dp[4][3] = 2 >= dp[5][2] = 2, go up to (4,3). (4,3) mismatch, dp[3][3] = 2 >= dp[4][2] = 1, go up to (3,3). (3,3) C = C → diagonal to (2,2), collect C. (2,2) mismatch, dp[1][2] = 0 < dp[2][1] = 1, go left to (2,1). (2,1) B = B → diagonal to (1,0), collect B. Reached edge. Diagonal steps collected in reverse order: B, A, C, B — reading forward: "BCAB". The LCS is "BCAB", length 4.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'The LCS problem appears in Cormen, Leiserson, Rivest, and Stein (CLRS), Chapter 15. The connection to diff was formalized by Hunt and McIlroy (1976). Myers (1986), "An O(ND) Difference Algorithm and Its Variations," is the basis for modern diff tools including git diff.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Memoization (Dynamic Programming) -- the technique that makes this tractable; understand why caching subproblem results eliminates exponential redundancy.',
-            'Closely related: Edit Distance -- the same DP table structure with a different recurrence; measures transformation cost instead of shared structure.',
-            'One-sequence variant: Longest Increasing Subsequence -- LCS of a sequence with its sorted version; solvable in O(n log n).',
-            'String indexing: Suffix Array and Suffix Tree -- data structures that accelerate substring and common-substring queries on large texts.',
-            'Production diff: the Myers diff algorithm (O(nd) time) and patience diff are the algorithms actually used by git diff and Unix diff, optimized for the common case where differences are small.',
-          ],
-        },
-      ],
-    },
+    {heading: 'How to read the animation', paragraphs: ['Read the grid as prefix facts. Row i is the first i characters of the first string, column j is the first j characters of the second string, and the cell stores the LCS length for those two prefixes.', {type: 'callout', text: 'LCS works because every cell is a promise about two prefixes, so the full sequence problem becomes a grid of reusable prefix facts.'}, 'A diagonal move is legal when the two new characters match. A move from above or left skips one new character and keeps the better already-proved prefix answer.', {type: 'image', src: './assets/gifs/longest-common-subsequence.gif', alt: 'Animated walkthrough of the longest common subsequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    {heading: 'Why this exists', paragraphs: ['A subsequence keeps order but may skip items, so "ABCBDAB" contains "BCAB" without requiring adjacency. Longest common subsequence, or LCS, finds the longest ordered material shared by two sequences.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/Nubio_Diff_Screenshot3.png/500px-Nubio_Diff_Screenshot3.png', alt: 'Diff view showing changed and unchanged lines between two text versions', caption: 'A diff view is the practical face of LCS: shared ordered lines become the stable spine, and the rest becomes insertions or deletions. Source: Wikimedia Commons, Nubio Diff screenshot.'}, 'This matters when exact substring matching is too strict. Diff tools, merge tools, and biological alignment systems first need the shared spine, then explain everything outside it as inserted, deleted, or gapped.']},
+    {heading: 'The obvious approach', paragraphs: ['Generate every subsequence of the first sequence and test whether it appears in the second. A length m sequence has two to the m subsequences, so m = 30 already means about 1.07 billion candidates.']},
+    {heading: 'The wall', paragraphs: ['Brute force repeats the same prefix comparisons through many branches. There are only (m + 1)(n + 1) distinct prefix pairs, so a table can solve each one once instead of rediscovering it exponentially.']},
+    {heading: 'The core insight', paragraphs: ['The last characters decide the subproblem. If X[i] equals Y[j], the diagonal prefix answer grows by one; if they differ, at least one last character is skipped, so the answer is the larger of the above and left cells.']},
+    {heading: 'How it works', paragraphs: ['Create dp with m + 1 rows and n + 1 columns. The empty row and column are zero, matches use dp[i - 1][j - 1] + 1, mismatches use max(dp[i - 1][j], dp[i][j - 1]), and dp[m][n] is the final length.', 'To recover a sequence, walk backward from the bottom-right cell. Matching diagonals record characters, while horizontal or vertical moves skip characters that did not improve the optimum.']},
+    {heading: 'Why it works', paragraphs: ['The invariant is that each filled cell stores the true LCS length for its two prefixes. The base cells are true for empty prefixes, and every later cell uses only smaller prefix facts.', 'The recurrence is exhaustive because a longest common subsequence either uses the two equal last characters or excludes at least one unequal last character. Induction on i + j proves the table cannot miss a valid optimum or create an impossible one.']},
+    {heading: 'Cost and complexity', paragraphs: ['Time is O(mn) because the table has (m + 1)(n + 1) cells and each cell does constant work. Doubling both sequence lengths makes about four times as many cells.', 'Space is O(mn) for the full table used by backtracking. If only the length is needed, two rolling rows reduce memory to O(min(m, n)).']},
+    {heading: 'Real-world uses', paragraphs: ['Diff tools treat each line as a symbol. Lines in the LCS become unchanged context, and lines outside the LCS become insertions or deletions.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Needleman-Wunsch_pairwise_sequence_alignment.png/250px-Needleman-Wunsch_pairwise_sequence_alignment.png', alt: 'Needleman Wunsch alignment table with arrows for traceback', caption: 'Sequence-alignment DP uses the same grid dependency pattern as LCS, with scoring added for gaps and mismatches. Source: Wikimedia Commons.'}, 'Sequence-alignment algorithms extend the same grid with mismatch and gap scores. Merge tools use the common ordered material to separate independent edits from conflicting edits.']},
+    {heading: 'Where it fails', paragraphs: ['The O(mn) table is too large for very long sequences. Two 100,000-item inputs imply ten billion cells, so production diff tools use trimming, hashing, sparse matches, or output-sensitive algorithms.', 'LCS also treats substitution as deletion plus insertion. Edit distance is a better fit when the cost of transforming one string into another matters.']},
+    {heading: 'Worked example', paragraphs: ['Let X = "ABCBDAB" and Y = "BDCAB". The table is 8 by 6, including empty prefixes, and the final answer is dp[7][5].', 'A matching A at dp[1][4] gives dp[0][3] + 1 = 1, and a later matching B at dp[2][5] gives dp[1][4] + 1 = 2. Filling the table gives dp[7][5] = 4, and backtracking can return "BCAB".']},
+    {heading: 'Sources and study next', paragraphs: ['Study LCS in CLRS under dynamic programming, then read Myers 1986 for practical diff. Study edit distance next for substitutions, and study longest increasing subsequence for a one-sequence variant with faster ordered bookkeeping.']},
   ],
 };

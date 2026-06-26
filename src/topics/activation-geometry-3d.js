@@ -120,73 +120,82 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The terrain you see is the output of a three-neuron layer plotted over two input dimensions. Height is the layer\'s output value; the horizontal plane is the input space. In the ReLU view, watch for straight creases where the surface bends sharply -- each crease is one neuron switching on or off. In the sigmoid/GELU view, watch for the same structure softened into rolling hills.',
-        'Markers labeled "crease" sit on the fold lines. Active markers highlight the geometric feature being discussed in that step. When two markers appear together, the animation is comparing their joint effect -- how two folds interact to partition space into regions.',
+        'The 3D terrain is the function a three-neuron layer computes, plotted over a 33x33 grid of two input values. Height at any point equals the layer\'s output for that (x1, x2) pair. The horizontal axes are input space; the vertical axis is output magnitude.',
+        'In the ReLU view, look for straight creases -- sharp bends where the surface changes slope. Each crease is one neuron\'s on/off boundary. Markers labeled "crease" sit on these fold lines. When two markers appear together, the step is comparing how two folds interact to carve space into regions.',
         {
           type: 'note',
           text: 'The surface is NOT a loss landscape. It is the function the layer computes. The loss landscape lives in weight space; this terrain lives in input space. Confusing the two is a common mistake.',
         },
-        'At each frame, ask: how many flat regions exist, where are the boundaries between them, and what happens to gradient flow on the flat parts versus the sloped parts.',
+        'In the sigmoid/GELU view, watch the same structure melt into smooth hills. The folds are still present as slope transitions, but they are rounded instead of sharp. Pay attention to the edges of the grid: flat terrain there means the activation has saturated, and gradients have died.',
+        'At each frame, count the distinct flat regions, trace the boundaries between them, and ask whether the gradient (slope) is alive or dead in each zone. That question -- alive or dead -- is the entire practical story of activation choice.',
         {type: 'callout', text: 'Activation geometry is input-space folding: each nonlinear unit creates regions where different linear maps become active.'},
-      
-        {type: 'image', src: './assets/gifs/activation-geometry-3d.gif', alt: 'Animated walkthrough of the activation geometry 3d visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/activation-geometry-3d.gif', alt: 'Animated walkthrough of the activation geometry 3d visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Activation functions are almost always taught as 1-D curves: sigmoid is an S, ReLU is a bent line, GELU is a smooth bent line. That framing hides the real story. An activation does not operate on a single number in isolation -- it operates on every neuron in a layer, and the combined effect reshapes the entire input space. The question is not "what does the curve look like" but "what does the layer do to geometry."',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The network diagram grounds the 3D terrain in ordinary layers: inputs feed hidden units whose activations reshape the represented function. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},,
-        'A single ReLU neuron receiving two inputs computes ReLU(w1*x1 + w2*x2 + b). Plotted in 3D, this is a tilted plane clamped to zero on one side -- a single fold in the input space. Three neurons produce three folds that cross each other, carving the plane into distinct flat-sided regions. Each region has its own slope because a different subset of neurons is active there. That piecewise-linear origami is what a ReLU layer actually computes, and it is invisible on a 1-D graph.',
-        'Swap to sigmoid and the folds melt into smooth hills -- but the far edges go flat, which means gradients die there. Swap to GELU and you get ReLU\'s origami with sanded creases. The geometry is not decoration. It determines what boundaries the network can draw, where gradients flow, and where learning stalls.',
+        'Activation functions are taught as 1-D curves: sigmoid is an S, ReLU is a bent line, GELU is a smooth bent line. That framing hides the real story. An activation does not operate on a single scalar -- it operates on every neuron in a layer simultaneously, and the combined effect reshapes the entire input space. A 1-D graph cannot show you that reshaping.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The network diagram grounds the 3D terrain in ordinary layers: inputs feed hidden units whose activations reshape the represented function. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
+        'A single ReLU neuron with two inputs computes max(0, w1*x1 + w2*x2 + b). Plotted in 3D, this is a tilted plane clamped to zero on one side -- one fold in the sheet of input space. Three neurons produce three crossing folds that carve the plane into distinct flat-sided regions, each with its own slope determined by which neurons are active. That piecewise-linear origami is what a ReLU layer actually computes, and it is invisible on a 1-D graph.',
+        'Swap to sigmoid and the folds soften into hills whose edges flatten to plateaus. Swap to GELU and the creases round off while the wings stay linear. The geometry is not decoration. It determines what decision boundaries the network can draw, where gradients flow, and where learning stalls.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is no activation at all. Stack linear layers and let the matrix multiplications compose. Each layer is an affine transformation -- rotation, scaling, translation -- and the composition of affine maps is another affine map. In the 3D view, that means the output is always a single tilted plane, no matter how many layers you stack. It can tilt and shift but it cannot bend.',
-        'For linearly separable data, this works. A single hyperplane splits the classes cleanly, and a deeper stack of linear layers just finds a fancier way to express the same hyperplane. Logistic regression (one linear layer plus sigmoid at the output) succeeds precisely here.',
-        'The approach breaks the moment you need the decision boundary to curve. XOR is the textbook case: no single line through 2D space separates (0,0) and (1,1) from (0,1) and (1,0). You need at least one bend in the boundary, and a purely linear network cannot produce one. The activation function is the tool that introduces bends.',
+        'The reasonable first attempt is no activation at all. Stack linear layers and let the matrix multiplications compose. An affine transformation (a matrix multiply plus a bias) maps inputs to outputs as a tilted plane. The composition of two affine maps is still an affine map. In the 3D view, the output is always a single tilted plane no matter how many layers you stack. It can tilt and shift but it cannot bend.',
+        'For linearly separable data, this works. A single hyperplane splits the classes, and deeper stacks just find fancier parameterizations of the same hyperplane. Logistic regression (one linear layer plus sigmoid at the output) succeeds here.',
+        'The approach breaks the moment the decision boundary needs a bend. XOR is the textbook case: no single line through 2D space separates the points (0,0) and (1,1) from (0,1) and (1,0). You need at least one kink in the boundary, and a purely linear network cannot produce one.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is not merely "linear layers cannot separate XOR." The wall is that representation capacity -- the set of functions a network can express -- is stuck at the set of affine functions without activations, regardless of depth or width. A hundred linear layers collapse to one matrix multiply. Depth buys nothing.',
-        'Activations break this by letting each neuron introduce a local change in slope. But the choice of activation creates a secondary wall. Sigmoid introduces bends everywhere, and its output is bounded between 0 and 1 -- which means far from the decision boundary, the surface flattens into plateaus. Train a deep sigmoid network, and gradients shrink exponentially as they propagate backward through those plateaus. This is the vanishing gradient problem, and it blocked deep learning for two decades.',
+        'The wall is not just XOR. Without activations, the representation capacity of the network -- the set of functions it can express -- is stuck at affine functions regardless of depth or width. A hundred linear layers collapse to a single matrix multiply. Depth buys zero additional expressiveness.',
+        'Activations break this by letting each neuron introduce a local change in slope. But the choice of activation creates a secondary wall. Sigmoid introduces smooth bends, and its output is bounded between 0 and 1. Far from the decision boundary, the surface flattens into plateaus where the derivative approaches zero. Chain many sigmoid layers and gradients shrink exponentially during backpropagation -- the vanishing gradient problem (a gradient is the partial derivative of the loss with respect to a weight; it tells the optimizer which direction to adjust that weight). This wall blocked deep learning from roughly 1990 to 2010.',
         {
           type: 'quote',
           text: 'The number of linear regions of a deep ReLU network grows exponentially with depth.',
           attribution: 'Montufar, Pascanu, Cho, Bengio (2014)',
         },
-        'ReLU solved the saturation wall but introduced its own: the dying ReLU problem. If a neuron\'s weights drift so that its pre-activation is always negative, the neuron outputs zero forever. Zero output means zero gradient, which means the weights never update. The neuron is dead. In large networks, 10-40% of ReLU neurons can die during training, silently reducing effective width.',
+        'ReLU solved the saturation wall: its gradient is exactly 1 for positive inputs, so signals pass through without shrinking. But ReLU introduced its own wall -- the dying neuron problem. If a neuron\'s pre-activation (the value before applying the activation) drifts permanently negative, its output is zero, its gradient is zero, and its weights never update again. The neuron is dead. In large networks, 10-40% of ReLU neurons can die during training, silently reducing the network\'s effective width.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Each nonlinear activation partitions the input space into regions where different linear functions apply. A ReLU neuron creates exactly two regions: one where it passes input unchanged (active) and one where it outputs zero (dead). The boundary between them is a hyperplane -- a crease in the surface. Multiple neurons produce multiple creases that cross each other, and each intersection polygon gets its own linear map determined by which subset of neurons is active there.',
+        'Depth compounds this: the second layer folds an already-folded surface. Its creases bend along the existing folds, so the region count can grow exponentially with depth rather than linearly with width. This exponential folding is the geometric reason deep networks are more expressive than wide shallow ones with the same parameter count.',
+        'Smooth activations (sigmoid, GELU) create the same regional structure, but the boundaries are soft transitions instead of sharp creases. The tradeoff is that smooth boundaries provide nonzero gradients everywhere (no dead neurons), at the cost of potential saturation (sigmoid) or higher compute (GELU).',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Start with one neuron computing z = w1*x1 + w2*x2 + b. Before activation, this is a flat tilted plane in 3D -- height equals the pre-activation value. Apply ReLU: max(0, z). Every point where z < 0 is clamped to zero, creating a flat dead zone. The boundary between the dead zone and the active zone is a straight crease -- the line w1*x1 + w2*x2 + b = 0.',
-        'Add a second neuron with different weights. Its crease runs along a different line. The layer output sums both neurons (weighted), so the terrain now has two creases crossing the plane. The space is divided into four regions: both neurons dead (flat floor), only neuron 1 active, only neuron 2 active, both active. Each region is a flat facet with its own slope. The three-neuron layer in this animation produces six such facets.',
+        'Start with one neuron computing z = w1*x1 + w2*x2 + b. Before activation, this is a flat tilted plane in 3D. Apply ReLU: max(0, z). Every point where z < 0 is clamped to zero, creating a flat dead zone. The boundary between dead and active is a straight crease along the line w1*x1 + w2*x2 + b = 0.',
+        'Add a second neuron with different weights. Its crease runs along a different line. The layer output sums both neurons (each scaled by an output weight), so the terrain now has two creases crossing the plane. The space divides into four regions: both neurons dead (flat floor), only neuron 1 active, only neuron 2 active, and both active. Each region is a flat facet with a distinct slope. The three-neuron layer in this animation produces six such facets.',
         {
           type: 'diagram',
           label: 'Piecewise-linear regions from ReLU neurons',
           text: '       crease 1 (x1+x2=0)\n          /\n    R2   /   R3\n  (n1)  /  (n1+n2)\n       / \n------X--------  crease 2 (x1-x2=0)\n     / \\\n    /   \\\n   R1    R4\n (dead) (n2)\n\nEach region Ri is a convex polygon.\nInside each region, the output is a\ndifferent linear function of (x1, x2).',
         },
-        'Depth multiplies this partitioning. A second layer receives the already-folded surface and folds it again. Each new neuron\'s crease is no longer a straight line in input space -- it bends along the folds of the previous layer. Two layers of n neurons can produce O(2^n) linear regions, compared to O(n) for one layer. Fifty layers of 100 neurons can theoretically partition input space into more regions than atoms in the universe.',
-        'Sigmoid replaces the sharp crease with a smooth S-curve transition. The surface becomes differentiable everywhere -- no edges, no flat dead zones at the crease -- but it saturates at the extremes (output locked near 0 or 1). GELU keeps ReLU\'s linear wings (the slope never flattens for large positive inputs) while rounding the crease into a smooth curve, giving the best of both: no dead zones, no saturation, differentiable everywhere.',
+        'Depth multiplies this partitioning. A second layer receives the already-folded surface and folds it again. Each new crease bends along the folds beneath it rather than running straight. Two layers of n neurons can produce O(2^n) linear regions, compared to O(n) for one layer. Fifty layers of 100 neurons can theoretically partition input space into more regions than atoms in the universe.',
+        'Sigmoid replaces the sharp crease with a smooth S-curve transition. The surface becomes differentiable everywhere, but it saturates at the extremes -- output locks near 0 or 1. GELU keeps ReLU\'s linear wings (slope never flattens for large positive inputs) while rounding the crease, giving no dead zones, no saturation ceiling, and differentiability everywhere.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'ReLU\'s power comes from a simple property: inside each linear region, the function is an ordinary linear map, so gradients are exact and nonzero. The neuron either passes its input through unchanged (gradient = 1) or kills it (gradient = 0). There is no gray zone where the gradient shrinks to 0.003 and training crawls. This binary on/off behavior lets gradients propagate cleanly through hundreds of layers, which is why deep ReLU networks became practical in 2012 while deep sigmoid networks had failed for two decades.',
-        'The piecewise-linear geometry also explains representation capacity. The universal approximation theorem says a single wide layer can approximate any continuous function -- but it may need exponentially many neurons. Depth changes the game: because each layer folds the previous layer\'s output, the number of linear regions grows exponentially with depth. A deep narrow network can carve the same number of decision regions as a shallow wide one using far fewer parameters.',
-        'Smooth activations like GELU work for a different reason. Their gradients are never exactly zero (except asymptotically), so no neuron is permanently dead. The smooth crease also makes the loss landscape smoother -- the Hessian has smaller eigenvalue spread -- which lets optimizers like Adam take larger, more stable steps. This matters most in transformer architectures, where layers are very deep and residual connections carry gradients across many folds.',
+        'ReLU\'s correctness comes from a simple property: inside each linear region, the function is an ordinary affine map, so gradients are exact and constant. The neuron either passes its input through unchanged (gradient = 1) or blocks it (gradient = 0). There is no gray zone where the gradient decays to 0.003 and training crawls. This binary on/off behavior lets gradients propagate cleanly through hundreds of layers -- the reason deep ReLU networks became practical in 2012 while deep sigmoid networks had stalled for two decades.',
+        'The piecewise-linear geometry also explains representation capacity. The universal approximation theorem proves a single wide layer can approximate any continuous function, but it may need exponentially many neurons to do so. Depth changes the accounting: each layer folds the previous layer\'s output, so the region count grows exponentially with depth. A deep narrow network can represent the same number of decision regions as a shallow wide one using far fewer parameters.',
+        'Smooth activations like GELU work for a different reason. Their gradients are never exactly zero (except in the limit), so no neuron is permanently dead. The smooth crease also makes the loss landscape smoother -- the Hessian (the matrix of second derivatives that describes curvature) has a smaller eigenvalue spread -- which lets optimizers like Adam take larger, more stable steps. This matters most in transformers, where 96+ layers of residual connections carry gradients across many folds.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The activation itself is nearly free. A forward pass through a layer costs O(n_in * n_out) for the matrix multiply; the activation adds O(n_out) element-wise operations on top. ReLU is a single comparison (one clock cycle on modern hardware). Sigmoid requires an exponential; GELU requires a polynomial approximation. In practice, the activation is less than 1% of a layer\'s compute.',
+        'The activation itself is nearly free. A forward pass through a layer costs O(n_in * n_out) for the matrix multiply; the activation adds O(n_out) element-wise operations. ReLU is a single comparison -- one clock cycle on modern hardware. Sigmoid requires computing an exponential; GELU uses a polynomial approximation. In practice, the activation accounts for less than 1% of a layer\'s compute budget.',
         {
           type: 'table',
           headers: ['Activation', 'Formula', 'Derivative at 0', 'Saturates?', 'Dead neurons?', 'Typical use'],
@@ -199,29 +208,38 @@ export const article = {
             ['Tanh', '(exp(z)-exp(-z))/(exp(z)+exp(-z))', '1.0', 'Yes, both tails', 'No (but vanishing grad)', 'RNN hidden states, legacy'],
           ],
         },
-        'The real cost differences are in the backward pass. ReLU\'s gradient is 0 or 1, so backprop through a ReLU layer is a masked copy -- extremely fast on GPUs. GELU\'s gradient involves a Gaussian CDF evaluation, roughly 4-5x more expensive per element. For a 175-billion-parameter model doing trillions of activations per training run, that multiplier matters, but it is still dwarfed by the attention and matrix-multiply costs.',
-        'Memory cost: during training, you must store the pre-activation values (or recompute them) for the backward pass. This is the same for all activations -- one float per neuron per sample. Activation checkpointing trades compute for memory by recomputing activations during backprop instead of storing them.',
+        'The real cost difference is in the backward pass. ReLU\'s gradient is 0 or 1, so backpropagation through a ReLU layer is a masked copy -- extremely fast on GPUs. GELU\'s gradient requires a Gaussian CDF evaluation, roughly 4-5x more expensive per element. For a 175-billion-parameter model doing trillions of activations per training run, that multiplier adds up, but it remains small compared to the attention and matrix-multiply costs that dominate wall-clock time.',
+        'Memory cost is the same across activations: during training, you store one float per neuron per sample (the pre-activation value) for the backward pass. Activation checkpointing trades compute for memory by discarding these stored values and recomputing them during backpropagation, cutting memory roughly in half at the cost of one extra forward pass.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'ReLU wins wherever compute efficiency matters and dead neurons are tolerable: convolutional networks for vision (ResNet, VGG), fully connected classifiers, and any architecture where batch normalization or residual connections mitigate the dying neuron problem. Its piecewise-linear geometry also makes ReLU networks amenable to formal verification -- you can reason about each linear region independently, which matters for safety-critical applications.',
-        'GELU and SiLU win in transformer architectures. Every major language model since BERT (2018) uses GELU in its feed-forward blocks. The smooth crease means gradients flow through the transition zone without the dead-neuron lottery, which is critical when you are training a model with 96+ layers and cannot afford to lose 30% of neurons to the dying ReLU problem. SiLU (also called Swish) fills the same role in vision transformers and EfficientNet.',
-        'Sigmoid and tanh survive in gating mechanisms. LSTMs use sigmoid gates specifically because saturation is a feature there: a gate should be fully open or fully closed, and the flat plateaus enforce that binary behavior. Tanh normalizes hidden states to [-1, 1], preventing unbounded growth across time steps.',
-        'Mish found a niche in real-time object detection (YOLOv4) where its slightly negative region for small negative inputs provides a self-regularizing effect, and the extra compute cost is acceptable given the model\'s small size.',
+        'ReLU dominates convolutional networks for vision (ResNet, VGG) and fully connected classifiers. Its piecewise-linear geometry makes ReLU networks amenable to formal verification -- you can reason about each linear region independently, which matters in safety-critical systems like autonomous driving perception stacks.',
+        'GELU is the default activation in transformer feed-forward blocks. Every major language model from BERT (2018) onward uses it. The smooth crease avoids the dead-neuron lottery, which is critical at 96+ layers where losing 30% of neurons to dying ReLU would be catastrophic. SiLU (also called Swish) fills the same role in vision transformers and EfficientNet.',
+        'Sigmoid and tanh survive in gating mechanisms. LSTMs use sigmoid gates because saturation is a feature there: a gate should be fully open or fully closed, and the flat plateaus enforce that binary behavior. Tanh normalizes hidden states to [-1, 1], preventing unbounded growth across time steps in recurrent networks.',
+        'Mish found a niche in real-time object detection (YOLOv4). Its slight dip below zero for small negative inputs provides a self-regularizing effect, and the extra compute cost is acceptable for models that are small enough to run on edge hardware.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The dying ReLU problem is the most common practical failure. A neuron whose pre-activation is always negative across the training set outputs zero, receives zero gradient, and never recovers. High learning rates accelerate this -- a single large gradient update can push weights into the dead zone permanently. Leaky ReLU (output = 0.01*z when z < 0) was designed specifically to prevent this by keeping a tiny nonzero gradient in the negative region, but it introduces a hyperparameter and its benefits are inconsistent across tasks.',
-        'Sigmoid and tanh fail in deep networks because of gradient vanishing. The maximum derivative of sigmoid is 0.25 (at z = 0). Chain 50 layers of sigmoid, and the gradient shrinks by a factor of 0.25 per layer: after 50 layers, the gradient reaching the first layer is 0.25^50, which is roughly 10^-30. No optimizer can learn from a signal that small. This is not a theoretical concern -- it is why deep networks did not work before ReLU (Glorot and Bengio, 2010).',
-        'Smooth activations like GELU are not free of problems. Their non-monotonic region (GELU dips slightly below zero for small negative inputs) can create spurious local structure in the output, and their higher computational cost adds up at scale. For latency-sensitive inference on edge devices, ReLU\'s single comparison instruction remains unbeatable.',
+        'The dying ReLU problem is the most common practical failure. A neuron whose pre-activation is always negative outputs zero, receives zero gradient, and never recovers. High learning rates accelerate this: a single large gradient update can push weights into the dead zone permanently. Leaky ReLU (output = 0.01*z for z < 0) was designed to prevent this by keeping a tiny nonzero gradient in the negative region, but it introduces a hyperparameter (the leak slope) and its benefits are inconsistent across tasks.',
+        'Sigmoid and tanh fail in deep networks. The maximum derivative of sigmoid is 0.25 (at z = 0). Chain 50 sigmoid layers and the gradient shrinks by 0.25 per layer: the signal reaching the first layer is 0.25^50, roughly 10^-30. No optimizer can learn from a signal that small. This is not a theoretical curiosity -- it is why deep networks did not train successfully before ReLU (Glorot and Bengio, 2010).',
+        'GELU is not free of problems either. Its non-monotonic region (a slight dip below zero for small negative inputs) can create spurious local structure in the output. Its higher computational cost adds up at scale. For latency-sensitive inference on edge devices, ReLU\'s single comparison instruction remains unbeatable.',
         {
           type: 'note',
           text: 'No activation function is universally best. The choice is always a tradeoff between gradient health (sigmoid fails), dead neuron risk (ReLU fails), computational cost (GELU/Mish are more expensive), and the specific architecture\'s needs (gates want saturation, hidden layers want linearity).',
         },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider the three neurons in this animation: neuron 1 has weights [1, 1], bias 0, output weight 0.7; neuron 2 has weights [1, -1], bias 0, output weight 0.5; neuron 3 has weights [-1, 0], bias 0.5, output weight 0.6. The layer output is the weighted sum of their activations.',
+        'Pick the input point (x1, x2) = (1.0, -0.5). Neuron 1 computes z1 = 1*1.0 + 1*(-0.5) + 0 = 0.5. Since 0.5 > 0, ReLU(0.5) = 0.5, contributing 0.7 * 0.5 = 0.35. Neuron 2 computes z2 = 1*1.0 + (-1)*(-0.5) + 0 = 1.5. ReLU(1.5) = 1.5, contributing 0.5 * 1.5 = 0.75. Neuron 3 computes z3 = (-1)*1.0 + 0*(-0.5) + 0.5 = -0.5. Since -0.5 < 0, ReLU(-0.5) = 0, contributing nothing. Layer output: 0.35 + 0.75 + 0 = 1.1.',
+        'Now apply sigmoid instead. Neuron 1: sigmoid(0.5) = 1/(1 + exp(-0.5)) = 0.622, contributing 0.7 * 0.622 = 0.436. Neuron 2: sigmoid(1.5) = 1/(1 + exp(-1.5)) = 0.818, contributing 0.5 * 0.818 = 0.409. Neuron 3: sigmoid(-0.5) = 1/(1 + exp(0.5)) = 0.378, contributing 0.6 * 0.378 = 0.227. Layer output: 0.436 + 0.409 + 0.227 = 1.072. Notice that neuron 3 is alive under sigmoid (output 0.378) but completely dead under ReLU (output 0). That is the dying neuron problem in one concrete number.',
+        'For the gradient at this point under ReLU: neurons 1 and 2 are active, so their gradients with respect to x1 are simply their x1-weights (1 and 1) scaled by output weights (0.7 and 0.5), giving d(output)/d(x1) = 0.7*1 + 0.5*1 + 0 = 1.2. Under sigmoid, the gradient of neuron 1 with respect to x1 is 0.7 * sigmoid(0.5) * (1 - sigmoid(0.5)) * 1 = 0.7 * 0.622 * 0.378 * 1 = 0.165. Already much smaller than 0.7. Stack 50 layers and that shrinkage compounds to near-zero -- the vanishing gradient, computed from first principles.',
       ],
     },
     {
@@ -237,7 +255,7 @@ export const article = {
           ],
         },
         'Start with Activation Functions on this site to see the 1-D curves side by side and understand each formula in closed form. Then read Neural Network Forward Pass to see how the weighted sum feeds into the activation, building the full picture of one layer. Study Vanishing & Exploding Gradients to see why sigmoid\'s flat plateaus are a training disaster, not just a geometric curiosity.',
-        'For the optimization side, read Loss Landscapes & Optimization Geometry to understand how activation choice propagates into the terrain you optimize on -- the loss landscape in weight space, which is a different surface from the input-space terrain shown here. For the architecture that made GELU dominant, see Transformer Block.',
+        'For the optimization side, read Loss Landscapes & Optimization Geometry to understand how activation choice propagates into the terrain the optimizer navigates -- the loss landscape in weight space, a different surface from the input-space terrain shown here. For the architecture that made GELU dominant, see Transformer Block.',
       ],
     },
   ],

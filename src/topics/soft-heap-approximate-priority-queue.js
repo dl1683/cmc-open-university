@@ -266,84 +266,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read a soft heap as a priority queue with a weakened contract. A normal priority queue returns the minimum key; a soft heap may raise some stored keys and return approximate candidates.',
         {type: 'image', src: './assets/gifs/soft-heap-approximate-priority-queue.gif', alt: 'Animated walkthrough of the soft heap approximate priority queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Corruption markers mean deliberate key increases, not storage damage. The safe rule is one-sided: corrupted keys can be too large, not too small.',
       ],
     },
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A soft heap is an approximate priority queue introduced by Bernard Chazelle. It supports the usual heap operations, but it changes the contract: a bounded fraction of items may have their stored keys artificially raised. These items are called corrupted.',
+        'Some algorithms use a priority queue only to produce candidates that a later step will verify. Exact priority can cost more structure than those algorithms need.',
         {type: 'callout', text: 'A soft heap buys speed by weakening priority order only where a later algorithm can verify the candidates.'},
-        'Corruption is one-sided. A key may be increased, never decreased. That means an item can be delayed behind larger soft keys, but it cannot jump ahead by pretending to be smaller than it really is. The heap parameter epsilon controls the maximum number of corrupted items relative to the number of inserted items.',
+        'A soft heap, introduced by Bernard Chazelle, trades exact order for a bound on how many keys may be corrupted. Corrupted means the data structure stores an artificially increased key for an item.',
       ],
     },
     {
-      heading: 'Why it exists',
+      heading: 'The obvious approach',
       paragraphs: [
-        'An exact priority queue must preserve enough information to return true minima. Some graph algorithms do not need that much exactness from the queue because they have separate tests that reject bad candidates. The wall is paying exact-priority costs even when the caller can cheaply verify the result.',
-        'A soft heap trades exact order for a bounded one-sided error: it may raise some keys, but it never lowers them. That preserves safety for algorithms that treat heap outputs as candidates rather than certificates. The correctness burden moves outward: the data structure guarantees a corruption budget, and the surrounding algorithm must prove that raised keys cannot invalidate the final answer.',
+        'The obvious approach is an exact heap: insert items, then extract the minimum whenever needed. Binary heaps, pairing heaps, and Fibonacci heaps all keep that exact contract.',
+        'That is right for schedulers, auctions, shortest paths, and user-visible queues. The output order is the product, so approximation would be a bug.',
       ],
     },
     {
-      heading: 'How it works conceptually',
+      heading: 'The wall',
       paragraphs: [
-        'The deep implementation uses heap-ordered tree structures and grouped item lists, but the conceptual move is simple: reduce the amount of ordering information the heap maintains. Chazelle describes this as moving items in groups. When several items share a representative soft key, some true keys must be raised so the heap order remains legal.',
+        'The wall is the exact-minimum boundary. A heap spends work maintaining enough order information to distinguish the smallest item from every competitor after updates.',
+        'For some graph algorithms, the queue output is not accepted blindly. A proposed edge still goes through a component or cut-style test. Exact ordering inside the queue may be stronger than necessary.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Raise some keys on purpose so groups of items can share coarser ordering information. Maintaining less exact order can make heap operations cheaper.',
+        'The error rate epsilon bounds how many inserted items may be corrupted at a time. The guarantee is about the count of corrupted items, not the distance from the true minimum.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The full structure is technical, but the teaching model is grouping. Several items can travel under a representative soft key, and some true keys are raised so heap order remains valid at the group level.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Max-Heap-new.svg/250px-Max-Heap-new.svg.png', alt: 'Binary max heap represented as a tree', caption: 'An exact heap preserves parent-child priority order. A soft heap deliberately stores less exact order information. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Max-Heap-new.svg.'},
-        'This information reduction breaks through ordinary comparison-priority-queue barriers. The classic bounds give constant amortized time for most heap operations, with insert costing O(log 1/epsilon). Later simplified variants move the log factor among operations, but the core tradeoff remains the same: speed in exchange for bounded key corruption.',
+        'Extraction returns an item that is minimal under maintained soft keys. Because true keys may have been raised, the returned sequence can differ from true sorted order. The caller must verify candidates.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'The signature case study is minimum spanning tree algorithms. Kruskal MST and Prim MST rely on priority choices, but MST correctness also has structural certificates: edges are accepted only if they connect different components or satisfy cut-style conditions. A soft heap can propose approximate-minimum edges, while Union-Find or related graph checks decide whether the edge is actually usable.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Minimum_spanning_tree.svg/330px-Minimum_spanning_tree.svg.png', alt: 'Weighted planar graph with a minimum spanning tree highlighted', caption: 'MST algorithms are a natural home for soft heaps because graph structure can verify candidate edges after approximate extraction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Minimum_spanning_tree.svg.'},
-        'This is the essential design lesson. Approximation inside a data structure is safe only when the surrounding algorithm has a way to verify or repair the output. A scheduler that must always run the true highest-priority job is a poor fit. An algorithm that can discard bad candidates after a cheap certificate is a much better fit.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the corruption-budget view, read every raised key as a deliberate loss of ordering information. The heap is not broken; it is spending part of its epsilon budget so it can maintain less exact structure while still bounding how many items are distorted.",
-        "In the carpool-nodes view, the key idea is grouping. Several items can travel under a representative soft key. That saves ordering work, but it means some true keys are no longer visible to the heap. The caller must treat returned items as candidates, not unquestionable minima.",
-        "In the MST view, watch the verification step. The soft heap proposes edges cheaply. Union-Find and cut-style reasoning decide whether an edge is actually accepted. That downstream certificate is what makes approximate priority safe.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose edges have true weights 2, 3, 5, 8, and 13. An exact heap must preserve enough information to expose 2 before 3 before 5. A soft heap may raise the stored key of the edge with true weight 3 to 9, so extraction order can become 2, 5, 8, 3, 13. That is wrong if the caller demanded exact priority. It may still be safe if the caller only needed a stream of candidate edges and has a separate test.',
-        'For minimum spanning tree, that separate test is structural. If a proposed edge connects two vertices already in the same component, Union-Find rejects it. If it connects different components, it can be considered under the MST algorithm proof being used. Raised keys can delay some good edges, but they do not make a bad edge falsely cheap because corruption raises keys rather than lowering them.',
-        'The example also shows why "approximate" is not the same as "probably fine." A soft heap does not promise the result is close to the real minimum by value. It promises a bound on the number of corrupted items. Algorithms that use it must be written against that exact promise.',
+        'The data-structure guarantee works because corruption is one-sided and budgeted. Raising a key can delay an item, but it cannot make a heavy item look artificially cheap.',
+        'Algorithm correctness is outside the heap. In a minimum spanning tree algorithm, a proposed edge is still checked against components or cuts before acceptance. Without that external certificate, the soft heap gives no exact-order promise.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'For error rate epsilon between 0 and 1/2, a soft heap guarantees that at most epsilon times the number of inserted items are corrupted at any time. In the classic comparison model, insert takes O(log 1/epsilon) amortized time and operations such as meld, find-min, and delete are constant amortized time.',
-        'The guarantee is subtle. It is not saying every extract-min result is almost correct, and it is not saying the first epsilon fraction of outputs may be bad. It is a bound on currently corrupted items. That is why callers must be written with the exact guarantee in mind.',
+        'For epsilon between 0 and 1/2, the classic soft heap gives constant amortized time for meld, find-min, and delete, with insert costing O(log(1 / epsilon)) amortized time. Smaller epsilon means fewer corrupted items and more ordering work.',
+        'If epsilon = 0.1 and 1,000 items have been inserted, the structure bounds corruption at about 100 live items. That does not say the next 100 extracts are wrong; it says the current distortion budget is bounded.',
       ],
     },
     {
-      heading: 'Why the trade works',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Exact priority queues spend work to maintain a fine-grained ordering boundary between the smallest item and everything else. Soft heaps relax that boundary. If a group of items shares a representative key, the structure can move and merge larger chunks at once. The price is that some item keys are raised to preserve heap order at the group level.',
-        'The one-sided nature of corruption is what keeps the idea usable. Lowering a key could make an item appear too early and pollute algorithms that rely on minimum candidates. Raising a key can delay an item, which is still dangerous for some tasks, but many graph algorithms can tolerate delay if they continue to verify candidates and preserve their own structural invariants.',
+        'The signature use is minimum spanning tree theory. The heap proposes cheap candidate edges, and graph structure decides whether each edge is usable.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Minimum_spanning_tree.svg/330px-Minimum_spanning_tree.svg.png', alt: 'Weighted planar graph with a minimum spanning tree highlighted', caption: 'MST algorithms are a natural home for soft heaps because graph structure can verify candidate edges after approximate extraction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Minimum_spanning_tree.svg.'},
+        'The broader pattern is staged validation. If a later stage cheaply certifies candidates, an earlier stage may use approximate ordering safely.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        'A soft heap is not a randomized heap and corruption is not data corruption in the storage-safety sense. It is a deliberate, bounded priority distortion. Another misconception is that a soft heap returns the true minimum most of the time. The contract is weaker and more mathematical: it limits how many keys have been raised.',
-        'Soft heaps are also not common production priority queues. Binary Heap, Pairing Heap, Fibonacci Heap, and Radix Heap have easier exact contracts. Soft heaps belong where theoretical performance or algorithmic simplification justifies the burden of approximate outputs and downstream verification.',
-        'Do not use a soft heap when the order is the user-facing product. Schedulers, auction queues, rate-limit priority lanes, and alert queues usually need explainable exact decisions. A bounded-corruption proof will not help if the person who lost priority asks why their item was delayed.',
-        'The right mental model is a proof tool first and an engineering tool second. It teaches a powerful systems idea: if a downstream stage can cheaply validate candidates, an upstream structure may be allowed to be approximate. Without that validation stage, the same approximation becomes an unbounded product bug.',
+        'It fails when extract-min is itself the answer. Schedulers, alert queues, auctions, and priority lanes usually need exact and explainable order.',
+        'It also fails as a casual speed trick. The implementation is complex, the contract is unusual, and tests must check the corruption guarantee rather than exact sorted output.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose true edge weights are 2, 3, 5, 8, and 13. An exact heap extracts them as 2, 3, 5, 8, 13.',
+        'A soft heap may raise the stored key of weight 3 to 9. The soft-key extraction order can become 2, 5, 8, 3, 13. This is wrong for sorting but still one-sided because 3 was delayed, not made cheaper.',
+        'In an MST loop, each extracted edge is tested. If edge 5 connects two different components, it can be considered; if it forms a cycle, it is rejected. The graph test, not the heap output, is the certificate.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Chazelle, "The Soft Heap: An Approximate Priority Queue with Optimal Error Rate", PDF at https://www.cs.princeton.edu/~chazelle/pubs/sheap.pdf and ACM DOI page at https://dl.acm.org/doi/10.1145/355541.355554. MST application source: Chazelle, "A Minimum Spanning Tree Algorithm with Inverse-Ackermann Type Complexity", https://www.cs.princeton.edu/~chazelle/pubs/mst.pdf. Simplified implementation reference: Kaplan, Zwick, and Kaplan, "Soft Heaps Simplified", https://epubs.siam.org/doi/10.1137/120880185. Study Binary Heap, Fibonacci Heap, Pairing Heap, Radix Heap, Kruskal MST, Prim MST, and Union-Find next.',
+        'Read Chazelle on the soft heap and on the MST application, then Kaplan, Zwick, and Kaplan for a simplified treatment. Focus on the corruption guarantee and how callers use it.',
+        'Next study Binary Heap, Fibonacci Heap, Pairing Heap, Radix Heap, Kruskal MST, Prim MST, Union-Find, amortized analysis, and candidate-generation pipelines.',
       ],
     },
   ],

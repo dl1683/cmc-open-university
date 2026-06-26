@@ -118,169 +118,95 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Distributed Tracing. One trace ID, one tree of spans across six services — and the slow hop has nowhere to hide..",
+        'The animation builds one checkout trace across six microservices. Each node is a span: a timed unit of work inside one service. Active spans are currently executing. Waiting spans are blocked on a child call. Returned spans have closed and recorded their duration.',
         {type: "callout", text: "Distributed tracing turns one request into a timed call tree, so latency attribution follows parent-child evidence instead of service-by-service guessing."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/distributed-tracing.gif', alt: 'Animated walkthrough of the distributed tracing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Watch the tree grow left to right as the gateway fans out to auth, orders, inventory, payments, and fraud-check. When a span closes, its duration becomes fixed evidence. The found highlight at the end marks the critical path: the chain of spans that determined the user\'s total wait.',
+        'Toggle nothing here — the animation walks one specific checkout request so you can follow every hop and see exactly where 120ms went.',
+        {type: 'image', src: './assets/gifs/distributed-tracing.gif', alt: 'Animated walkthrough of the distributed tracing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Distributed tracing follows one user request through dozens of machines, dozens of services, and hundreds of function calls — and assembles them into a single tree. A trace ID (like abc123) is minted at the gateway and propagated downstream in request headers, especially the W3C traceparent standard. Each unit of work — a function call, a database query, an RPC — records a span: its name, start time, end time, and parentId (which service called me). All spans with the same trace ID reassemble at a tracing backend into the exact shape of the dependency tree. If a request takes 120ms from user to response, the tree shows which 55ms came from fraud-check, which 20ms from inventory, which 45ms from idle network waiting.`,
+        'A user clicks "buy" and the page takes 120ms. Six microservices touched that request: gateway, auth, orders, inventory, payments, and a fraud-check service buried inside payments. Each service logs to its own machine. Auth sees 15ms. Inventory sees 20ms. Payments sees 70ms. Every service looks fine in isolation, but the checkout is slow.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Microservices-based_architecture.png/800px-Microservices-based_architecture.png`, alt: `Microservices architecture diagram with independent services connected through requests`, caption: `A microservice graph explains why one user action can scatter evidence across many processes before tracing joins it back together. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Microservices-based_architecture.png.`},
-        `Without tracing, each service logs its own events to its own server. A checkout that takes 120ms looks fast in the auth service (15ms), fine in inventory (20ms), reasonable in payments (70ms). The bug hides two layers deep. Tracing exposes it: fraud-check is the critical path. It is the Recursion call tree, but scattered across a dozen machines and reassembled by timestamp and parentId.`,
+        'The problem is that no single service owns the full picture. The slow hop hides two layers deep, inside a dependency nobody remembered was on the path. Distributed tracing exists to reconstruct the exact call tree from scattered evidence so latency has a precise address, not a vague neighborhood.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The natural first move is to check each service\'s logs and dashboards. Auth took 15ms, inventory took 20ms, payments took 70ms. You compare numbers, guess which one looks worst, and investigate there. For a system with two or three services, this works well enough.',
+        'A slightly better version is centralized logging: ship all logs to one search cluster, filter by request timestamp, and correlate events manually. This works until request volume makes manual correlation impossible or until the slow service is not the one you suspected.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The obvious approach is to inspect service logs one by one. That works when one service owns the whole request. It breaks down when latency comes from nested calls, retries, network waits, queue handoffs, or a dependency nobody remembered was on the path.`,
-        `Per-service dashboards hit the same wall. Auth can look fast, inventory can look fast, and payments can look acceptable while the composed checkout is slow. Without parent-child timing, you cannot tell which spans were serial, which overlapped, and which one sat on the critical path.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `Use the visual model as one checkout trace being built. When a span opens, a service has started work. When it waits, that service is blocked on a child span. When it returns, its duration becomes evidence about the request path. The tree is not a map of every possible dependency; it is the exact call tree for this request.`,
-        `Fraud-check matters because it sits on the critical path. Its 55ms flows upward into payments, orders, and gateway. Notify is different: it publishes to a queue and returns quickly, so later notification work is operationally relevant but not part of this user's response time.`,
+        'Per-service inspection fails when latency comes from nested calls. Payments took 70ms total, but 55ms of that was fraud-check. Without parent-child relationships, you cannot tell whether payments was slow because of its own code or because it was waiting on a child. You also cannot tell which calls were serial and which overlapped.',
+        'Centralized logging hits a different wall: logs record events, not structure. You can see that fraud-check started and finished, but you cannot see that it was called by payments, which was called by orders, which was called by gateway. The causal chain is missing. Without it, you are left guessing which service caused the total latency instead of reading it from a tree.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is context propagation. The system must carry trace identity across process boundaries so independently emitted spans can be joined later. W3C Trace Context standardizes headers such as traceparent and tracestate for this reason.`,
+        'The insight is context propagation. The gateway mints a trace ID and passes it downstream in an HTTP header (the W3C traceparent standard). Every service that receives the header creates a span: a record with the trace ID, a unique span ID, the parent span ID, a start time, and an end time. Because every span carries its parent\'s ID, independently emitted records from six different machines can be reassembled into one tree after the fact.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with parent-child arrows between nodes`, caption: `A trace is a directed parent-child graph with timestamps, span IDs, and process boundaries attached. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.`},
-        `A span is useful because it has both timing and parentage. Timing alone is a stopwatch. Parentage turns many stopwatches into a dependency tree, separating self time, child time, parallel work, and detached async work.`,
+        'Timing alone is a stopwatch. Parentage turns many stopwatches into a dependency tree. The tree separates self time (work a service did itself) from child time (time spent waiting on downstream calls), parallel work from serial work, and synchronous calls from fire-and-forget async handoffs.',
       ],
     },
     {
-      heading: 'How it works (2)',
+      heading: 'How it works',
       paragraphs: [
-        `When a request arrives at the gateway, a trace ID is generated and stored in the request context. The gateway opens a root span (the gateway service itself) and immediately passes the trace ID and span ID to the next service — usually in request headers. That service, say the orders service, creates a child span with the trace ID and the gateway span as its parentId. When orders calls inventory, it passes the trace ID again, and inventory creates a span whose parentId points to the orders span. Every downstream service does the same.`,
-        `Each span records a start time and end time. When inventory finishes in 20ms, its span closes and ships to the tracing backend. When orders finishes 75ms after it started, the orders span closes. The backend collects all fragments from all machines and sorts them by trace ID: one trace, six spans, one tree. A span's duration includes all nested spans — the tree itself is the timing breakdown.`,
-        `Async work (like notify sending an event to a Message Queue) can be detached from the critical path: the span opens, fires the message, and closes immediately without waiting for the consumer. The request completes faster, and the tracing backend knows which work ran on the critical path and which ran fire-and-forget.`,
+        'When POST /checkout hits the gateway, a trace ID is generated and stored in the request context. The gateway opens a root span and passes the trace ID and its own span ID to the auth service via a request header. Auth creates a child span whose parentId points to the gateway span. Auth finishes in 15ms, closes its span, and ships it to a tracing backend (Jaeger, Zipkin, Datadog, or similar).',
+        'The gateway then calls orders, which opens its own child span. Orders calls inventory (20ms) and then payments. Payments calls fraud-check, which opens a span two levels below the gateway. Fraud-check takes 55ms. When it returns, payments closes at 70ms, orders at 95ms. The gateway fires a notify event onto a message queue (2ms, async, off the critical path) and closes at 120ms.',
+        'The tracing backend collects all six spans from six machines, groups them by trace ID, and sorts them by parentId into a tree. The result is a single view showing the exact call path, the duration of every hop, and which spans were serial versus parallel. A span\'s duration always includes its children, so the tree itself is the timing breakdown.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Spans can arrive out of order from different machines. The backend can still assemble the trace if each span carries trace ID, span ID, and parent span ID. Those identifiers are enough to rebuild the tree after the work has already happened.`,
-        `Latency attribution works because span intervals nest or overlap in time. A child span inside a parent contributes to the parent's elapsed time, but two overlapping children should not be added as if they were serial. The trace view prevents that common arithmetic mistake.`,
+        'Spans can arrive at the backend out of order from different machines, different networks, different time zones. The tree still assembles correctly because each span carries three identifiers: trace ID (which request), span ID (which unit of work), and parent span ID (who called me). Those three fields are sufficient to rebuild the full tree after all work has finished.',
+        'Latency attribution is correct because span intervals nest in time. A child span\'s duration is a subset of its parent\'s duration. Two sibling spans that overlap in time represent parallel work and should not be summed as if they were serial. The tree structure prevents that arithmetic mistake, which is the most common error in per-service latency debugging.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A checkout trace takes 120ms. Gateway calls auth for 15ms, then orders. Orders checks inventory in 20ms and calls payments. Payments calls fraud-check, which takes 55ms. Payments finishes at 70ms, orders at 95ms, and gateway at 120ms.`,
-        `The conclusion is not merely that payments took 70ms. Payments is slow because fraud-check dominates its child time, and payments sits under orders, which sits under gateway. If fraud-check can be cached or moved off the synchronous path safely, the user-facing latency can improve.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `Instrumenting every service to emit spans requires a client library (OpenTelemetry is the standard) and a tracing backend (Jaeger and Zipkin are free and open-source; Datadog, Honeycomb, and others are hosted). Tracing every request is too expensive: 10,000 requests per second times 100 bytes per span quickly overwhelms disks and networks. Most production systems sample: keep 100% of slow traces (e.g., anything over 1 second) and 100% of error traces, then sample 1% of fast, normal requests — a strategy called tail-based sampling. See Reservoir Sampling for the math. The overhead is small once sampling is in place: a span is just six integers (IDs and timestamps) and a string (the name).`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior (2)',
-      paragraphs: [
-        `The real costs are storage, high-cardinality attributes, privacy review, and operational dependency on collectors. Head sampling is cheap but can drop the slow trace before the system knows it is slow. Tail sampling can keep slow and error traces, but it needs buffering and backend capacity.`,
+        'Instrumenting services requires a client library (OpenTelemetry is the standard) and a backend to collect and store spans. A single span is small: six integers (trace ID, span ID, parent ID, start time, end time, status) and a service name string. The per-request overhead is negligible.',
+        'The real cost is volume. At 10,000 requests per second with an average of 6 spans per trace, the backend ingests 60,000 spans per second. Tracing every request is too expensive for most systems. Production deployments sample: keep 100% of slow traces (anything over a threshold like 1 second) and 100% of error traces, then sample 1-5% of normal traffic. Head-based sampling decides at the gateway but cannot know yet if the request will be slow. Tail-based sampling buffers spans and decides after the trace completes, which is more accurate but requires more backend capacity.',
+        'Storage, high-cardinality span attributes, privacy review of request payloads, and operational dependency on the collector pipeline are the ongoing costs. The tradeoff is straightforward: sampling reduces cost but means some interesting traces are lost.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `The primary use is debugging latency regressions: "our checkout endpoint got slower last week; which service changed?" The trace tree answers in seconds. Second use: capacity planning. If fraud-check is the critical path and takes 45% of the total time, redesigning payments (which takes 20%) saves nothing. Third: dependency discovery. New engineers ask "what does this service call?" A trace shows every downstream call in order, with latency for each. Fourth: contract violations. If a service promises 50ms SLA but consistently takes 100ms when called by a certain caller, distributed tracing identifies the pattern.`,
+        'Latency debugging is the primary use. "Checkout got slower last week — which service changed?" The trace tree answers in seconds by showing which span grew. Capacity planning follows: if fraud-check is 45% of the critical path, optimizing inventory (which is only 17%) saves nothing. The tree directs engineering effort to the hop that matters.',
+        'Dependency discovery is the third use. A new engineer asks "what does the orders service call?" A trace shows every downstream call, in order, with latency for each. No architecture diagram needed — the trace is the live architecture. Fourth: SLA enforcement. If a service promises a 50ms response but consistently takes 100ms when called by a specific upstream caller, tracing identifies the pattern across thousands of requests.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Myth: "Tracing tells me why something is slow." False — it tells you where (which service, which function). The why comes from profilers, logs, and human investigation. Myth: "A 120ms trace means my response time is 120ms." False: if 100 traces run in parallel (common with async work), the median response time might be 120ms but the sum of all spans across all traces is 12,000ms. Tracing shows concurrency; it does not measure throughput. Pitfall: forgetting to propagate the trace ID. If one service doesn't pass the header downstream, the trace breaks into fragments — the tree becomes a forest. Pitfall: over-sampling. If you keep every normal request, your tracing backend becomes a bottleneck and you lose the latency advantage. Pitfall: confusing traces with metrics. Metrics (response time percentiles) drive the alert; traces (the full call tree) explain it.`,
+        'Tracing tells you where latency lives, not why. It shows that fraud-check took 55ms, but whether the cause is a slow database query, a cold cache, or a CPU-bound model evaluation requires profilers, logs, and investigation. Traces locate; they do not diagnose.',
+        'Broken propagation is the most common failure. If one service in the chain does not forward the traceparent header, the trace splits into disconnected fragments. The tree becomes a forest. This happens silently — you only notice when you search for a trace and find half of it missing.',
+        'Over-sampling drowns the backend. If you keep every span for every request, the tracing system becomes a bottleneck itself. Confusing traces with metrics is another trap: metrics (response time percentiles) drive alerts; traces explain what the alert means. They are complementary, not interchangeable.',
       ],
     },
     {
-      heading: 'Sources and standards',
+      heading: 'Worked example',
       paragraphs: [
-        `OpenTelemetry's traces concept page describes traces as collections of spans and identifies context propagation as the core concept that lets spans from different services be assembled into one trace: https://opentelemetry.io/docs/concepts/signals/traces/. Its context propagation page explains how traces, metrics, and logs can be correlated across process and network boundaries: https://opentelemetry.io/docs/concepts/context-propagation/.`,
-        `The W3C Trace Context specification standardizes traceparent and tracestate headers so trace identity can move across vendor boundaries: https://www.w3.org/TR/trace-context/. Jaeger's architecture documentation explains the production side: spans, collectors, query service, storage backends, and sampling to control overhead: https://www.jaegertracing.io/docs/1.76/architecture/. OpenTelemetry's JavaScript propagation docs show the same propagation idea in the JavaScript ecosystem: https://opentelemetry.io/docs/languages/js/propagation/.`,
+        'A checkout trace completes in 120ms across 6 services. The gateway opens, calls auth (15ms), then calls orders. Orders calls inventory (20ms), then calls payments. Payments calls fraud-check (55ms). Payments closes at 70ms (55ms waiting on fraud-check plus 15ms of its own work). Orders closes at 95ms. Gateway fires notify (2ms async) and closes at 120ms.',
+        'The critical path is gateway -> orders -> payments -> fraud-check, four spans deep. Fraud-check alone accounts for 55 of 120ms, or 46% of the user\'s wait. Auth (15ms) and inventory (20ms) are on the path but small. Notify is off the critical path entirely because it is async.',
+        'The actionable conclusion: fraud-check needs a cache, a faster model, or an async redesign. Optimizing auth (already 15ms) or inventory (already 20ms) would save at most 35ms even if reduced to zero, while caching fraud-check results could save up to 55ms per request.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `GenAI Trace Token Cost Ledger is the LLM-specific continuation: the same span tree must carry model version, prompt hash, token usage, cache hit/miss, tool calls, eval scores, safety verdicts, cost, redaction policy, and rollout cohort.`,
-        `Trace Context & Baggage Propagation goes one layer lower and shows how traceparent, tracestate, and bounded baggage survive proxies, queues, and vendor boundaries. OpenTelemetry Tail Sampling Policy shows how a backend keeps expensive traces after it knows whether they were slow or erroneous.`,
-        `Metric Exemplars Trace Correlation connects aggregate latency buckets back to exact trace IDs, while SLO Error Budget Burn Rate Alert explains when a trace investigation becomes a page and Log Template Drain Parser shows how raw logs become joinable event keys during incident response.`,
-        `DDSketch Relative-Error Quantiles explains how tracing and metrics backends roll up latency distributions without averaging p99s. Tail Latency & p99 Thinking explains why those percentiles matter before you inspect individual traces.`,
-        `Distributed tracing visualizes the shape of the dependency tree, which is identical to a Recursion call tree. Understanding Recursion first makes tracing intuitive. Async Context Propagation shows how trace IDs and request-local values survive promise, timer, and callback hops inside one JavaScript service before they become cross-service headers. If a service delegates work asynchronously, the critical path shrinks: see Load Balancer for how systems shed work to avoid bottlenecks. When tracing a saga that spans multiple services, see Saga Pattern to understand compensation and rollback. Finally, Message Queues decouple services and allow async fire-and-forget — the technique that lets trace work drop off the critical path.`,
+        'OpenTelemetry\'s traces documentation defines spans, context propagation, and the collector architecture: https://opentelemetry.io/docs/concepts/signals/traces/. The W3C Trace Context specification standardizes traceparent and tracestate headers for cross-vendor propagation: https://www.w3.org/TR/trace-context/. Jaeger\'s architecture page covers the production deployment: collectors, query services, storage backends, and sampling strategies: https://www.jaegertracing.io/docs/1.76/architecture/.',
+        'Prerequisites: Recursion (the call tree is the same shape as a recursive call stack, but scattered across machines). Extensions: Trace Context & Baggage Propagation (how headers survive proxies and queues), OpenTelemetry Tail Sampling Policy (keeping slow traces without keeping everything), Async Context Propagation (how trace IDs survive promises and callbacks inside one service). Related systems: Message Queues (async fire-and-forget that drops work off the critical path), Load Balancer (how systems distribute work across backends), Saga Pattern (compensation and rollback across traced service chains).',
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Distributed Tracing moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

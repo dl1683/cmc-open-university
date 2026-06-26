@@ -219,95 +219,46 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/seccomp-bpf-sandbox-policy.gif', alt: 'Animated walkthrough of the seccomp bpf sandbox policy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Seccomp-BPF exists because untrusted or semi-trusted code should not be able to ask the kernel for every service the kernel provides. A parser, plugin, test runner, browser process, container workload, or agent tool may need read, write, futex, mmap, and a small set of ordinary calls. It usually does not need mount, ptrace, keyctl, raw networking, or privilege-changing operations.',
-        'The kernel boundary is one of the most important attack surfaces on a Linux system. If compromised code can call every syscall with arbitrary arguments, the attacker has a large menu of kernel behaviors to probe. Seccomp reduces that menu. It does not make the code trustworthy, but it narrows what the code can ask the host kernel to do.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5b/Linux_kernel_map.png', alt: 'Linux kernel map showing system interfaces, memory, storage, networking, and security layers', caption: 'The kernel exposes many service families; seccomp narrows which entry points a process can reach. Source: Wikimedia Commons, Constantine Shulyupin, CC BY-SA 3.0.'},
-        'This distinction matters because people often use the word sandbox too loosely. Seccomp is an enforcement mechanism inside a sandbox architecture. It is strongest when combined with namespaces, cgroups, capabilities, filesystem rules, network controls, LSM policy, brokers, and logging. Alone, it is a syscall filter, not a complete isolation story.',
-        {type: 'callout', text: 'Seccomp is an attack-surface reducer, not an authority model: it filters kernel entry points while other layers control identity, files, network, and resources.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to run code in a container and assume the container is the sandbox. That is not precise enough. A container changes namespaces, filesystem views, resource controls, and defaults, but the workload may still reach a large host-kernel API unless syscall filtering and other controls are actually applied.',
-        'Another obvious approach is to deny a few dangerous syscalls by name. That is usually weaker than an allowlist. Linux has many syscalls, and danger depends on arguments, capabilities, namespaces, and kernel version. A small denylist can leave surprising routes open. A tight allowlist starts from what the workload needs and treats everything else as suspicious.',
-        'A third shortcut is to copy a profile from another workload. That may be a useful starting point, but syscall needs are runtime contracts. A compiler, network fetcher, image decoder, browser renderer, and shell do different things. If they all receive the same broad profile, the profile is probably documenting operational convenience rather than actual least privilege.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is that each isolation layer controls a different axis. Namespaces control what the process can see. Cgroups control how much resource it can consume. Capabilities control privileged operations. Filesystem policy controls paths and mutability. Network policy controls destinations. LSMs control label-based access. Seccomp controls which syscalls can reach the kernel.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/Simplified_Structure_of_the_Linux_Kernel.svg', alt: 'Simplified Linux kernel structure showing user space, system calls, virtual file system, drivers, and hardware', caption: 'Sandbox layers sit around a real kernel stack; seccomp only governs syscall entry, not every downstream authorization question. Source: Wikimedia Commons, ScotXW, CC BY-SA 4.0 or GFDL.'},
-        'Because each layer controls a different axis, no single layer should be asked to do every job. Seccomp cannot decide whether reading a particular file is semantically allowed if read is on the allowlist. A mount namespace cannot stop an allowed syscall from exploiting a kernel bug. A cgroup cannot stop data exfiltration. The architecture works by reducing independent freedoms at the same time.',
-        'The second insight is that return actions are policy. Allow, errno, kill, trap, trace, user notification, and log are not interchangeable. Returning errno can be correct for an expected denial. Killing the process can be correct for a syscall that should never appear. Logging can be useful during profile development. The action tells the runtime how seriously to treat the event.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A process installs a seccomp filter program. On each syscall, the kernel exposes metadata such as architecture, syscall number, instruction pointer, and arguments. The filter evaluates that metadata and returns an action. A correct profile checks architecture first because syscall numbers can mean different things across ABIs. Ignoring that check can create ABI confusion.',
-        'Profiles can match only what seccomp can see. Argument filtering is possible for simple numeric arguments, but seccomp does not inspect arbitrary pointed-to memory as a rich object. That means it can restrict a syscall shape, not fully understand the business meaning of the operation. If semantic approval is needed, a broker or a higher-level policy layer must participate.',
-        'Filters are usually developed from observation. Run the workload under audit or trace, collect the syscalls it actually needs, remove broad permissions, then decide how denials should behave. Production profiles should be intentional, versioned, and tied to the workload. "It did not crash in one test" is not enough evidence that the profile is complete.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The syscall-filter view proves where seccomp sits. The workload asks for a syscall, the filter checks architecture and syscall metadata, and the runtime chooses allow, errno, kill, trap, trace, notify, or log. The program may still be compromised, but the set of kernel entry points available to that compromised program has been narrowed.',
-        'The sandbox-layers view proves the architectural point. Seccomp is one node in a stack, not the stack. Namespaces, cgroups, capabilities, LSM policy, filesystem rules, network policy, brokers, and audit logs each cover a different failure mode. If the visual leaves you thinking "seccomp equals sandbox," it has been misread.',
-        'The tool-runtime table makes the design concrete. A read-only repository tool, network fetcher, build runner, and shell executor should not share one vague permission bucket. They should have different mounts, network routes, resource limits, syscall profiles, and evidence logs. Sandboxing begins by naming the workload precisely.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works by reducing available behavior after compromise. A perfect program does not need seccomp. Seccomp matters when code is buggy, adversarial, or running data it should not fully trust. If an image decoder exploit lands in a process that cannot call dangerous syscalls, the attacker has fewer paths from code execution to host damage.',
-        'It also works because syscall needs are often much smaller than syscall availability. Most specialized workloads use a stable subset of calls. Rendering, parsing, fetching, and testing are not the same as administering the machine. A profile turns that observation into enforcement.',
-        'Layering works because failures are not all the same. If a workload escapes a filesystem assumption, seccomp may still block privileged kernel operations. If a syscall is allowed, the namespace may still hide host resources. If both allow an action, audit may still preserve evidence. Defense in depth is not a slogan here; it is a map of independent controls.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'The runtime overhead of a seccomp filter is usually small compared with the security value, but the engineering cost is real. Profiles must be generated, reviewed, tested across kernels and distributions, updated when dependencies change, and observed in production. Too narrow a profile causes strange failures. Too broad a profile becomes documentation theater.',
-        'Strict profiles can also conflict with debuggability. Developers may need trace, perf, ptrace, or unusual syscalls that production code should never use. The answer is not to leave production wide open. The answer is to separate developer, CI, staging, and production profiles, and to make temporary privilege expansion visible and reviewed.',
-        'gVisor, microVMs, and brokered designs add stronger isolation but cost more in compatibility, performance, and operational complexity. Raw seccomp is lightweight but limited. The right choice depends on the workload risk, kernel exposure, performance budget, and how much behavior must be faithfully emulated.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Seccomp wins for workloads with narrow, stable syscall needs: browser renderers, containerized services, serverless functions, CI jobs, build steps, media parsers, document converters, plugin hosts, and agent tools. It is especially useful when code must process untrusted input but should only need a small operating-system vocabulary.',
-        'It is also useful as a policy boundary in multi-tool systems. A model-orchestrated read tool should not be able to open network sockets just because the shell tool can. A build runner should not gain host administration calls because a different workload needed them. Per-tool seccomp profiles help turn abstract permissions into actual runtime constraints.',
-        'In Kubernetes, seccomp profiles help move from "containerized" to "constrained." They should sit alongside non-root users, dropped capabilities, read-only root filesystems, network policies, AppArmor or SELinux, resource limits, and admission controls. The combination is the sandbox posture.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Do not call seccomp a complete sandbox. It cannot decide whether a file read is semantically authorized, whether an allowed network connection leaks private data, or whether a permitted syscall is being used for a dangerous application-level action. It is a kernel-surface control.',
-        'Do not deploy profiles without observation. Missing syscalls can break workloads in surprising ways, and behavior can differ across libc, kernel versions, architectures, and optional features. Start with audit and trace data, tighten profiles, then make denials intentional. A profile that only passed one happy-path test is not a production profile.',
-        'Do not ignore privilege context. A privileged container with broad capabilities and an unconfined or permissive seccomp profile is not meaningfully isolated just because it is packaged as a container. Conversely, a tight seccomp profile on a process with broad filesystem and network access may still permit serious data loss. The layers must agree on the threat model.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Linux kernel seccomp filter docs at https://docs.kernel.org/userspace-api/seccomp_filter.html, seccomp(2) at https://man7.org/linux/man-pages/man2/seccomp.2.html, Kubernetes seccomp docs at https://kubernetes.io/docs/reference/node/seccomp/, gVisor overview at https://gvisor.dev/docs/, and gVisor security model at https://gvisor.dev/docs/architecture_guide/security/.',
-        'Study Capability Security & Attenuation, Agent Tool Permission Lattice, OPA Rego Policy Decision Graph, Kubernetes Admission Policy Gate, WebAssembly Linear Memory Case Study, TUF Update Metadata Case Study, and Confidential Computing Attestation Chain Case Study next.',
-        'A useful exercise is to design four profiles for one platform: read-only file access, network fetch, test execution, and interactive shell. For each profile, list mounts, network access, cgroup limits, capabilities, seccomp actions, and audit evidence. That exercise forces the key lesson: sandboxing is workload-specific architecture, not a single checkbox.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'The syscall-filter view follows one system call from user code to a seccomp-BPF filter. A system call is a request into the Linux kernel, and active nodes show the metadata being checked before the call is allowed or denied.',
+      {type: 'image', src: './assets/gifs/seccomp-bpf-sandbox-policy.gif', alt: 'Animated walkthrough of the seccomp bpf sandbox policy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+    ]},
+    { heading: 'Why this exists', paragraphs: [
+      'Untrusted code should not be able to ask the kernel for every service it provides. Seccomp-BPF exists to reduce the kernel entry points available after compromise, not to make the code trustworthy.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5b/Linux_kernel_map.png', alt: 'Linux kernel map showing system interfaces, memory, storage, networking, and security layers', caption: 'The kernel exposes many service families; seccomp narrows which entry points a process can reach. Source: Wikimedia Commons, Constantine Shulyupin, CC BY-SA 3.0.'},
+      {type: 'callout', text: 'Seccomp is an attack-surface reducer, not an authority model: it filters kernel entry points while other layers control identity, files, network, and resources.'},
+    ]},
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to run code in a container and assume the container is the sandbox. That is incomplete because a container can still expose a broad host-kernel API unless syscall filtering and other controls are applied.',
+    ]},
+    { heading: 'The wall', paragraphs: [
+      'No single layer sees the whole security question. Seccomp sees syscall metadata, but it does not know whether a file read is semantically allowed or whether an allowed network connection leaks data.',
+    ]},
+    { heading: 'The core insight', paragraphs: [
+      'Sandboxing is composition across axes. Namespaces control what a process sees, cgroups control resources, capabilities control privileged operations, LSMs control labeled access, and seccomp controls syscall entry.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/Simplified_Structure_of_the_Linux_Kernel.svg', alt: 'Simplified Linux kernel structure showing user space, system calls, virtual file system, drivers, and hardware', caption: 'Sandbox layers sit around a real kernel stack; seccomp only governs syscall entry, not every downstream authorization question. Source: Wikimedia Commons, ScotXW, CC BY-SA 4.0 or GFDL.'},
+    ]},
+    { heading: 'How it works', paragraphs: [
+      'A process installs a BPF filter program. On each syscall, the kernel exposes architecture, syscall number, instruction pointer, and arguments, and the filter returns an action such as allow, errno, kill, trace, notify, or log.',
+    ]},
+    { heading: 'Why it works', paragraphs: [
+      'Seccomp works after compromise by removing options. If an exploited parser cannot call mount, ptrace, keyctl, or raw socket operations, the attacker has fewer routes from code execution to host damage.',
+    ]},
+    { heading: 'Cost and complexity', paragraphs: [
+      'Runtime overhead is usually small, but profile engineering is real work. Profiles must be traced, reviewed, tested across kernels and architectures, versioned with the workload, and observed in production.',
+    ]},
+    { heading: 'Real-world uses', paragraphs: [
+      'Seccomp fits browser renderers, serverless functions, CI jobs, media parsers, document converters, plugin hosts, Kubernetes workloads, and agent tools. Each workload should get a profile that matches its actual operating-system vocabulary.',
+    ]},
+    { heading: 'Where it fails', paragraphs: [
+      'Seccomp fails as a complete sandbox because it is not an authority model. If read is allowed and secrets are mounted, seccomp will not know the read is forbidden, so filesystem and identity policy must do that work.',
+    ]},
+    { heading: 'Worked example', paragraphs: [
+      'A read-only file tool may need openat with read-only flags, read, close, fstat, mmap, munmap, brk, futex, and exit. It should not need socket, connect, mount, ptrace, keyctl, chmod, or unlink.',
+      'A shell tool may need fork or clone, execve, wait4, pipe, dup2, and broader filesystem calls. Giving the shell profile to the read-only tool overexposes it; giving the read-only profile to the shell breaks it.',
+    ]},
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources are the Linux kernel seccomp filter documentation, seccomp(2), Kubernetes seccomp docs, and the gVisor architecture and security model. Study Linux capabilities, namespaces, cgroups, AppArmor or SELinux, WebAssembly sandboxing, microVMs, and audit logging next.',
+    ]},
   ],
 };

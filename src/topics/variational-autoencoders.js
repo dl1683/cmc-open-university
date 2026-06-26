@@ -1,4 +1,4 @@
-﻿// Variational autoencoders: encode an input into a distribution over latent
+// Variational autoencoders: encode an input into a distribution over latent
 // variables, sample with the reparameterization trick, and decode back.
 
 import { graphState, scatterState, matrixState, InputError } from '../core/state.js';
@@ -236,94 +236,94 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The reparameterization view traces a single input through the VAE dataflow graph. Highlighted nodes mark the active stage: input x enters the encoder, the encoder forks into two output heads (mu and sigma), noise epsilon arrives from outside the learned pathway, and z is assembled as mu + sigma * epsilon. The decoder then maps z back to a reconstruction x-hat. The critical thing to notice: epsilon has no incoming edge from the encoder. That separation is what makes gradients possible.',
+        'The reparameterization view shows a variational autoencoder, or VAE, as a dataflow graph. The encoder turns input x into a mean mu and standard deviation sigma, external noise epsilon is sampled, and the latent code is computed as z = mu + sigma * epsilon.',
         {
           type: 'callout',
           text: 'A VAE is trainable because randomness is sampled outside the encoder path while the latent sample remains differentiable with respect to mu and sigma.',
         },
-        'The latent space view shows encoded inputs as scattered points in a two-dimensional latent plane. Without KL regularization, clusters drift into isolated islands with dead zones between them. With KL, clusters overlap near the origin, filling the space so that interpolation between known points and random sampling from the prior both produce coherent decoder outputs. The prior marker at (0, 0) shows where N(0, I) sits; a well-trained VAE surrounds it.',
+        'The safe inference is about gradients. Because epsilon is outside the learned path, z is still a differentiable function of mu and sigma, so backpropagation can train the encoder even though the model samples.',
+        'The latent-space view shows the second pressure. Points should reconstruct their inputs, but they are also pulled toward a simple prior distribution so random samples land in regions the decoder understands.',
       
         {type: 'image', src: './assets/gifs/variational-autoencoders.gif', alt: 'Animated walkthrough of the variational autoencoders visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Autoencoders learn compressed representations of data. The idea traces to Rumelhart, Hinton, and Williams (1986), the same paper that popularized backpropagation: train a network whose hidden layer is narrower than its input, force it to reconstruct the input through that bottleneck, and the bottleneck learns the most informative features. A plain autoencoder compresses well but cannot generate new data, because its latent space has no structure a sampler can exploit.',
-        'Kingma and Welling (2014) turned the autoencoder into a generative model by making the encoder output a probability distribution instead of a fixed code. The Variational Autoencoder (VAE) pairs reconstruction with a regularization term that keeps the latent distribution close to a simple prior. The result is a latent space you can sample from, interpolate through, and use for anomaly detection, representation learning, and generation.',
+        'A plain autoencoder compresses data into a code and decodes it back. It can learn useful features, but its latent space may be an irregular private coordinate system with gaps where the decoder produces nonsense.',
+        'A VAE exists to make the code space usable for generation. It learns a distribution for each input and regularizes those distributions toward a shared prior, usually a standard normal distribution N(0, I).',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Before neural autoencoders, the standard tool for learning compressed representations was PCA: project data onto the directions of maximum variance. PCA is fast, closed-form, and produces orthogonal components that are easy to interpret. For data that varies mostly along linear axes, PCA captures the essential structure in a handful of components.',
-        'A plain (deterministic) autoencoder extends PCA by allowing nonlinear mappings. An encoder network compresses input x into a fixed vector z, and a decoder reconstructs x from z. With enough capacity, the autoencoder can pack complex patterns into z and reconstruct training examples almost perfectly.',
+        'The obvious compression baseline is PCA, which projects data onto directions of largest variance. PCA is fast and interpretable, but it only captures linear structure.',
+        'A deterministic neural autoencoder is the next step. It uses nonlinear encoder and decoder networks, so it can reconstruct curved data manifolds better than PCA, but it still gives no reliable rule for sampling new latent points.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'PCA is linear. Real data -- images of faces, molecular structures, speech signals -- lives on curved, nonlinear manifolds. PCA cannot bend its projection axes to follow those curves, so it wastes dimensions modeling variance that a nonlinear encoder would capture in fewer latent variables.',
-        'A plain autoencoder solves the nonlinearity problem but hits a different wall: its latent space is a private lookup table, not a continuous manifold. Two similar images can map to distant points. Random points between known codes land in regions the decoder never saw, producing garbage. There is no sampling distribution, no pressure to fill gaps, no guarantee that nearby latent points decode to related outputs. The autoencoder compresses but cannot generate.',
+        'The wall is that reconstruction alone rewards memorization. If the encoder maps each training image to a tiny isolated island, the decoder can reconstruct known examples while random points between islands decode badly.',
+        'Directly sampling from the encoder distribution creates another wall. A random draw is not differentiable with respect to the parameters that produced the distribution, so naive sampling blocks the gradient signal needed to train the encoder.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to optimize a lower bound with two forces. Reconstruction error asks the decoder to reproduce the input, while KL divergence asks the encoder distribution q(z|x) to stay close to the prior p(z).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/11/Reparameterized_Variational_Autoencoder.png', alt: 'Variational autoencoder dataflow after the reparameterization trick', caption: 'The reparameterized VAE separates probabilistic encoder outputs from external noise before the decoder reconstructs x. Source: Wikimedia Commons, Agustinus Kristiadi, CC BY-SA 4.0.'},
+        'The reparameterization trick moves randomness into epsilon. The model samples epsilon from N(0, I), then computes z from learned mu and sigma, so the random path and the gradient path no longer collide.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The encoder takes input x and outputs two vectors: a mean mu and a log-variance logvar (log-variance rather than variance because it is numerically stable and can represent any positive variance after exponentiation). From these, sigma = exp(0.5 * logvar). The encoder does not output a single code; it describes a Gaussian cloud around where x should live in latent space.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/11/Reparameterized_Variational_Autoencoder.png', alt: 'Variational autoencoder dataflow after the reparameterization trick', caption: 'The reparameterized VAE separates probabilistic encoder outputs from external noise before the decoder reconstructs x. Source: Wikimedia Commons, Agustinus Kristiadi, CC BY-SA 4.0.'},
-        'The reparameterization trick makes this trainable. Instead of sampling z directly from the learned distribution (which blocks gradient flow), the model draws epsilon from a fixed N(0, I) and computes z = mu + sigma * epsilon. Randomness stays in the forward pass, but z is now a deterministic function of mu, sigma, and epsilon. The partial derivatives are clean: dz/dmu = 1, dz/dsigma = epsilon. Backpropagation flows through mu and sigma to the encoder weights.',
-        'The decoder takes z and predicts the original input. For images, it might output Bernoulli probabilities per pixel (binary cross-entropy loss) or Gaussian means (MSE loss). The total loss is the Evidence Lower Bound (ELBO), which has two terms: Loss = reconstruction_error + KL(q(z|x) || p(z)). The reconstruction term rewards accurate outputs. The KL term measures how far the encoder distribution q(z|x) drifts from the prior p(z) = N(0, I). For Gaussian q and Gaussian prior, KL has a closed form per latent dimension j: KL_j = 0.5 * (sigma_j^2 + mu_j^2 - 1 - ln(sigma_j^2)). Sum across dimensions, average across the batch.',
-        'A denoising autoencoder variant corrupts the input (adding noise, masking pixels, dropping features) and trains the decoder to reconstruct the clean original. This forces the encoder to learn robust features rather than memorizing surface patterns. The corruption acts as implicit regularization without a KL term.',
+        'The encoder outputs mu and log-variance. The model computes sigma = exp(0.5 * logvar), samples epsilon, and forms z = mu + sigma * epsilon.',
+        'The decoder maps z back to an output distribution over x. For binary images this may be Bernoulli probabilities per pixel; for continuous data it may be Gaussian means.',
+        'Training minimizes reconstruction error plus KL(q(z|x) || p(z)). For diagonal Gaussians, each latent dimension has KL = 0.5 * (sigma squared + mu squared - 1 - log(sigma squared)), which is cheap to compute exactly.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The bottleneck forces compression. With fewer latent dimensions than input dimensions, the encoder cannot simply copy the input -- it must learn which features carry the most information. This is the same principle as PCA, but the nonlinear encoder can capture curved manifold structure that PCA misses.',
-        'The KL term makes the latent space smooth and interpolatable. It charges the encoder for placing posteriors far from the prior or making them too narrow. If mu drifts far from zero, KL grows quadratically. If sigma shrinks toward zero (memorizing each input as a point), the ln(sigma^2) term explodes. The model must compromise: posteriors informative enough to reconstruct, but broad and centered enough that the prior N(0, I) covers the same region. Nearby z values decode to related outputs because the encoder was penalized for leaving gaps.',
-        'The tension between the two loss terms is the VAE mechanism. Pure reconstruction wants each input to have its own precise, distant code. Pure KL wants every input to map to the same N(0, I). The trained model finds the sweet spot: codes spread enough to be distinguishable, regular enough to be sampleable.',
+        'The bottleneck forces compression, but the KL term prevents arbitrary isolated codes. A code that moves far from zero pays a mu-squared penalty, and a code that becomes too certain pays through the log-variance term.',
+        'The decoder learns to handle neighborhoods, not just points. Nearby z values decode to related outputs because training repeatedly samples around each encoded mean instead of only at one deterministic coordinate.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The encoder and decoder are standard neural networks (fully connected, convolutional, or transformer-based), so their cost scales with parameter count and input resolution the same way any neural network does. The VAE-specific operations -- computing mu and logvar (two linear projections), sampling epsilon, computing closed-form KL -- are negligible compared to the network forward and backward passes.',
-        'Memory for the reparameterization step scales as batch_size * latent_dim. Doubling latent dimension doubles the KL and sampling cost but barely affects total training time when the encoder and decoder dominate. Doubling image resolution hits the encoder and decoder quadratically (more pixels, more convolution work) while latent operations stay flat.',
-        'Generation is cheap: sample z from N(0, I), run one forward pass through the decoder. No encoder needed. This single-pass generation is far faster than diffusion models, which require hundreds of sequential denoising steps. Training uses standard SGD (Adam is typical), with the ELBO as the loss. No adversarial game, no special optimizers.',
+        'The main cost is the neural network forward and backward pass. The VAE-specific work, including two output heads, epsilon sampling, and closed-form KL, is usually small compared with convolution or transformer layers.',
+        'Cost behaves with input size and latent size. Doubling image resolution increases encoder and decoder work sharply, while doubling latent dimension mostly doubles the small KL and sampling vectors plus the first decoder layer width.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Anomaly detection: encode an input, decode it, measure reconstruction error. Normal inputs reconstruct well because the model learned their manifold. Anomalies reconstruct poorly because they fall off the learned surface. This works for fraud detection, industrial defect inspection, and medical imaging screening.',
-        'Representation learning: the latent space captures meaningful features without labels. Cluster structure in z often aligns with semantic categories. Downstream classifiers trained on z instead of raw input can be simpler and more data-efficient.',
-        'Image generation: VAEs generate new images by sampling z from the prior and decoding. Stable Diffusion uses a VAE encoder to compress images into a latent grid, runs the diffusion process in that cheaper latent space, then decodes back to pixels. The VAE makes diffusion computationally feasible at high resolution.',
-        'Recommender systems: encode user-item interaction vectors into a latent space, then decode to predict unseen interactions. The VAE prior regularizes the user representations, improving generalization on sparse data.',
+        'VAEs are useful for representation learning, anomaly detection, compressed generative modeling, and latent-space exploration. A high reconstruction error can mark a sample that falls off the learned training manifold.',
+        'Latent diffusion systems use an autoencoder-style compression stage so the expensive generative process runs in a smaller latent grid instead of directly over pixels. The VAE idea also appears in recommender systems and molecular generation where a smooth latent space is useful.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Blurry outputs. A Gaussian reconstruction loss (MSE) rewards the mean of all plausible outputs. When multiple sharp images could explain the data, the decoder hedges by producing a soft average. GANs and diffusion models produce sharper results because their losses reward individual sharp samples rather than the average.',
-        'Posterior collapse. When the decoder is powerful enough to model data without using z (for example, an autoregressive decoder that can predict each pixel from previous pixels), the KL term drives q(z|x) to match the prior for every input. The encoder stops encoding, and the latent space becomes useless. Mitigations: KL annealing (start with KL weight at zero, slowly raise it), free bits (set a minimum KL per dimension below which no penalty applies), or deliberately weakening the decoder.',
-        'Limited generation quality compared to GANs and diffusion. For tasks where sample sharpness is the primary metric (high-resolution photorealistic images, for example), VAEs alone are not competitive. Their strength is structured latent spaces, not raw output quality.',
+        'VAEs often produce blurry samples when the reconstruction loss rewards an average of many plausible outputs. If several sharp images could explain one latent point, squared error prefers the mean, which looks soft.',
+        'Posterior collapse is another failure. A powerful decoder may ignore z, while the KL term pushes every q(z|x) toward the prior, leaving the latent code uninformative.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider a 784-to-32-to-784 autoencoder on MNIST (28x28 grayscale digits, 784 pixels). The encoder is a two-layer network: 784 -> 256 -> two heads of size 32 (mu and logvar). The decoder mirrors it: 32 -> 256 -> 784. The bottleneck at 32 dimensions forces the network to compress 784 pixel values into 32 numbers.',
-        'Encoding: feed a digit "7" image. The encoder outputs mu = [0.5, -0.3, ...] (32 values) and logvar = [-3.2, -1.8, ...] (32 values). Compute sigma = exp(0.5 * logvar) = [0.20, 0.41, ...]. The encoder says: "this 7 probably lives near mu, with uncertainty sigma in each direction."',
-        'Sampling: draw epsilon = [0.7, -0.5, ...] from N(0, I). Compute z = mu + sigma * epsilon = [0.5 + 0.20 * 0.7, -0.3 + 0.41 * (-0.5), ...] = [0.64, -0.51, ...]. This z carries the input information plus controlled noise.',
-        'KL for two dimensions: dimension 1 has sigma^2 = 0.04, mu^2 = 0.25, ln(0.04) = -3.22, giving KL_1 = 0.5 * (0.04 + 0.25 - 1 + 3.22) = 1.255 nats. Dimension 2 has sigma^2 = 0.168, mu^2 = 0.09, ln(0.168) = -1.78, giving KL_2 = 0.5 * (0.168 + 0.09 - 1 + 1.78) = 0.519 nats. Sum across all 32 dimensions for total KL. Add reconstruction error (binary cross-entropy between predicted pixel probabilities and true pixels) for the full ELBO loss.',
-        'Reconstruction: the decoder maps z through 32 -> 256 -> 784, outputting a probability for each pixel. The result looks like a slightly fuzzy "7". Training adjusts encoder weights to lower KL (push mu toward 0, sigma toward 1) and decoder weights to lower reconstruction error. The two pressures compete: sharp codes help reconstruction, broad codes help KL.',
+        'Take a 28 by 28 MNIST image, so x has 784 pixel values, and use a latent dimension of 2 for easy arithmetic. Suppose the encoder outputs mu = [0.5, -0.3] and logvar = [-3.22, -1.78].',
+        'Then sigma squared is about [0.04, 0.168], so sigma is about [0.20, 0.41]. If epsilon = [0.7, -0.5], then z = [0.5 + 0.20 * 0.7, -0.3 + 0.41 * -0.5] = [0.64, -0.505].',
+        'The KL for dimension 1 is 0.5 * (0.04 + 0.25 - 1 - log(0.04)) = about 1.255. Dimension 2 is about 0.519, so these two dimensions add 1.774 nats before the reconstruction loss is included.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Rumelhart, Hinton, and Williams, Learning Representations by Back-Propagating Errors (1986) -- autoencoders as a consequence of backpropagation through a bottleneck. Kingma and Welling, Auto-Encoding Variational Bayes (2014) -- the VAE paper, introducing the reparameterization trick and ELBO objective. Rezende, Mohamed, and Wierstra, Stochastic Backpropagation and Approximate Inference in Deep Generative Models (2014) -- independent co-discovery of the same ideas. Higgins et al., beta-VAE: Learning Basic Visual Concepts with a Constrained Variational Framework (2017) -- disentangled representations via scaled KL weight.',
-        'Prerequisite gaps: neural network basics (the encoder and decoder are standard feedforward or convolutional networks), backpropagation (gradients through the reparameterization trick). Natural extensions: beta-VAE and disentangled representations, VQ-VAE (discrete latent codes instead of continuous Gaussians). Production versions: latent diffusion (Stable Diffusion uses a VAE encoder-decoder wrapped around a diffusion core). Contrasting alternatives: GAN (sharper outputs, unstable adversarial training), diffusion models (highest quality generation, but hundreds of sequential steps), PCA (linear, closed-form, no generation, but fast and interpretable for linear data).',
+        'Primary sources are Kingma and Welling, Auto-Encoding Variational Bayes (2014), and Rezende, Mohamed, and Wierstra, Stochastic Backpropagation and Approximate Inference in Deep Generative Models (2014). Rumelhart, Hinton, and Williams (1986) is the backpropagation foundation behind autoencoder training.',
+        'Study backpropagation, PCA, probability distributions, KL divergence, beta-VAE, VQ-VAE, GANs, diffusion models, and latent diffusion. The contrast to remember is that VAEs buy a structured latent space by paying reconstruction sharpness and KL-balancing costs.',
       ],
     },
   ],

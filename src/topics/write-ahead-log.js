@@ -102,94 +102,88 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "The animation shows two bank accounts and an append-only log. Active (highlighted) items are log records being written right now. Found (green) items are durable state that survived recovery. Removed (red) marks a record belonging to an uncommitted transaction that recovery will discard.",
+        'Read the log as the durable timeline. Active highlights show log records being appended, found highlights show state that recovery can reconstruct, and removed highlights show uncommitted work that recovery discards.',
         {type: "callout", text: "WAL makes the log the durable timeline, so recovery can reconstruct committed state even when data pages are stale or half-applied."},
-        "Watch the ordering: log records appear before any balance changes. The commit marker is the boundary. A transaction with a commit marker in the log is real; one without it never happened. When the crash fires, recovery reads the log top to bottom, redoes committed work, and erases incomplete work.",
-        "At each frame, check: has the log been flushed before the data page changed? That single ordering rule is the entire correctness argument.",
-      
-        {type: 'image', src: './assets/gifs/write-ahead-log.gif', alt: 'Animated walkthrough of the write ahead log visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/write-ahead-log.gif', alt: 'Animated walkthrough of the write ahead log visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference rule is log-before-data. If the log record and commit record reached stable storage before the data page changed, recovery can redo the change. If the commit record is missing, recovery must treat the transaction as unfinished.',
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        "A useful database update often requires several writes. A bank transfer subtracts from one account and adds to another. If the machine loses power between those two writes, money vanishes and the books no longer balance. The on-disk state reflects a transaction that was never meant to exist half-finished.",
+        'Useful updates often require multiple physical writes. A bank transfer subtracts from one account and adds to another. A crash between those writes can leave money missing or duplicated unless the system has a recovery record.',
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg", alt: "Rows of server racks in a datacenter", caption: "Durability is a physical promise made on real storage systems, not an abstract database slogan. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg."},
-        "The write-ahead log exists to guarantee that committed transactions survive crashes and uncommitted ones leave no trace. Before modifying any data page, the database appends a record of intent to a sequential, append-only log file. If the system crashes, recovery replays the log and reconstructs exactly the committed state. The rule is four words: log first, apply second.",
+        'A write-ahead log, or WAL, exists so the system can recover committed transactions and erase incomplete ones. It records intent in an append-only file before applying changes to the main data pages.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        "Write changes directly to the data pages on disk. When a transaction commits, force every modified page to stable storage before acknowledging success. This is correct: if every page is flushed, the on-disk state is consistent. Early systems worked this way.",
-        "The approach is not stupid. It is simple, easy to reason about, and correct as long as every page flush completes atomically. For a single-user embedded database with small transactions, it can be adequate.",
+        'The obvious approach is to write the data pages directly. For a transfer, update account A, then update account B, then return success. This is simple and seems efficient because it avoids extra log writes.',
+        'Another obvious approach is to copy the whole database or whole page before every change. That can recover state, but it writes too much data for small transactions.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "Random I/O kills this approach. A spinning disk can do roughly 100 random writes per second but 100,000 sequential writes per second. A single transaction that touches 50 pages needs 50 random page flushes at commit time. At 100 random writes per second, that is 500 milliseconds per commit, which means two commits per second. No serious workload can survive that.",
-        "Partial page writes make it worse. A power failure during a page flush can leave a page half-written: the first 4 KB is new data, the last 4 KB is old. The on-disk page is now a state that no transaction ever produced. Even with SSDs removing the rotational penalty, a page write is not atomic at the hardware level. Flushing every page on commit is both too slow and too dangerous.",
+        'Direct page writes fail because storage can crash after any write, and pages can be torn or stale. The system may know that account A changed but not whether account B changed. The transaction boundary is not visible in the data pages alone.',
+        'Full copying fails because it makes small logical updates pay large physical costs. A transaction that changes 200 bytes should not require copying gigabytes or even full files just to be recoverable.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "Make the log, not the data pages, the source of truth for durability. A log append is sequential, small, checksummable, and fast to flush. Data pages become a cache of what the log says. They can lag behind in memory because the log can always bring them forward during recovery.",
-        "A transaction is committed only when its commit record reaches durable storage. The data pages it modified may still be dirty in memory. That is safe: the intent is durable even if the pages are not. The database trades one small sequential write (the log force) for dozens of random page writes, and defers the page writes to a convenient time.",
+        'Make the sequential log authoritative for recovery. Before dirty data pages reach the main structure, append enough log records to redo or undo the transaction. A commit record becomes the durable boundary between real work and discarded work.',
+        'The log changes the hard problem from random in-place repair to sequential replay. Storage is much better at appending than at forcing many scattered pages in exact transaction order.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "Each log record carries a log sequence number (LSN), a transaction ID, the affected page, redo information (new value), and optionally undo information (old value). LSNs increase monotonically. Every data page stores the LSN of the most recent log record applied to it, so recovery can tell whether a logged change already reached the page.",
-        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg", alt: "Small B-tree diagram with grouped keys", caption: "WAL protects page-organized structures such as B-trees by logging changes before the page image is allowed to become durable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg."},
-        "During normal operation the database appends log records as it modifies pages in the buffer pool. At commit, it forces the log up through the commit record to stable storage (fsync), then tells the client success. A background writer flushes dirty pages later at its own pace. A checkpoint periodically records the current LSN and flushes enough dirty pages so that recovery need not replay from the beginning of time.",
-        "Recovery follows the ARIES protocol (Mohan et al., 1992), the standard used by DB2, InnoDB, PostgreSQL, and SQL Server. It has three phases. Analysis: scan the log from the last checkpoint to find which transactions were active and which pages were dirty at crash time. Redo: replay every logged change from the checkpoint forward, skipping any change whose LSN shows the page already contains it. Undo: walk backward through the log and reverse every change made by transactions that never committed. After undo, the database is in exactly the last committed state.",
+        'On update, the database appends a log record describing the change and its transaction. On commit, it flushes the commit record to stable storage before acknowledging success. Dirty data pages may flush later in any convenient order.',
+        'After a crash, recovery scans the log. It redoes committed changes that may not have reached data pages and undoes or ignores changes from transactions without commit records. Checkpoints shorten the scan by recording a known recovery starting point.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "Sequential writes are roughly 1,000 times faster than random writes on spinning disks and still significantly faster on SSDs. By converting the commit path from many random page flushes into one sequential log force, WAL makes commits fast without sacrificing durability.",
-        "The correctness invariant is precise: no data page may reach stable storage with a change whose log record is not already durable. If that rule holds, recovery never encounters a page update it cannot explain. Redo can safely repeat any committed change because the operation is idempotent (the LSN check skips already-applied records). Undo can safely reverse any uncommitted change because the undo information is in the log. The log is the single ordered timeline, and every other piece of state is derived from it.",
+        'Correctness depends on the write-ahead invariant: no data page may be considered durable for a change unless the log record for that change is durable first. Therefore recovery never sees an unexplained page change that it cannot reason about from the log.',
+        'The commit record defines atomicity. If it is durable, every logged change in that transaction must appear after recovery. If it is absent, the transaction did not commit, so recovery can remove its partial effects.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        "Appending a log record is O(1). The real cost is the fsync that forces the record to durable storage: roughly 200 microseconds on a modern NVMe SSD, 5 milliseconds on a spinning disk. Group commit batches multiple transactions into one fsync, pushing throughput from roughly 200 TPS (one fsync per commit on HDD) to 50,000+ TPS.",
-        "Checkpoints amortize recovery cost. Without checkpoints, recovery replays the entire log from the start. A checkpoint every 5 minutes means recovery replays at most 5 minutes of log, typically finishing in seconds. The tradeoff: checkpoints increase foreground write pressure while running because they force dirty pages to disk.",
-        "The log itself must live on durable storage. If the log disk fills, the database stops accepting writes. Log segments before the oldest active transaction and the last checkpoint can be archived or recycled. Archiving enables point-in-time recovery; recycling reclaims space.",
+        'Appending a log record is O(1) per record and sequential, which is cheaper than forcing many random data pages. Recovery is O(size of log since checkpoint), so checkpoint frequency controls crash-restart time.',
+        'The cost is write amplification and operational complexity. Every logical update writes log bytes, later writes data pages, and may force fsync or equivalent durability calls. Doubling transaction volume roughly doubles log bandwidth and replay work.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        "PostgreSQL stores its WAL in pg_wal/ and ships log segments to replicas for streaming replication. The same log powers point-in-time recovery, logical decoding, and change data capture. SQLite offers two durability modes: the original rollback journal and WAL mode, where WAL mode allows concurrent readers during writes because readers see a consistent snapshot while the writer appends to the log. MySQL InnoDB uses a circular redo log (the InnoDB log) for crash recovery and an undo log for MVCC rollback.",
-        "The pattern extends beyond traditional databases. etcd uses a Raft-replicated WAL to make key-value updates durable and consistently ordered across a cluster. Kafka's commit log is essentially a WAL promoted to a distributed data platform: producers append, consumers replay, and retention policies replace checkpointing. LSM-tree engines like RocksDB and LevelDB use a WAL to rebuild the in-memory memtable after a crash.",
+        'WAL is used by PostgreSQL, InnoDB, SQLite journaling variants, filesystems, queues, and LSM-tree memtable designs. It fits systems that need fast acknowledgements plus crash recovery.',
+        'The access pattern is many small updates to larger persistent structures. The log absorbs random change as sequential intent, while background flushing, checkpointing, and compaction optimize the main structure later.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "Log growth is the operational tax. Without archival or truncation, the WAL disk fills and writes stop. Replication slots in PostgreSQL can pin old segments if a replica falls behind, creating unbounded storage pressure. Aggressive checkpoint frequency causes write amplification and latency spikes; too-infrequent checkpoints make recovery slow.",
-        "WAL does not provide transaction isolation. It handles durability and atomicity (the D and A of ACID), but deciding what concurrent readers and writers can see requires locking, MVCC, or optimistic concurrency control on top of the log. WAL also does not provide distributed atomicity: committing across multiple machines requires two-phase commit or a consensus protocol.",
-        "Implementation bugs in the write-ahead rule are catastrophic. A page flushed before its log record, a torn write without a checksum, a checkpoint that claims more progress than actually flushed, or replay logic that is not idempotent can silently corrupt the database. The design is simple at the idea level and unforgiving at the byte level.",
+        'WAL fails if the durability boundary lies. If the system acknowledges commit before the log is actually stable, a power loss can erase a promised transaction. Disk caches, controller caches, and missing fsync calls can create that gap.',
+        'It also fails operationally when logs grow without checkpoints or backups. Recovery time can become too long, storage can fill, and replication lag can increase because every follower must consume the same durable history.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        "Three transactions run against two accounts (A = $100, B = $50). T1 transfers $40 from A to B. T2 transfers $25 from A to B. T3 inserts a new account C with $0. The log after normal execution would read: [LSN 1] T1: A 100 -> 60 / [LSN 2] T1: B 50 -> 90 / [LSN 3] T1 COMMIT / [LSN 4] T2: A 60 -> 35 / [LSN 5] T2: B 90 -> 115 / [LSN 6] T2 COMMIT / [LSN 7] T3: insert C = 0 / [LSN 8] T3 COMMIT.",
-        "Now suppose the crash occurs after LSN 6 (T2 COMMIT) is flushed but before LSN 7 reaches durable storage. T1 committed at LSN 3 and T2 committed at LSN 6, so both survive. T3 has no commit record in the durable log, so it never happened.",
-        "Recovery runs ARIES. Analysis: starting from the last checkpoint, the scan finds T1 and T2 committed, T3 active (no commit record). Redo: replay LSN 1 through 6, skipping any record whose page LSN shows the change is already applied. After redo, A = $35, B = $115. Undo: T3's partial work (if any page changes reached disk) is reversed using the undo information in its log records. Final state: A = $35, B = $115, no account C. Every committed dollar is accounted for; every uncommitted change is gone.",
+        'Start with balances A=100 and B=50. Transfer 30 from A to B. The log receives subtract(A,30), add(B,30), and commit(T1), then the database acknowledges the transaction.',
+        'If the crash happens after A was written as 70 but before B was written as 80, recovery reads commit(T1) and redoes both records. If the crash happens before commit(T1), recovery discards the partial subtract and restores the pre-transaction state.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        "Mohan et al., 1992, 'ARIES: A Transaction Recovery Method Supporting Fine-Granularity Locking and Partial Rollbacks Using Write-Ahead Logging' -- the definitive WAL recovery protocol, used directly or adapted by DB2, InnoDB, PostgreSQL, and SQL Server. Gray and Reuter, 1993, 'Transaction Processing: Concepts and Techniques' -- the comprehensive textbook on transactional systems.",
-        "Study next: B-tree (the page-organized index structure WAL protects), LSM tree (log-structured storage where the WAL idea becomes the entire engine), MVCC (the isolation mechanism that complements WAL's durability), checkpointing (the mechanism that bounds recovery time), Raft consensus (replicated WAL for distributed systems).",
+        'Primary sources: PostgreSQL WAL documentation at https://www.postgresql.org/docs/current/wal-intro.html and ARIES by Mohan et al., at https://cs.stanford.edu/people/chrismre/cs345/rl/aries.pdf. For storage behavior, read Operating Systems: Three Easy Pieces chapters on crash consistency.',
+        'Study Transactions, fsync, Buffer Pool, Checkpointing, ARIES Recovery, LSM Trees, and Replication Logs next. The central question is always what the system is allowed to promise before a crash.',
       ],
     },
   ],

@@ -236,109 +236,88 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the animation as a quorum read in a replicated database. A quorum is enough replicas to overlap other quorum operations, and a digest is a hash-like summary used to compare values cheaply.',
         {type: 'image', src: './assets/gifs/read-repair-digest-quorum.gif', alt: 'Animated walkthrough of the read repair digest quorum visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference rule is that a digest match can keep the read cheap, but a digest mismatch cannot choose the winner. A mismatch only says the coordinator must fetch real data and apply the database conflict rules.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A replicated database stores the same logical row on several machines because one machine can fail, pause, lose a disk, fall behind, or be separated by a network partition. The price of that availability is disagreement. A write may reach replica A and replica C but time out before replica B stores the same version. Later, a client can ask for the key and receive answers from replicas that do not all describe the same value.`,
-        `Read repair exists because a read is not only a lookup. In a quorum database, the read coordinator is already contacting several replicas. That gives it a chance to notice stale copies while the inconsistency is still local to the replicas involved in the request. Instead of waiting for a scheduled full-range repair job, the read path can compare responses, choose the value that wins under the database conflict rules, and write that winning value back to stale replicas touched by the read.`,
-        `The scope is deliberately narrow. Read repair does not mean every replica in the cluster is now correct. It means the replicas that participated in this read were compared, the client received the resolved value, and stale participants may have been repaired before the response returned. That narrow scope is why the mechanism is useful and also why it cannot replace anti-entropy repair.`,
-        {type: `callout`, text: `Read repair turns a quorum read into a local audit: compare participants, resolve disagreement, and repair only the stale replicas the read actually touched.`}
+        'Replicated databases keep copies of the same logical row on several machines so the system can survive failure. The cost is drift: one replica may miss a write because of timeout, crash, disk trouble, or network partition.',
+        {type: `callout`, text: `Read repair turns a quorum read into a local audit: compare participants, resolve disagreement, and repair only the stale replicas the read actually touched.`},
+        'Read repair exists because a read coordinator is already contacting replicas. It can compare what they know, return the resolved value, and repair stale participants while the inconsistency is still local.',
       ],
     },
     {
-      heading: 'The reasonable first attempt',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The simplest read path asks one replica for the full value and returns it. That is attractive because it is fast, cheap, and easy to reason about. If the system is healthy and replicas usually agree, a single-replica read avoids extra network hops and avoids doing reconciliation work on the critical path.`,
-        `The next simple design asks every replica for the full value on every read. That catches disagreement directly. The coordinator can compare versions, pick the newest value, and know which replicas are stale. This design is also easy to explain because it never uses a shortcut. Every read carries enough data to reconcile the whole replica set for that key.`,
-        `Both designs are reasonable in small systems. The first optimizes for latency but can return stale data even when a newer value exists on another replica. The second optimizes for detection but wastes bandwidth and tail latency on the common case where all replicas already agree. Real distributed stores need a middle path: cheap agreement checks when values match, full resolution only when the shortcut proves disagreement.`
+        'The obvious approach is to read one replica and return its value. That is fast and cheap, but it can return stale data even when a newer value exists elsewhere.',
+        'The opposite approach is to fetch full values from every replica on every read. That detects disagreement directly, but it wastes bandwidth and tail latency when replicas already agree.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is that inconsistency is sparse but expensive to ignore. Most reads should not pay the cost of moving every full value from every replica. Some reads must detect that a value has split across replicas. A failed quorum write is the classic case: the newest version may be present on only a minority of replicas, yet a later quorum read can still encounter it because quorums overlap in useful ways.`,
-        `A single stale read is not the only problem. If a quorum read first returns version 3 because it contacted a fresh replica, then a later quorum read returns version 2 because it contacted two stale replicas, the client experiences time moving backward. Cassandra documentation describes blocking read repair as a way to preserve monotonic quorum reads in that kind of partial-write scenario.`,
-        `There is also a data-shape wall. Multi-row or partition-level writes can be read back with narrower SELECT statements. Repairing only the rows that were read can improve monotonic reads while weakening partition-level write atomicity. This is not a bug in the idea. It is the cost of doing repair on the read path with only the data the read observed.`
+        'The wall is that disagreement is sparse but dangerous. Most reads should not ship every full value, yet a stale quorum read can make a client observe time moving backward.',
+        'Partial writes create the common case. Version 3 may reach replica A and miss replicas B and C, so a later read must detect whether it touched A or only stale copies.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        `A digest is a cheap comparison handle for a value. Instead of asking every replica to ship full data, the coordinator can ask one replica for the data and ask other replicas for hashes of what they would return. Matching digests mean the touched replicas agree on the value representation being compared. A mismatch means the shortcut is no longer enough.`,
-        `The core insight is to split the read into two modes. In the fast mode, the coordinator gathers a quorum, compares digests, and returns without full reconciliation when the responses agree. In the repair mode, a mismatch triggers extra data fetches, conflict resolution, and a writeback to stale replicas involved in the read. The digest is not the value and does not decide the winner. It only decides whether the coordinator can stay on the cheap path.`,
-        `The invariant is local agreement among the participants. After a blocking read repair completes, stale replicas that participated in the read have been moved to the resolved winning value. Untouched replicas may still be stale. That invariant is strong enough to help future quorum reads that overlap the repaired set, but it is not a cluster-wide convergence proof.`
+        'The core insight is a two-mode read. In the cheap mode, the coordinator requests one full value and one or more digests; in the repair mode, a digest mismatch triggers full data fetch, conflict resolution, and writeback.',
+        'The invariant after blocking read repair is local, not global. Participants in that read are moved to the resolved value, while replicas outside the read may still be stale.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A client sends a read to a coordinator at a consistency level such as QUORUM. For a replication factor of three, a quorum read usually needs responses from two replicas. The coordinator chooses replicas, sends read requests, and may ask one replica for full data while asking others for digests. The exact implementation details vary, but the teaching model is stable: gather enough responses, compare what they imply, and escalate only when agreement is uncertain.`,
-        `If the full-data response and the digests agree, the coordinator can return the value. The matching digest responses act like witnesses that the touched replicas would return the same data. If one digest differs, the coordinator fetches full data from enough replicas to resolve the conflict. Resolution is done by the database rules, such as timestamps, deletion markers, and other metadata. The digest does not say which version is newer; it only proves that at least one participant disagrees.`,
-        `After resolution, blocking read repair writes the winning value back to stale replicas that were part of the read. The coordinator waits for those repair writes before returning to the client. With read repair disabled or configured differently, the coordinator may still resolve the client response but may not block on repairing participants. That changes both latency and consistency behavior.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg`, alt: `Rows of server racks in a data center`, caption: `Replicated storage turns one logical read into coordinated requests across machines; read repair uses that fanout to find stale replicas. Source: https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg.`}
+        'A client sends a read to a coordinator at a consistency level such as QUORUM. With replication factor three, a quorum commonly means responses from two replicas.',
+        'The coordinator asks one replica for full data and another for a digest. If they agree, it returns the value; if they differ, it fetches enough full data to resolve the winner and writes the winner back to stale participants.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg`, alt: `Rows of server racks in a data center`, caption: `Replicated storage turns one logical read into coordinated requests across machines; read repair uses that fanout to find stale replicas. Source: https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg.`},
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The first correctness argument comes from quorum intersection. If writes and reads use quorum consistency in a stable replica set, a later quorum read is likely to overlap the replicas that acknowledged a successful quorum write. Partial failures complicate the story, but the overlap idea explains why contacting several replicas is better than trusting one. A read that sees both fresh and stale answers can choose the winner instead of returning whichever replica answered first.`,
-        `The second argument comes from digest escalation. A digest match is useful only because it is tied to the same value representation the replica would return. When digests match across the touched replicas, the coordinator has evidence that full values are the same. When they differ, the coordinator refuses to guess and fetches real data. That preserves correctness because hashes are used as a shortcut for equality, not as a replacement for conflict resolution.`,
-        `Blocking repair strengthens future quorum reads over the repaired set. Suppose A has v3, B has v2, and C has v2 after a write reached only A. A quorum read touches A and B, sees the mismatch, resolves v3, and repairs B before returning. A later quorum read over B and C can now see v3 through B. C is still stale, but the repaired overlap prevents the client from moving backward in that common sequence.`
+        'Correctness comes from refusing to let the digest decide value order. The digest is only an equality shortcut, so disagreement forces real metadata and values into the resolution path.',
+        'Blocking repair improves monotonic quorum reads because repaired participants carry the newer value into later overlapping quorums. It does not prove the whole cluster has converged because untouched replicas remain outside the operation.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Start with replicas A, B, and C. Version 2 is stored everywhere. A client writes version 3, but the write reaches only A before the operation times out or fails to reach a quorum. The cluster now contains one fresh replica and two stale replicas. No background repair has run yet.`,
-        `A client later issues a quorum read. The coordinator contacts A and B. A returns full data for v3, while B returns a digest for v2. The digest mismatch tells the coordinator that the cheap path failed. The coordinator fetches enough full data to compare real versions, applies the conflict rules, and chooses v3. Because B participated and is stale, a blocking read repair writes v3 to B before the coordinator returns v3 to the client.`,
-        `The next quorum read touches B and C. Without the first repair, B and C could both have returned v2 and the client would move backward. With blocking repair, B now carries v3, so the coordinator can again resolve toward the newer value. C may remain stale until it participates in a repair or a scheduled anti-entropy process fixes the range.`
+        'A clean read pays for replica requests and digest comparison. A dirty read pays for extra full-data fetches, conflict resolution, repair writes, and waiting for repair acknowledgments if repair is blocking.',
+        'When value size grows from 1 KB to 1 MB, digest comparison saves much more bandwidth on clean reads. When mismatch rate rises, that saving disappears and the read path starts doing repair work that may belong in scheduled anti-entropy repair.',
       ],
     },
     {
-      heading: 'What the animation shows',
+      heading: 'Real-world uses',
       paragraphs: [
-        `The digest-mismatch view shows the read path as a compare-and-repair workflow. The client reaches a coordinator, the coordinator contacts replicas, the matrix shows one stale digest, and the graph moves through resolve and repair. The important teaching point is the branch: matching digests keep the read cheap, while a mismatch forces real value resolution.`,
-        `The monotonic-quorum view shows why blocking repair changes later reads. One replica starts fresh and another starts stale. After the first quorum read repairs the stale participant, the second quorum read has a repaired overlap that can carry the newer version forward. The final tradeoff table is not decoration. It names the choice between monotonic quorum reads and partition-level write atomicity in cases where partial read repair would expose only part of a wider write.`
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `A clean read pays for normal replica requests and digest comparison. A dirty read pays more. It may need extra full-data fetches, conflict resolution, repair writes, and repair acknowledgments before the client receives a response. That cost lands on user-facing latency when repair is blocking.`,
-        `Space overhead is small for the read itself, but the operational cost is not small. The system must maintain metadata that lets versions be resolved correctly. It must handle tombstones carefully. It must keep enough repair discipline that deleted data is not resurrected after garbage collection. Digest comparison reduces bandwidth in the common case, but it does not remove the need for a correct storage engine and repair strategy.`,
-        `The key tradeoff is which invariant you want most. Blocking read repair improves monotonic behavior for quorum reads. Disabling read repair can preserve partition-level write atomicity when applications write multiple rows together and later read only a subset. A database setting that sounds like a performance knob is really a consistency knob.`
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Read repair wins for hot keys because reads are frequent enough to discover and correct drift quickly. If a stale replica would otherwise be hit repeatedly, repairing it during a read turns a recurring client-visible problem into a one-time reconciliation cost. The mechanism also fits systems where monotonic read behavior matters more than keeping every read as low-latency as possible.`,
-        `It also wins when most replicas agree. Digest requests let the coordinator avoid transferring full values from every participant on every read. That is the practical reason the digest exists: it keeps the common case cheap while preserving a path to full reconciliation when the comparison fails.`
+        'Read repair fits quorum-style distributed stores where hot keys are read often enough to clean up their own stale participants. It is useful when monotonic read behavior matters more than the lowest possible tail latency.',
+        'It also reduces common-case bandwidth. Digests let the coordinator test agreement without moving every full value across the network on every read.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Read repair fails as a complete convergence plan. Cold ranges may never be read. Replicas not contacted by a specific read remain outside that repair. A node that was down during many writes needs more than opportunistic cleanup from later client reads. Scheduled anti-entropy repair still matters for full token ranges, tombstone safety, and long-lived replica health.`,
-        `It also fails when the read path cannot afford repair latency. Low-latency systems may prefer to resolve the client response and move repair to a background process. That gives up some blocking consistency guarantees but protects tail latency. Read repair is also dangerous if teams treat digest agreement as a substitute for understanding conflict resolution, clock behavior, tombstones, and partial writes.`
+        'Read repair fails as a complete convergence plan. Cold ranges may never be read, and replicas not contacted by a read are not repaired by that read.',
+        'It can also surprise applications that write multiple rows and later read only part of the partition. Repairing only the selected rows can improve monotonic reads while weakening the appearance of partition-level write atomicity.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        `The first failure mode is under-repair. A cluster looks healthy for hot keys while cold ranges remain divergent. The second is overconfidence in quorums. A quorum read gives a useful intersection property, but topology changes, failed writes, timeouts, and consistency-level choices still matter. The third is semantic surprise: repairing only the selected rows can make a multi-row write appear partially applied to later readers.`,
-        `Operationally, watch read latency spikes, digest mismatch rates, repair write failures, tombstone age, and scheduled repair coverage. A high mismatch rate means the read path is doing cleanup work that may belong in anti-entropy repair. Repair failures mean the client may receive a resolved value while stale replicas remain stale.`
+        'Start with replicas A, B, and C all storing v2. A write for v3 reaches only A before timeout, so A has v3 while B and C still have v2.',
+        'A quorum read contacts A and B. A returns full v3, B returns a digest for v2, the coordinator detects mismatch, fetches real data, chooses v3 by the conflict rules, repairs B to v3, and returns v3; a later quorum over B and C now intersects the repaired value.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Apache Cassandra read repair documentation at https://cassandra.apache.org/doc/latest/cassandra/managing/operating/read_repair.html and Cassandra repair documentation at https://cassandra.apache.org/doc/4.0/cassandra/operating/repair.html.`,
-        `Study Quorums for the intersection argument, Hinted Handoff Replica Queue for short-outage write-path repair, Cassandra Repair Case Study for anti-entropy over token ranges, Version Vectors and Dotted Version Vectors for causality metadata, Dynamo Case Study for the lineage of sloppy quorum systems, and Session Guarantees and Replica Lag for the user-facing problem of preventing one client from moving backward.`
+        'Read Apache Cassandra documentation on read repair and repair, then compare the behavior to Dynamo-style quorum replication. Focus on blocking repair, monotonic quorum reads, digest mismatch handling, and anti-entropy repair.',
+        'Study quorum systems, hinted handoff, Merkle-tree repair, version vectors, tombstones, replica lag, and session guarantees next. These topics show why local read repair is useful but not enough for full convergence.',
       ],
     },
   ],

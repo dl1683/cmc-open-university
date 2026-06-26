@@ -153,127 +153,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the animation as a storage boundary inside a Raft cluster. A Raft cluster is a group of servers that replicate the same ordered log, and the highlighted prefix is the part already committed and applied to the state machine.',
         {type: 'image', src: './assets/gifs/raft-snapshots.gif', alt: 'Animated walkthrough of the raft snapshots visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe inference rule is local but strict: a log prefix can become a snapshot only after the cluster has committed it and the server has applied it. The snapshot label is part of the proof because lastIncludedIndex and lastIncludedTerm connect old state to later log entries.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A Raft log grows with every command the cluster commits. That append-only history is the backbone of the replicated state machine: every server applies the same committed commands in the same order and reaches the same state. The problem is that a correct log can become too large to keep forever. Disk use grows, restart replay slows down, and a follower that falls far behind may need old entries the leader no longer wants to retain.`,
+        'A Raft log is an ordered record of commands that a replicated state machine must apply in the same order on every server. If the log grows forever, a restart must replay more history each month even though old commands have already become durable application state.',
         {type: 'callout', text: 'A Raft snapshot is not a shortcut around consensus; it is the committed prefix stored in a smaller recovery form.'},
-        `Snapshots exist to replace an old committed prefix with a compact image of the applied state. The cluster keeps the same state-machine result without storing every command that produced it. Instead of remembering command 1 through command 7 as separate log entries, a server can store a snapshot that says: after applying entries through index 7 in term 3, the state machine looked like this.`,
-        `This matters most in long-running control planes. A healthy database, scheduler, metadata store, or service registry should not need to replay every membership change, lease refresh, key-value write, or placement decision since cluster creation just to restart tomorrow. Raft snapshots let the system keep consensus safety while bounding the storage and recovery cost of old committed history.`,
+        'Snapshots exist to replace that old committed prefix with a compact state image plus a boundary. They keep recovery bounded without changing the decision the cluster already made.',
       ],
     },
     {
-      heading: 'The naive baseline and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The naive baseline is to keep the whole log forever and replay from index 1 whenever a server restarts or a follower catches up. It is easy to reason about because the log remains the complete history. If a node needs to rebuild state, it starts at the beginning and applies entries until it reaches the end.`,
+        'The obvious approach is to keep every log entry forever. It is easy to trust because a recovering server can rebuild state by applying entry 1, then entry 2, and so on until it reaches the current tail.',
+        'A second approach is to delete old entries once every current server has applied them. That sounds cheaper, but it forgets that a restored disk, new replica, or long-offline follower may need a valid starting point after the leader has compacted the old prefix.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/03/Hdd_and_ssd.JPG', alt: 'Hard disk drive and solid state drive hardware', caption: 'Compaction is a storage decision: keep enough history for recovery without letting old committed entries dominate disk and replay cost. Source: Wikimedia Commons, Evan-Amos, public domain.'},
-        `The wall is unbounded history. A control-plane database may run for years. Replaying millions of old entries after a restart turns recovery into a long outage. Retaining old entries for one slow follower turns the leader into an archive system. Disk and memory pressure then come from ancient decisions that every healthy node has already applied.`,
-        `Another tempting baseline is to delete old entries once every current node has applied them. That is unsafe as a complete plan. A node can be restored from an old disk, a new node can join, or an offline follower can return after the leader has compacted the entries it needs. The cluster needs a way to bring such a server to a valid committed prefix without replaying entries the leader no longer stores.`,
-        `A snapshot is that bridge. It says: here is the state after a committed prefix, and here is the exact log boundary that connects that compacted prefix to later entries.`,
+        'The wall is unbounded replay and unbounded retention. If a cluster commits 10,000 commands per minute, one day adds 14.4 million entries, so replaying from the beginning becomes an outage path rather than a recovery path.',
+        'Blind deletion hits the opposite wall: the leader may no longer have the entries a follower needs. The system needs a compact object that is both state and evidence of where that state sits in the log.',
       ],
     },
     {
-      heading: 'The core invariant',
+      heading: 'The core insight',
       paragraphs: [
-        `The invariant is simple and strict: only committed and applied entries may be folded into a snapshot, and the snapshot must remember the last included index and term. The state machine data alone is not enough. The boundary metadata is what connects the compacted prefix to the remaining log suffix.`,
-        `lastIncludedIndex names the final log index represented inside the snapshot. lastIncludedTerm records the term of the entry at that index. Together they let later AppendEntries checks reason about continuity across the compaction boundary. The leader and follower can still ask whether their histories agree at the boundary even though the old prefix no longer exists as individual log entries.`,
-        `After the snapshot and its boundary are durable, older committed entries can be discarded locally. New commands still replicate as log entries after the snapshot point. Compaction changes local storage form; it does not change what the cluster agreed to.`,
-        `The state machine must also be deterministic with respect to the committed log. If two servers apply the same committed prefix, their snapshots should represent the same logical state even if bytes differ due to encoding or file layout. Snapshotting does not rescue a nondeterministic state machine.`,
+        'The core insight is that a committed prefix can be represented by the state it produces, not only by the commands that produced it. The representation is safe only if it carries the last included log index and term, which are the coordinates of the compaction boundary.',
+        'Compaction changes storage form, not consensus history. New commands still append after the snapshot point, and followers still use normal log-matching checks on the remaining suffix.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
-        `The compact-committed-prefix view shows each row as one server's local storage. Before compaction, entries 6 and 7 are present as log cells on every server. They are highlighted because they have been committed and applied. After compaction, those cells become discarded, but the decision is not lost. It is represented by the snapshot cell that records state at index 7, term 3.`,
-        `The snapshot label is part of the data structure. Index and term are not decoration. They are the continuity proof between the compacted prefix and the remaining suffix. The visual model places them in the snapshot cell because a snapshot without its boundary cannot safely stand in for a log prefix.`,
-        `The graph view teaches a second distinction: compaction is local storage cleanup, not a new consensus decision. The cluster already agreed on the prefix. Each server changes how it stores that prefix: durable state image plus recent log suffix instead of an ever-growing log.`,
-        `The install-snapshot view shows the catch-up case. S3 is not merely missing one recent entry. It is missing history that the leader no longer has as individual log entries. That is why the leader switches protocol shape. It sends the snapshot first, then resumes normal AppendEntries for the suffix after the snapshot boundary.`,
-      ],
-    },
-    {
-      heading: 'Mechanics of local compaction',
-      paragraphs: [
-        `A server first chooses a snapshot index that is known to be committed and applied. It must not snapshot speculative entries, because uncommitted entries may be overwritten by a later leader. The state machine is advanced through the chosen index before the snapshot is taken.`,
-        `The server writes a durable snapshot of the state machine and records lastIncludedIndex and lastIncludedTerm. The write must be crash-safe. A common pattern is to write snapshot data to a temporary file or directory, fsync the data and metadata as required by the platform, verify a checksum, then atomically publish the new snapshot. Only after the snapshot is safely durable should the server discard covered log entries.`,
-        `The remaining log suffix continues to accept new commands. If the snapshot includes entries through index 7, the log may still contain entries 8 and onward. The server's persistent state now has two pieces: a snapshot for the old prefix and a write-ahead log suffix for recent commands.`,
-        `Compaction is local. Different servers may snapshot at different times. One follower may still store entries 1 through 7 while another has compacted them. That is fine as long as each server preserves committed state and boundary metadata. Consensus safety comes from the replicated log rules; compaction changes how each node stores a prefix it has already applied.`,
-      ],
-    },
-    {
-      heading: 'Mechanics of InstallSnapshot',
-      paragraphs: [
-        `If a follower is only slightly behind, the leader catches it up with AppendEntries. The leader sends the missing suffix, the follower checks the previous log index and term, and normal replication continues. InstallSnapshot is used when the follower needs entries that the leader has already compacted.`,
-        `The leader sends the snapshot state plus the boundary index and term. Large snapshots are usually streamed in chunks so a transfer can fit memory limits and resume or retry after interruption. The follower writes the incoming snapshot safely without destroying its current usable state until the new snapshot is complete and verified.`,
+        'A server first chooses an index that is committed and already applied. It writes the state machine image and records lastIncludedIndex and lastIncludedTerm, then makes that snapshot durable before discarding covered log entries.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation across a network', caption: 'Large snapshots are transferred as network data, often in chunks, before normal log replication resumes from the suffix. Source: Wikimedia Commons, Oddbodz, public domain.'},
-        `After installing the snapshot, the follower discards log entries covered by the snapshot. If it has later entries that extend beyond the snapshot boundary and are consistent with that boundary, it may keep them. If they conflict, it discards the conflicting suffix and lets the leader send the correct entries. Then normal AppendEntries resumes after lastIncludedIndex.`,
-        `The ordering matters: snapshot first, suffix second. Later log entries make sense only after the follower has a valid committed prefix. A follower that appends suffix entries without the prefix would have a log tail attached to no trustworthy state.`,
+        'When a follower is too far behind, the leader sends InstallSnapshot instead of old AppendEntries messages. The follower installs the snapshot, discards covered local entries, keeps any consistent later suffix, and then resumes normal replication after the boundary.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
-        `Raft safety depends on committed prefixes being stable. Once an entry is committed, future leaders must contain it. If a deterministic state machine has applied a committed prefix into state, a snapshot of that state is an equivalent local representation of the prefix for recovery and catch-up.`,
-        `The boundary index and term keep the snapshot anchored in the log. AppendEntries normally checks whether the follower has a previous log entry with a matching index and term. After compaction, the previous entry may live inside the snapshot rather than the log. lastIncludedIndex and lastIncludedTerm preserve the check at the boundary.`,
-        `Installing a snapshot on a lagging follower is safe because the snapshot represents committed state, not a guess. After installation, entries after the boundary are replicated and checked normally. The follower does not get to invent state; it accepts a committed prefix from the leader and then follows the same suffix replication rules as everyone else.`,
-        `Correctness also depends on crash behavior. A server must not acknowledge or rely on a snapshot that can disappear or be partially installed after a crash. A partially written snapshot should be ignored or cleaned up on restart. The previous durable state should remain usable until the new snapshot is complete.`,
+        'Correctness follows from Raft state-machine safety: committed entries survive future leaders, and deterministic state machines reach the same state after the same committed prefix. A durable snapshot of that state is therefore equivalent to replaying the covered prefix for recovery purposes.',
+        'The boundary metadata preserves the log-matching argument across compaction. If a later entry says its previous entry is at index 7 in term 3, a snapshot with lastIncludedIndex 7 and lastIncludedTerm 3 can satisfy that continuity check even though entries 1 through 7 are no longer stored as individual records.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Snapshotting trades replay time and disk growth for write amplification and transfer cost. If a 4 GB state machine snapshots every minute, the disk and network may spend more time moving checkpoints than serving traffic; if it snapshots once a week, restart may require millions of suffix entries.',
+        'When the command rate doubles, log growth between snapshots doubles unless the policy changes. The dominant cost is often not the O(number of entries) replay formula, but the behavior of large state images under fsync, checksum, chunk transfer, and follower catch-up pressure.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Raft snapshots fit replicated control planes such as metadata stores, schedulers, lease managers, and distributed configuration systems. These systems run for months or years, so old committed decisions must stop dominating restart and catch-up time.',
+        'The same pattern appears in write-ahead-log systems and database checkpoints. A durable checkpoint stores the old effect, while a shorter log suffix stores recent change.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Snapshots fail if they include uncommitted entries, omit the boundary term, or are published before the bytes are durable. Each error breaks a different safety link: agreement, continuity, or crash recovery.',
+        'They also fail as backups. A snapshot may faithfully preserve corrupted application state, stale membership, or leaked secrets, so it needs restore tests, checksums, encryption, and access control like any other database file.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Suppose a three-node cluster has committed commands through index 7, term 3. Those commands set x and y in the state machine. Each server has applied them. The leader and followers may still have log entries 8 and 9 for newer work.`,
-        `A server decides to compact through index 7. It writes a snapshot containing the state after applying entries 1 through 7 and labels it lastIncludedIndex=7 and lastIncludedTerm=3. Once that snapshot is durable, it can delete log entries 1 through 7. It keeps entries 8 and 9 as the suffix.`,
-        `Now S3 has been offline for long enough that it still lacks entries through 7. When it returns, it asks the leader for old entries. The leader no longer has them in the log. Instead, the leader sends InstallSnapshot for index 7, term 3. S3 installs the snapshot, records the boundary, discards covered local log entries, and then receives entries 8 and 9 through normal replication.`,
-        `S3 did not replay from cluster birth, and the leader did not keep old log entries forever. The snapshot carried the committed prefix; the suffix caught S3 up to the current log tail.`,
+        'Suppose a three-node cluster has committed entries 1 through 7, and entry 7 was written in term 3. The state machine after those entries is x=12 and y=4, while entries 8 and 9 remain in the live log suffix.',
+        'Server S1 writes a snapshot labeled lastIncludedIndex=7 and lastIncludedTerm=3, then deletes entries 1 through 7 after the snapshot is durable. Later S3 returns from downtime with only entries through 4, so the leader sends the snapshot for index 7 term 3 and then sends entries 8 and 9 normally.',
       ],
     },
     {
-      heading: 'Cost and tuning',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Compaction trades disk space and replay time for snapshot write cost. Snapshot too often and the cluster burns I/O writing large state images. Snapshot too rarely and logs grow, crash recovery slows, and lagging followers need huge replay windows.`,
-        `Snapshot size depends on the state machine, not just the number of log entries. A small key-value store may snapshot quickly. A large metadata store may need incremental snapshots, copy-on-write files, careful file reuse, or background checkpointing. Two clusters with the same Raft log length can have very different snapshot costs.`,
-        `InstallSnapshot trades network bandwidth and follower downtime against replay cost. Sending a large snapshot can saturate disks or networks, especially if several followers are catching up at once. Production systems throttle transfer, prioritize live replication, and expose progress so operators can tell whether catch-up is moving or stuck.`,
-        `The snapshot threshold is a policy choice. Some systems snapshot after the log reaches a byte limit. Others use entry count, elapsed time, or replay-time estimates. The right threshold depends on disk speed, state size, expected restart time, and how often followers fall behind.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Snapshots fit long-running replicated state machines: metadata stores, configuration services, lease managers, distributed schedulers, embedded Raft libraries, and storage systems that replicate per-range state. They keep restart and catch-up bounded while preserving committed state.`,
-        `They are especially valuable for nodes that disappear and return. A follower that missed hours of traffic can install a bounded snapshot plus a recent suffix instead of replaying every command since the cluster was created. A newly added replica can join from a snapshot rather than forcing the leader to retain ancient history.`,
-        `Snapshots also support operational maintenance. They reduce log disk usage, shorten crash recovery, and give operators a predictable way to reason about how much history a node must replay. In systems with many Raft groups, compaction may be the difference between a manageable fleet and a storage leak.`,
-        `The same pattern appears outside Raft. A write-ahead log plus checkpoint, LSM compaction, and MVCC cleanup all turn old history into a smaller representation after it becomes safe to do so. Raft snapshots are the consensus-specific version of that storage pattern.`,
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        `Snapshots fail when treated as a shortcut around Raft safety. Do not compact uncommitted entries. They may still be overwritten by a future leader. Do not omit lastIncludedTerm. Without it, a follower cannot prove how the snapshot connects to later log entries.`,
-        `A snapshot is not a backup strategy by itself. It may faithfully preserve corrupted application state if the state machine accepted bad commands. It may also preserve a bad membership configuration. Restoring a cluster from snapshots still has to handle cluster identity, membership, log suffixes, and operator intent safely.`,
-        `Snapshot installation can fail halfway. The follower may crash during transfer, run out of disk, receive corrupted chunks, or install bytes that fail checksum verification. The implementation must keep the old usable state until the new snapshot is complete. On restart, it must detect and discard incomplete snapshot files.`,
-        `Compaction can harm availability if it is too aggressive. If leaders compact entries before slow followers can catch up, those followers will need full snapshots more often. That may be acceptable, but it increases bandwidth, disk, and recovery load. Keeping a reasonable suffix window can reduce snapshot churn.`,
-        `Snapshots can also hide application bugs. If the state machine is nondeterministic, two servers can apply the same log and produce different snapshots. If snapshot serialization drops a field, recovery may silently produce wrong state. If restore code fails to rebuild secondary indexes, the node may boot with state that looks current but behaves incorrectly.`,
-        `Security and access control matter too. A snapshot may contain the entire replicated state: keys, tokens, metadata, or user data. It needs the same encryption, permission, deletion, and audit treatment as the live database files it represents.`,
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        `Treat snapshot code as a first-class recovery path, not as background cleanup. Test crash points while writing a snapshot, while publishing it, while deleting covered log entries, while receiving chunks, and while installing on a follower. The hard bugs usually live in these boundary states.`,
-        `Record and monitor snapshot index, snapshot term, snapshot size, log start index, log end index, replay time, install duration, transfer rate, checksum failures, and follower lag. These metrics tell you whether compaction is keeping recovery bounded or creating catch-up storms.`,
-        `Keep snapshot and log suffix handling together in recovery tests. Restart from snapshot only. Restart from snapshot plus suffix. Install a snapshot on a follower that has conflicting later entries. Install a snapshot on a follower that has useful later entries. Verify that the state machine and boundary metadata are correct after each case.`,
-        `Be careful with membership changes. A snapshot may include cluster configuration state. Restore and bootstrap procedures must not accidentally create two clusters with the same identity or bring back removed members as if they were current voters.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary source: Ongaro and Ousterhout, In Search of an Understandable Consensus Algorithm, available at https://raft.github.io/raft.pdf. Focus on log compaction, InstallSnapshot, the log-matching property, and the state-machine safety discussion.`,
-        `Study Raft Leader Election for terms and leadership, Raft Log Replication for the log-matching property, Write-Ahead Log for durable append-first recovery, LSM Trees (How Cassandra Writes) for compaction as a storage pattern, MVCC Internals & VACUUM for safe cleanup of old versions, and Leader Replacement for why committed history must survive leadership changes.`,
+        'Read Ongaro and Ousterhout, In Search of an Understandable Consensus Algorithm, with attention to log compaction and InstallSnapshot. Then read the Raft dissertation sections on snapshots and membership because those details expose the recovery edge cases.',
+        'Study Raft leader election, Raft log replication, write-ahead logging, checkpointing, LSM compaction, and MVCC cleanup next. The shared question is when old history can be replaced without losing the proof needed for recovery.',
       ],
     },
   ],

@@ -196,126 +196,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. "Expose path" shows the access operation turning a root-to-node path into a single auxiliary splay tree. "Link cut query" shows link, cut, and path-query operations changing the represented forest.',
-        'Active (highlighted) nodes and edges mark the preferred path currently being exposed or modified. Compared (dimmed) nodes are side branches detached as virtual children during access. Found (green) markers show the result: the aggregate value read from the exposed path or the new forest edge after a link.',
-        'The matrix frames show what changes before and after each operation. Read them as before/after snapshots of the internal state, not as the final answer.',
-        'At each frame, ask: which preferred edges changed, which side branches were detached, and what aggregate is now readable from the auxiliary root.',
+        'There are two forests in the animation. The represented forest is the real dynamic tree the user cares about. The auxiliary trees are splay trees that temporarily organize preferred paths so path operations become searchable.',
+        'A highlighted access step is not changing which original vertices are connected. It is reshaping auxiliary pointers so the path from a chosen node toward the root becomes exposed. Link and cut change represented-tree edges; rotations only change the auxiliary view.',
         {type: 'callout', text: 'A link-cut tree keeps the represented forest stable while constantly reshaping auxiliary splay trees so the path you need becomes searchable.'},
-      
-        {type: 'image', src: './assets/gifs/link-cut-tree.gif', alt: 'Animated walkthrough of the link cut tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/link-cut-tree.gif', alt: 'Animated walkthrough of the link cut tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Most tree algorithms assume the topology is fixed. Preprocess parents, depths, subtree sizes, or heavy paths once, then answer queries quickly. That assumption breaks when edges appear and disappear while path queries keep arriving.',
-        'A link-cut tree maintains a changing forest online. It supports link (attach one tree under another), cut (remove a tree edge), findRoot (identify which tree a node belongs to), and path aggregates (sum, min, max along a root-to-node path) -- all in amortized O(log n) time per operation.',
-        {
-          type: 'quote',
-          text: 'We introduce a form of self-adjusting binary search tree called the splay tree. [...] The amortized time per operation on a tree of n items is O(log n).',
-          attribution: 'Sleator & Tarjan, "Self-Adjusting Binary Search Trees," JACM 1985',
-        },
-        'The price is representation complexity. The user-visible forest is not stored as an ordinary tree. It is decomposed into preferred paths, and each preferred path is maintained by an auxiliary splay tree. The splay tree is the engine that makes amortized logarithmic cost possible.',
+        'Many problems maintain a forest while edges are added, removed, and queried. A forest is a collection of trees, and a tree is a connected graph with no cycles. Queries often ask about the path between a node and the root or between two nodes.',
+        'A normal tree representation handles parent pointers, but path queries become expensive after updates. Link-cut trees exist to support dynamic connectivity and path aggregate queries while the forest keeps changing.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first reasonable attempt is to store the forest as a parent-pointer tree and walk the path from any node to the root whenever a query arrives. To link, set a parent pointer. To cut, clear one. To find the path aggregate, walk up and accumulate. This is simple and correct.',
-        'For static trees, stronger tools exist. Heavy-Light Decomposition splits the tree into O(log n) chains, each backed by a segment tree, giving O(log^2 n) path queries. Euler Tour Trees flatten the tree into a sequence and support subtree aggregates. Binary lifting answers lowest-common-ancestor queries in O(log n) after O(n log n) preprocessing.',
-        'These static methods work well when the tree does not change. They precompute DFS orderings, chain decompositions, or sparse tables that depend on stable parent-child relationships.',
+        'The obvious approach stores parent pointers and walks up the tree for every path query. To connect two trees, set one parent pointer. To cut an edge, clear the parent pointer. The update code is simple.',
+        'That approach works when trees are shallow or queries are rare. It fails when a path can contain many nodes and operations are interleaved. Walking a path of length n for every query can dominate the runtime.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The parent-pointer walk costs O(n) per query on a path-shaped tree. If queries and topology changes interleave, there is no way to amortize the walks -- each one can scan the entire tree.',
-        'Static decompositions break under topology changes. A single cut invalidates the DFS order that Heavy-Light Decomposition and Euler Tour Trees rely on. Rebuilding after every cut costs O(n), which is no better than the naive walk.',
-        'The wall is storing a path as something searchable while the path itself keeps changing. The path endpoints move, interior nodes gain or lose children, and the decomposition must adapt without rebuilding from scratch.',
+        'The wall is changing topology. Heavy-light decomposition and Euler-tour tricks can make static or partly dynamic tree paths fast, but arbitrary link and cut operations break the fixed decomposition. Rebuilding after every update is too expensive.',
+        'A path aggregate such as minimum edge weight, maximum value, or path sum needs more than connectivity. The structure must expose exactly the needed path, combine its values, and then survive the next topology change.',
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'Represent each dynamic tree as a set of preferred paths, and store each preferred path in a splay tree. A splay tree is a self-adjusting binary search tree that moves recently accessed nodes toward the root through rotations. Link-cut trees use those rotations to change which path is preferred.',
+        'The key operation is access(x). It repeatedly cuts and reconnects auxiliary right-child pointers so the represented path from x to its tree root becomes one exposed auxiliary path. Once exposed, path aggregates live in the splay metadata.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/AVL_Tree_Rebalancing.svg', alt: 'Tree rotation cases showing how local rotations preserve inorder structure.', caption: 'Splay trees use rotations with the same local-order preservation idea: reshape the tree without changing the path order. Source: Wikimedia Commons, CyHawk and contributors, CC BY-SA.'},
+      ],
+    },    {
       heading: 'How it works',
       paragraphs: [
-        'A link-cut tree has two layers. The represented forest is the forest users ask about: the real tree edges, the real parent-child relationships. The auxiliary forest is an implementation layer made of splay trees that the user never sees directly.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/AVL_Tree_Rebalancing.svg', alt: 'Tree rotation cases showing how local rotations preserve inorder structure.', caption: 'Splay trees use rotations with the same local-order preservation idea: reshape the tree without changing the path order. Source: Wikimedia Commons, CyHawk and contributors, CC BY-SA.'},
-        {
-          type: 'diagram',
-          text: 'Represented tree:           Preferred-path decomposition:\n\n      r                     Aux splay tree 1: [r - a - c - d]\n     / \\                      (preferred path, keyed by depth)\n    a   b                   \n    |    \\                  Aux splay tree 2: [b]\n    c     e                   (single-node path)\n    |                       \n    d                       Aux splay tree 3: [e]\n                              (single-node path)\n\n    Virtual edges (dashed) connect aux tree roots\n    to their represented parents in other aux trees.',
-          label: 'Preferred-path decomposition and auxiliary splay trees',
-        },
-        'Each represented node has at most one preferred child. Preferred edges form vertex-disjoint paths from various nodes toward the root. Each preferred path is stored as one auxiliary splay tree, keyed by depth in the represented tree (shallower nodes on the left, deeper nodes on the right). Nodes not on the preferred path connect to the auxiliary structure through path-parent pointers -- virtual edges that point upward but are not reciprocated by a child pointer.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// access(x): expose the root-to-x path in one auxiliary splay tree\nfunction access(x) {\n  splay(x);              // make x the root of its aux tree\n  x.right = null;        // detach deeper preferred nodes\n  update(x);             // recompute aggregate\n\n  // walk up through path-parent pointers\n  while (x.pathParent !== null) {\n    let y = x.pathParent;\n    splay(y);            // make y root of its aux tree\n    y.right = x;         // attach x as preferred child of y\n    update(y);           // recompute aggregate\n    x.pathParent = null; // edge is now preferred, not virtual\n    splay(x);            // x becomes new aux root\n  }\n  // now root-to-x is one aux splay tree rooted at x\n}',
-        },
-        'access(x) is the central operation. It splays x to the root of its auxiliary tree, detaches any deeper preferred path, then walks upward through path-parent pointers. At each step it splays the ancestor, switches the preferred child edge to point toward x, and repeats. After access(x), the entire represented root-to-x path lives in a single auxiliary splay tree.',
-        'makeRoot(x) calls access(x) then sets a lazy reversal flag on the auxiliary tree, which swaps left and right children throughout the path. This reverses depth order, making x the shallowest node -- effectively the represented root. The reversal flag is pushed down lazily, only when the code needs to descend into children.',
-        'link(x, y): call makeRoot(x) so x has no represented parent, then set x.pathParent = y. The forest guard requires x and y to be in different represented trees. cut(x, y): call makeRoot(x), then access(y). If y.left == x and x.right == null, the edge is the direct represented edge; delete it by clearing pointers. query(x, y): call makeRoot(x), then access(y). The aggregate at the auxiliary root of y now holds the path aggregate from x to y.',
+        'Each node stores auxiliary children, an auxiliary parent, a represented-tree parent, and aggregate metadata. Rotations update auxiliary pointers and recompute metadata. The represented parent relation records how auxiliary path pieces connect in the real forest.',
+        'To expose a path, call access(x). The operation splays nodes while replacing right children with the previously exposed piece. After access, x sits at the end of the preferred path to the represented root.',
+        'To make a tree rooted at x, expose x and flip the represented path with a lazy reversal flag. Link connects one root under another root after checking that they are in different trees. Cut exposes the edge and removes it only when that exact edge is present.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Splay rotations preserve inorder traversal order. Since inorder order in an auxiliary tree corresponds to depth order in the represented tree, rotations can rebalance the auxiliary tree without changing which nodes are on the path or their relative depths.',
-        'access changes which edges are preferred but never creates or deletes represented forest edges. Side branches become virtual children -- they point up through path-parent pointers but are not pointed to as children. The represented forest is unchanged; only the preferred-path decomposition is rearranged.',
-        'link is correct because the forest guard prevents cycles: x must be a root (no represented parent) and must be in a different tree from y. cut is correct because access exposes the target edge so it can be verified as a direct parent-child relationship before deletion. Without that verification, cutting a non-adjacent pair would silently corrupt the forest.',
-        'Amortized O(log n) follows from splay tree potential analysis. Define the potential of each node as log of its subtree size in the auxiliary tree. Each splay operation pays amortized O(log n) by the Access Lemma. Since access performs at most O(log n) splays on the path upward, and each splay is amortized O(log n), the total amortized cost is O(log^2 n) in a naive analysis -- but Sleator and Tarjan showed a tighter O(log n) bound using a global potential function across all auxiliary trees.',
+        'The represented-forest invariant is that link and cut change real edges, while rotations do not. A rotation only changes the binary shape of one auxiliary splay tree, so it preserves the order of the preferred path. Aggregate values are recomputed after every local pointer change.',
+        'The access invariant is that after access(x), the preferred path from the represented root to x is represented by one auxiliary tree. Because every path query first exposes the needed path, reading the aggregate at the splay root gives the aggregate for exactly that represented path.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Link-cut tree: O(log n) amortized for access, link, cut, findRoot, and path aggregates; best when dynamic topology and path queries dominate.',
-            'Euler tour tree: O(log n) amortized for link, cut, connectivity, and subtree aggregates; path aggregates need extra machinery.',
-            'Top tree: O(log n) amortized for a broad set of dynamic-tree aggregates; more general but harder to implement because every cluster merge and split needs a contract.',
-            'Implementation tax: link-cut trees need splay rotations and lazy reversal, Euler tour trees need a balanced BST over a changing sequence, and top trees need the highest abstraction burden.',
-          ],
-        },
-        'Each node stores five pointers (left child, right child, parent in the auxiliary tree, path-parent, and a lazy reversal bit), plus whatever aggregate values the application needs. Memory overhead is roughly 5-7 pointers per node compared with 1-2 for a plain parent-pointer tree.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes.', caption: 'The represented forest and the auxiliary forest are two graph layers over the same nodes; most bugs come from mixing their edge meanings. Source: Wikimedia Commons, David W., public domain.'},
-        'Amortized O(log n) means individual operations can be expensive. A single access on a worst-case path can perform O(n) rotations, but the potential decrease guarantees that future operations on the same nodes are cheap. Over any sequence of m operations on an n-node forest, total work is O(m log n).',
-        'When n doubles, each operation adds roughly one more splay step. For 1,000 nodes, access touches about 10 auxiliary tree levels. For 1,000,000 nodes, about 20. The dominant cost is splay rotations during access; link, cut, and query are thin wrappers around access.',
+        'Each high-level operation costs O(log n) amortized time. Amortized means a single operation can be slower, but any long sequence of operations averages logarithmic cost per operation. The bound comes from the splay-tree potential argument.',
+        'When n doubles, the expected operation count grows by about one more logarithmic level, not by a full path length. Space is O(n) because each represented node stores a constant number of pointers, flags, and aggregate fields. The hidden cost is implementation complexity and pointer-heavy memory access.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The classic use is dynamic minimum spanning tree maintenance. When a new edge (u, v, w) arrives and u and v are already connected, expose the u-to-v path, find the maximum-weight edge on it, and compare. If w is smaller, cut the heavy edge and link the new one. The forest stays a spanning tree and the total weight decreases. Each update is O(log n) amortized.',
-        'Network reliability analysis uses link-cut trees to maintain a spanning forest under edge insertions and deletions, answering "are u and v connected?" in O(log n). This is the dynamic connectivity problem restricted to forests.',
-        'Competitive programming problems with online tree path queries -- path sum, path maximum, path XOR -- are the most common practical setting. The pattern is: maintain a forest, process link/cut/query operations in sequence, output aggregates. Link-cut trees solve this family directly.',
-        'Compiler analyses that track changing dominator trees or incremental SSA construction can use link-cut trees when the dominator relation changes under code edits. The key fit is that dominators form a tree and edits produce local cuts and links.',
+        'Link-cut trees fit dynamic graph algorithms where a changing forest is the backbone of the computation. Dynamic minimum spanning tree algorithms, network simplex variants, and online path aggregate problems can use them to maintain tree paths under updates.',
+        'They are also common in advanced competitive programming problems with dynamic trees. The access pattern is many interleaved path queries, links, and cuts. If the tree is static, simpler structures usually win.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'For static trees, link-cut trees are overkill. Heavy-Light Decomposition gives O(log^2 n) path queries with a simpler implementation and better constant factors. A segment tree over DFS order handles subtree queries more naturally. Binary lifting answers LCA in O(log n) with less code.',
-        'Link-cut trees do not solve fully dynamic general graph connectivity. They maintain a forest, not an arbitrary graph. General dynamic connectivity requires additional machinery -- level structures, replacement-edge search -- on top of a dynamic forest.',
-        'Subtree aggregates are not native. A standard link-cut tree exposes path aggregates, not subtree sums. Extensions exist (maintaining virtual-subtree aggregates during access), but they add complexity. Euler Tour Trees handle subtree queries more naturally.',
-        'Most implementation bugs come from confusing the two layers. The auxiliary parent pointer is not the represented tree parent. The path-parent pointer is not the auxiliary parent. Lazy reversal flags must be pushed before any directional decision (going left or right in the splay tree). Forgetting to push reversal before a cut verification is the single most common bug.',
+        'Link-cut trees are hard to implement and debug. Lazy reversal flags, auxiliary parents, represented parents, and aggregate recomputation must stay separate. Mixing those meanings is the usual bug.',
+        'They are also not the best choice for every tree query. Static trees are better served by binary lifting, Euler tours, segment trees, or heavy-light decomposition. Fully dynamic general graphs need additional machinery beyond a dynamic forest.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes.', caption: 'The represented forest and the auxiliary forest are two graph layers over the same nodes; most bugs come from mixing their edge meanings. Source: Wikimedia Commons, David W., public domain.'},
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Start with represented edges 1-2 and 2-3, rooted at 1. Suppose node values are 5, 7, and 4, and the path aggregate is sum. A query for path 1 to 3 should return 16.',
+        'Call makeRoot(1), then access(3). The represented path 1-2-3 becomes the exposed auxiliary path. The splay metadata combines 5 + 7 + 4 and returns 16.',
+        'Now cut edge 2-3. The represented forest becomes one tree with 1-2 and one singleton 3. A later path query from 1 to 3 first finds different roots, so the path aggregate is invalid rather than silently using stale auxiliary links.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Primary source: Sleator and Tarjan, "A Data Structure for Dynamic Trees," Journal of Computer and System Sciences 26(3), 1983. https://www.cs.cmu.edu/~sleator/papers/dynamic-trees.pdf',
-            'Splay tree foundation: Sleator and Tarjan, "Self-Adjusting Binary Search Trees," JACM 32(3), 1985.',
-            'Top trees alternative: Alstrup, Holm, de Lichtenberg, Thorup, "Maintaining Information in Fully Dynamic Trees with Top Trees," ACM Transactions on Algorithms, 2005.',
-            'Practical implementation guide: competitive programming resources (CP-Algorithms, Codeforces tutorials on link-cut trees).',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'Prerequisite: study Splay Tree first -- link-cut trees inherit rotations, the zig-zig/zig-zag cases, and the amortized potential argument directly from splaying. Without understanding splay trees, the access operation is opaque.',
-        },
-        'Study Heavy-Light Decomposition and Euler Tour Tree to understand the static and alternative dynamic baselines. Study Top Tree for a cluster-based dynamic-tree model that handles subtree aggregates more naturally. Study dynamic connectivity (Holm, de Lichtenberg, Thorup 2001) for the general graph extension that uses link-cut trees as a building block.',
+        'Primary source: Sleator and Tarjan, A Data Structure for Dynamic Trees, 1983. Study the original dynamic-trees paper for preferred paths, access, and the amortized analysis.',
+        'Study next by role. Splay trees explain rotations and amortization. Heavy-light decomposition explains path decomposition on static trees. Euler-tour trees explain another dynamic-forest representation. Dynamic connectivity explains how forests support larger graph algorithms.',
       ],
     },
   ],

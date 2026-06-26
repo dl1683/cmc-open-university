@@ -228,91 +228,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/neural-architecture-search.gif', alt: 'Animated walkthrough of the neural architecture search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why neural architecture search exists',
-      paragraphs: [
-        `Neural architecture search exists because model architecture is a design space, not a single decision. A human designer chooses operations, widths, depths, skip connections, attention blocks, convolution sizes, normalization placement, branching patterns, and hardware constraints. Those choices interact. A deeper model may need different regularization. A mobile model may trade accuracy for latency. A skip connection may improve trainability only when the surrounding block is shaped correctly.`,
-        `NAS turns part of that design problem into an outer-loop optimization problem. Instead of committing to one graph by hand, the engineer defines a search space of possible graphs and an evaluator that scores candidates. A search algorithm proposes architectures, the evaluator returns feedback, and the search pressure shifts toward better designs. The promise is that compute can discover useful combinations humans would not try. The danger is that the search can exploit every weakness in the search space and evaluator.`,
-        {type: 'callout', text: `NAS is only as honest as its search space and evaluator; the algorithm optimizes exactly the game you define.`},
-      ],
-    },
-    {
-      heading: 'The naive approach and the wall',
-      paragraphs: [
-        `The naive approach is brute force: enumerate many architectures, train each from scratch, compare validation scores, and keep the best. That is the cleanest experiment because every candidate gets its own weights and its own training run. It is also brutally expensive. If one full training run takes a day and the space contains thousands of plausible models, exhaustive search is not an option.`,
-        `The wall is evaluator cost. NAS needs a score for many candidate graphs, but honest scores require full training under the target protocol. Researchers therefore use shortcuts: smaller proxy datasets, fewer epochs, reduced image sizes, shared weights, early stopping, or surrogate predictors. These shortcuts make search possible, but they can also change the ranking. A model that learns quickly in ten epochs may not be the best after full training. A model that performs well with shared weights may fail when trained independently. The hard part of NAS is not candidate generation; it is knowing whether the score means what it claims to mean.`,
-      ],
-    },
-    {
-      heading: 'Core insight: the search space is the ceiling',
-      paragraphs: [
-        `A NAS system can only discover architectures that the search space can express. If the space contains only small convolutional cells, it will not discover a transformer. If every candidate is built from operations already chosen by the designer, the search is partly automated assembly of human priors. That is not a flaw by itself. A good search space encodes useful constraints. It becomes a flaw when a result is presented as open-ended discovery while most of the answer was already baked into the menu.`,
-        `Search spaces can be macro-level or cell-level. A macro search changes whole-network depth, width, stage layout, and block placement. A cell search learns a repeated building block that is stacked into a larger model. Cell search is cheaper and easier to constrain, but it can overfit the benchmark style. Hardware-aware NAS adds latency, memory, power, or accelerator constraints directly into the objective. The more realistic the constraints, the more useful the final architecture, but the harder the search becomes.`,
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: `A NAS search space is a directed graph of allowed operations and connections; anything absent from that graph cannot be discovered. Source: Wikimedia Commons, David W., public domain.`},
-      ],
-    },
-    {
-      heading: 'Mechanism: search strategies',
-      paragraphs: [
-        `Random search is the first baseline. It samples architectures from the search space and trains or proxies them. It is simple, parallel, and often stronger than expected. If a NAS method cannot beat random search under the same budget, the clever searcher is not buying useful information.`,
-        `Evolutionary search keeps a population of candidates, mutates them, and selects winners. It works naturally with discrete graph choices and parallel evaluation. Reinforcement-learning NAS trains a controller to propose architectures based on reward signals, but the feedback loop is expensive because each reward may require model training. Bayesian optimization can search architecture descriptors with a surrogate, though graph structure can be difficult to encode. Differentiable NAS changes the problem by relaxing discrete choices into continuous weights, making architecture search look more like gradient-based optimization.`,
-      ],
-    },
-    {
-      heading: 'Weight sharing and supernets',
-      paragraphs: [
-        `Weight sharing reduces cost by training one large supernet that contains many candidate subgraphs. Instead of training every architecture from scratch, each candidate reuses the weights along its path through the supernet. This makes it possible to evaluate many candidates cheaply. It also introduces a ranking problem: the score of a subgraph depends on how the shared weights were trained, which other candidates competed for those weights, and whether the subgraph received enough useful updates.`,
-        `A shared-weight score is therefore a proxy, not a final result. It is useful for steering search, but it can favor architectures that fit the supernet training dynamics rather than architectures that train best from scratch. Responsible NAS treats the selected architecture as a hypothesis. The hypothesis becomes credible only after the final discrete graph is rebuilt, trained independently, and compared against strong baselines under the target protocol.`,
-      ],
-    },
-    {
-      heading: 'Differentiable NAS',
-      paragraphs: [
-        `DARTS-style methods make architecture search differentiable. Instead of choosing one operation for an edge, the supernet runs a weighted mixture of possible operations: a 3x3 convolution, a 5x5 convolution, a skip connection, or no edge, for example. The architecture weights say how strongly each operation participates during search. Ordinary model weights and architecture weights are updated in an alternating or bi-level procedure.`,
-        `This relaxation is powerful because it replaces many discrete trials with gradient descent. It is also biased. Cheap operations can look good early because they optimize faster. Skip connections can dominate because they make the proxy network easier to train. Shallow paths can win even when deeper final models would perform better. The learned architecture weights are not the final model; they are signals produced inside a relaxed proxy. The final graph must be discretized and retrained before it means anything operational.`,
-      ],
-    },
-    {
-      heading: 'Why it works when the evaluator is honest',
-      paragraphs: [
-        `NAS optimizes whatever the evaluator rewards. If the evaluator uses a proxy dataset, the search may find an architecture specialized to that proxy. If it uses short training, it may reward early learners. If it uses validation accuracy without latency, the result may be unusable on the target device. If it uses latency on one accelerator, the result may not transfer to another. The evaluator is not a side detail; it is the definition of success.`,
-        `This is why honest NAS papers report more than the final score. They report search budget, number of trials, proxy setup, final retraining protocol, variance across runs, baseline strength, and transfer behavior. They compare against random search and hand-designed models. They separate the search cost from the final model cost. Without that accounting, NAS can look like a miracle while hiding a large compute spend and a fragile validation procedure.`,
-      ],
-    },
-    {
-      heading: 'Production uses',
-      paragraphs: [
-        `NAS has been useful for image classifiers, object detection backbones, mobile networks, efficient convolutional blocks, recurrent cells, transformer variants, and hardware-aware model design. Its practical value is highest when the deployment constraints are clear and measurable. A phone model may need a strict latency limit. An edge device may need a memory cap. A datacenter model may need throughput per watt. NAS can encode those constraints and search for architectures that satisfy them.`,
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: `NAS automates choices inside a neural-network design space, but the chosen layers and connections still have to train and run under real deployment constraints. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.`},
-        `The broader lesson applies even when a team never runs a giant NAS job. Define the design space. Define the evaluator. Compare against simple baselines. Audit whether shortcuts change the ranking. Retrain the winner honestly. Those practices improve manual model design too. NAS is best understood as a disciplined design-and-evaluation protocol, not only as an expensive AutoML technique.`,
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        `NAS fails when the search space is narrow, the evaluator is biased, the baselines are weak, or the final validation is missing. It can rediscover a known design and claim novelty because the baseline was outdated. It can overfit a benchmark. It can produce an architecture whose accuracy is good but whose memory access pattern is poor. It can consume more compute during search than the final gain justifies.`,
-        `NAS also fails socially when the result is described without the protocol. A final architecture name is not enough. You need to know what was allowed, how many candidates were tried, what was measured, what was ignored, and whether the winner survived independent retraining. Treat a NAS result as a claim about a search procedure. Change the procedure and the claim may no longer hold.`,
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `In the search-loop view, read left to right. The search space defines what is possible. The sampler proposes a candidate. The evaluator produces a proxy score. Selection pressure changes what gets tried next. The final retrain node is separate because proxy success is not the same as a validated architecture.`,
-        `In the differentiable view, read architecture weights as temporary search variables. A high weight means an operation is winning inside the relaxed supernet, not that it should be trusted in deployment. The bias table is the audit checklist: cheap operations, shallow paths, skip connections, and proxy mismatch all need explicit checks before the discovered graph is taken seriously.`,
-      ],
-    },
-    {
-      heading: 'What to study next',
-      paragraphs: [
-        `Study Hyperparameter Search to see the simpler version of outer-loop optimization. Study Evolutionary Search for mutation and selection over discrete candidates. Study Gradient Descent and Backpropagation for the machinery behind differentiable NAS. Study Bayesian optimization for surrogate-guided expensive search. Study Batch Size Scaling, Regularization, and Hardware-Aware Inference because a discovered architecture is only useful when it trains reliably and runs within deployment constraints.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['The search-loop view shows NAS as an outer optimization loop. A search space defines legal architectures, a sampler proposes candidates, an evaluator scores them, and selection pressure changes what gets tried next. The final retrain node is separate because proxy scores are not final evidence.', {type: 'image', src: './assets/gifs/neural-architecture-search.gif', alt: 'Animated walkthrough of the neural architecture search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    { heading: 'Why this exists', paragraphs: ['A neural architecture is the wiring plan of a model: layers, operations, widths, connections, and sometimes hardware constraints. Neural architecture search exists to treat part of model design as an optimization problem. The engineer defines what designs are allowed and how they will be scored, then the search process explores that space under a budget.', {type: 'callout', text: 'NAS is only as honest as its search space and evaluator; the algorithm optimizes exactly the game you define.'}]},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is manual design. A researcher builds a model, trains it, reads the errors, changes the architecture, and repeats. Brute force is the cleaner version: train every candidate from scratch and keep the best, but that is usually impossible when each candidate needs hours or days of training.']},
+    { heading: 'The wall', paragraphs: ['The wall is evaluator cost. NAS needs scores for many architectures, but an honest score requires full training under the target protocol. Shortcuts such as smaller data, fewer epochs, weight sharing, and surrogate predictors make search affordable, but they can change the ranking and reward the proxy instead of the final model.']},
+    { heading: 'The core insight', paragraphs: ['The core insight is that the search space is the ceiling. A search algorithm cannot discover an operation, connection pattern, or hardware behavior that the search space does not permit. If the menu only contains convolutional cells, the result is a searched convolutional cell, not proof that the search would have found a transformer.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A NAS search space is a directed graph of allowed operations and connections; anything absent from that graph cannot be discovered. Source: Wikimedia Commons, David W., public domain.'}]},
+    { heading: 'How it works', paragraphs: ['Random search samples architectures and is the baseline every NAS method must beat. Evolution keeps a population, mutates candidates, and selects winners. Differentiable NAS relaxes discrete choices into continuous weights inside a supernet, then discretizes and retrains the selected graph.']},
+    { heading: 'Why it works', paragraphs: ['NAS works when candidate quality is correlated with evaluator score. If the proxy ranking matches the final ranking often enough, search pressure moves toward architectures that also work after full retraining. The selected architecture must still be rebuilt, trained from scratch, and tested against strong random and hand-designed baselines.']},
+    { heading: 'Cost and complexity', paragraphs: ['Cost is measured in candidate evaluations, accelerator-days, and final retraining. If 500 candidates each train for 30 minutes on 8 GPUs, the search alone costs 500 * 0.5 * 8 = 2,000 GPU-hours. The more often the search queries an evaluator, the more it can overfit that evaluator.']},
+    { heading: 'Real-world uses', paragraphs: ['NAS has been useful for mobile vision models, efficient convolutional blocks, detection backbones, recurrent cells, transformer variants, and hardware-aware design. It is most useful when the deployment objective is measurable, such as latency on a phone or memory on an edge device.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'NAS automates choices inside a neural-network design space, but the chosen layers and connections still have to train and run under real deployment constraints. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'}]},
+    { heading: 'Where it fails', paragraphs: ['NAS fails when the baseline is weak, the search space bakes in the answer, or the evaluator rewards the wrong property. A cheap operation may win because it trains early, not because it gives the best final model. A discovered architecture can also be a bad investment if search cost exceeds deployment savings.']},
+    { heading: 'Worked example', paragraphs: ['Suppose a search space has four operations per edge and six edges in a cell. That is 4 to the 6th power = 4,096 possible cells before choosing widths or depths. A brute-force run that trains each cell for 3 hours costs 4,096 * 3 = 12,288 GPU-hours, so a 200 GPU-hour supernet is cheaper but needs final retraining to prove its ranking was honest.']},
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: Zoph and Le on reinforcement-learning NAS, Real et al. on evolutionary NAS, Liu et al. on DARTS, Pham et al. on ENAS, and hardware-aware NAS work such as MnasNet. Study hyperparameter search, evolutionary algorithms, validation leakage, and hardware-aware inference next.']},
   ],
 };

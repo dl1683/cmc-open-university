@@ -196,94 +196,115 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The animation shows a timeline of graph operations. A graph is a set of vertices connected by edges, and a connectivity query asks whether two vertices are in the same connected component.',
         {type: 'image', src: './assets/gifs/rollback-dsu-offline-connectivity.gif', alt: 'Animated walkthrough of the rollback dsu offline connectivity visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Active frames show entering a segment of time where some edges are alive. When the traversal leaves that segment, rollback removes exactly the unions created for it.',
+        'Read each leaf as one time instant. The safe inference is that the DSU state at a leaf contains exactly the edges whose lifetimes cover that time.',
       ],
     },
-    { heading: 'Why this exists', paragraphs: [
-      {
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        {
         type: 'callout',
         text: 'Rollback DSU makes deletion manageable by changing the traversal so every union can be undone in stack order.',
       },
-      {
+        'Dynamic connectivity asks whether vertices are connected while edges are added and removed over time. Plain DSU is excellent for additions, but it has no cheap way to split a component after deletion.',
+        {
         type: 'image',
         src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg',
         alt: 'Small directed graph with labeled vertices and edges.',
         caption: 'Connectivity is a graph question, but rollback DSU answers it by replaying only the edge intervals active at a time leaf. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg',
       },
-      'Normal Union-Find is excellent when edges only get added. It is not built to split a component when an edge is removed.',
-      'Rollback DSU exists for the common compromise: all operations are known in advance. If you can process the timeline offline, deletions become edge lifetime intervals and the data structure only needs add and undo.',
-    ] },
-    { heading: 'The obvious approach', paragraphs: [
-      'The obvious approach is to replay the graph from scratch for every query: apply all adds and removes up to time t, then run BFS, DFS, or rebuild DSU. That is easy to reason about and much too slow for large logs.',
-      'Another tempting approach is to ask normal DSU to delete an edge. That fails because DSU stores components, not the internal edge structure needed to split a component safely.',
-    ] },
-    { heading: 'The wall', paragraphs: [
-      'The wall is deletion. Removing one edge may or may not split a component depending on alternate paths. DSU has deliberately forgotten that internal structure, which is why it is so fast for additions.',
-      'The second wall is arbitrary history. Rollback can undo recent changes in stack order, but it cannot remove an old union while keeping newer unrelated unions unless the traversal is arranged to make that edge local.',
-    ] },
-    { heading: 'The core insight', paragraphs: [
-      'Change the processing order. Read all operations first, convert every edge into the time interval where it is alive, and place that interval on a segment tree over time.',
-      {
+        'Rollback DSU exists for the offline version, where the whole operation list is known before answering. Knowing the future lets deletions become time intervals, and intervals can be processed with add and undo instead of true split.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to run a graph search for every query. For each connectivity question, use BFS or DFS from one endpoint and see whether the other endpoint is reachable.',
+        'That is simple and correct for small histories. It becomes expensive when there are q operations and many queries, because each query can scan a large part of the graph again.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Plain DSU cannot delete edges because union destroys information. Once two components are merged, the parent array no longer remembers which edge made the merge necessary.',
+        'Path compression makes rollback harder too. It changes many parent pointers during find, so undo would need to record every compressed pointer mutation, not just successful unions.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Turn each edge into a lifetime interval. If edge (u, v) is added at time 2 and removed at time 7, it is active on the interval [2, 7).',
+        {
         type: 'image',
         src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg',
         alt: 'Binary tree diagram with one root and several levels of children.',
         caption: 'A segment tree over time has the same branching shape: each edge lifetime is stored on the few nodes fully covered by its interval. Source: https://commons.wikimedia.org/wiki/File:Binary_tree.svg',
       },
-      'During DFS through the time tree, every root-to-leaf path contains exactly the edges alive at that time. The DSU only needs union on entry and rollback on exit.',
-    ] },
-    { heading: 'Data structures', paragraphs: [
-      'The algorithm uses three structures: a map from edge to add time, a segment tree whose nodes store edge lifetimes, and a rollback DSU with a stack of parent and size changes.',
-      'The edge-key map must normalize undirected edges, handle repeated add/remove pairs, and close still-live edges at the end of the operation log. Most bugs live in this bookkeeping, not in the union operation.',
-    ] },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the time-segments view, read each edge as a lifetime interval. The segment tree is not storing graph structure for its own sake; it is decomposing the interval into time ranges where the edge is guaranteed to be alive for every query underneath that node.",
-        "In the rollback-DFS view, the highlighted stack size is the safety handle. The algorithm saves the current DSU history before entering a time segment, unions the edges that are alive for that segment, answers deeper queries, and then rolls the DSU back to the saved point.",
-        "A useful question after each frame is: which edge lifetimes are active for every leaf below this node? If the answer is clear, the DSU state at each query leaf is not magic. It is exactly the union of edge intervals covering that timestamp.",
+        'Store each interval on a segment tree over time. During a depth-first traversal, add edges when entering a node and undo them when leaving, so rollback order is stack order.',
       ],
     },
-    { heading: 'Worked example', paragraphs: [
-      'Suppose the log is: add A-B at time 1, add B-C at time 2, query A-C at time 3, remove B-C at time 4, query A-C at time 5. The edge A-B has lifetime [1, end). The edge B-C has lifetime [2, 4). Those intervals are inserted into a segment tree over operation indexes.',
-      'During DFS, the path to time 3 includes both A-B and B-C, so the DSU says A and C are connected. The path to time 5 includes A-B but not B-C, so A and C are disconnected. No deletion happens inside DSU. The traversal order ensures that the union for B-C is present only while the DFS is inside the time ranges where B-C is alive.',
-      'This example is the whole trick. Offline processing lets you convert "delete this old edge" into "leave the time segment where that edge was active." Rollback only has to undo recent changes because the DFS arranges time into a stack-shaped computation.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'For every edge, pair add and remove events to form an active interval. Insert that interval into O(log q) segment-tree nodes. Then DFS the segment tree. On entry, union all edges stored at the node. At leaves, answer connectivity queries. On exit, rollback to the saved stack size.',
-      {
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'First read all operations and match each edge add with its remove. Edges that remain alive until the end get an interval ending at q, the number of operations.',
+        {
         type: 'image',
         src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png',
         alt: 'Queue diagram showing ordered data items moving through a buffer.',
         caption: 'The operation log is first turned into ordered edge lifetimes before DFS begins. Source: https://commons.wikimedia.org/wiki/File:Data_Queue.svg',
       },
-      'Rollback DSU stores parent and size mutations on a stack. It uses union by size or rank, but typically avoids path compression because compression changes many parent pointers and would require many undo records.',
-    ] },
-    { heading: 'Why it works', paragraphs: [
-      'It works because interval placement makes time local. A query leaf inherits exactly the active edges from the segment-tree nodes on its path, so the DSU state at that leaf matches the graph at that timestamp.',
-      'Rollback restores the invariant for siblings. When DFS leaves a segment-tree node, every union done for that node is popped, so the next branch starts from the correct earlier state.',
-      'The method depends on not using ordinary path compression. Path compression rewrites many parent pointers during find operations, which makes rollback bookkeeping much larger and easier to get wrong. Union by size keeps the tree height controlled while preserving a small, explicit mutation log.',
-    ] },
-    { heading: 'Cost and behavior', paragraphs: [
-      'Each edge lifetime is stored in O(log q) segment-tree nodes. Each stored edge causes one union on a DFS entry and one rollback on exit. A common practical bound is near O((m log q) log n) with union by size and no path compression, though exact notation depends on implementation details.',
-      'Memory includes the segment-tree buckets and the rollback stack. The stack depth follows the active unions on the current DFS path and shrinks exactly when recursion returns.',
-      'The hidden cost is interval construction. The algorithm is only as correct as the edge lifetime ledger. Normalize undirected edge keys, decide how to handle duplicate adds, close open intervals at the end, and assign query indexes consistently before the segment tree is built.',
-    ] },
-    { heading: 'Implementation guidance', paragraphs: [
-      'A rollback DSU should expose snapshots. A snapshot is usually the current history-stack length. To rollback, pop changes until the stack returns to that length, restoring parent and size values. If a union finds both vertices already in the same component, record a no-op marker only if your rollback code expects one pop per attempted union.',
-      'Keep query answering separate from interval construction. First build a clean event ledger. Then insert intervals into the time tree. Then run DFS. Mixing those phases makes it much harder to audit why a specific query answer was produced.',
-    ] },
-    { heading: 'Where it wins', paragraphs: [
-      'Rollback DSU wins for offline graph analytics, contest dynamic connectivity, temporal network analysis, versioned component queries, and simulations where all changes are known before answers are needed.',
-      'A complete case study is a maintenance log. Links go up and down across a day, and analysts ask whether two sites were connected at specific timestamps. Offline processing answers all queries without rebuilding the graph from scratch.',
-    ] },
-    { heading: 'Where it fails', paragraphs: [
-      'It fails when answers must be returned immediately as operations arrive. In that case you need batching, a different product contract, or a harder online dynamic connectivity structure.',
-      'It also fails if the operation log is dirty: duplicate adds, missing removes, directed-edge ambiguity, or inconsistent timestamps can place lifetimes incorrectly and make every later answer look plausible but wrong.',
-      'It is also not a general replacement for dynamic graph algorithms. It answers questions that can be expressed over connectivity under a known timeline. If the next operation depends on the previous answer, or if updates arrive forever, the offline assumption has disappeared.',
-    ] },
-    { heading: 'Study next', paragraphs: [
-      'Sources: CP-Algorithms deleting from a data structure in O(T(n) log n) at https://cp-algorithms.com/data_structures/deleting_in_log_n.html and USACO Guide Offline Deletion at https://usaco.guide/adv/offline-del. Study Union-Find, Segment Tree, Euler Tour Tree, Link-Cut Tree, and Persistent Segment Tree next.',
-    ] },
+        'Insert each active interval into O(log q) segment-tree nodes that fully cover pieces of that interval. Then run DFS over the segment tree, unioning all edges stored at a node on entry.',
+        'Before entering a node, save the size of the rollback stack. After finishing its children, roll back to that saved size, which removes all unions created for that node and restores the parent and size arrays.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The segment tree decomposes every edge lifetime into disjoint nodes whose time ranges exactly cover the lifetime. Therefore an edge is added on precisely the root-to-leaf paths for times when it is alive.',
+        'The DSU invariant at a leaf is that all currently active edges have been unioned and no inactive edge remains. Connectivity queries at that leaf are therefore answered by checking whether the two endpoints have the same DSU root.',
+        'Rollback is correct because DFS exits nodes in reverse order of entry. Every mutation made after the saved stack size belongs to that subtree, so undoing back to the saved size restores the previous state exactly.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Each edge lifetime is stored in O(log q) segment-tree nodes. If there are m edge lifetimes and q operations, the traversal performs O(m log q) union attempts plus O(q) leaf visits.',
+        'Rollback DSU with union by size gives near-logarithmic worst-case find depth without path compression. In practice, each union records a small stack entry containing the changed parent, size, and component count.',
+        'Cost behaves like replayed history rather than online deletion. Doubling the operation timeline increases the segment tree height by about one, while doubling the number of edge lifetimes roughly doubles the number of stored interval pieces.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Rollback DSU is used in offline graph problems where all updates are known before answering. Competitive programming examples include dynamic connectivity, bipartiteness over time, and component-count queries with deletions.',
+        'The technique also appears in divide-and-conquer over time for algorithms that can add state cheaply and undo it cheaply. The fit is strongest when online answers are not required and state changes can be logged compactly.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when queries must be answered online before future operations are known. The segment-tree interval construction depends on seeing add and remove pairs in advance.',
+        'It also fails when the state update is hard to undo. If an operation mutates many hidden structures without logging them, rollback becomes as expensive as rebuilding.',
+        'Path compression is usually avoided. That makes finds less aggressively optimized than normal DSU, but it keeps rollback records small and predictable.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose q = 6 operations: add AB at 0, add BC at 1, query AC at 2, remove AB at 3, query AC at 4, remove BC at 5. Edge AB is alive on [0, 3), and BC is alive on [1, 5).',
+        'At time 2, the root-to-leaf path contains both AB and BC, so rollback DSU unions A-B and B-C. A and C share a root, so the answer is connected.',
+        'At time 4, AB has been rolled back because its interval ended before this leaf, while BC is still active. A is alone and C is with B, so the answer is not connected.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Sources: classic DSU rollback technique in offline dynamic connectivity; Tarjan-style union-find foundations; segment tree interval decomposition used in divide-and-conquer over time.',
+        'Study next by dependency. Read Disjoint Set Union for union and find, Segment Tree for interval decomposition, DFS for traversal order, Offline Algorithms for the future-known assumption, and Fully Dynamic Connectivity for online alternatives.',
+      ],
+    },
   ],
 };

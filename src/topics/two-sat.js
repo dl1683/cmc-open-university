@@ -403,107 +403,99 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The top row shows positive literals (x1, x2, x3, x4). The bottom row shows their negations (~x1, ~x2, ~x3, ~x4). Directed edges are implications: an edge from p to q means "if p is true, then q must be true."',
-        {type: 'callout', text: '2-SAT is fast because every clause becomes implication edges, and contradiction reduces to one SCC membership test for each variable and its negation.'},
-        'The animation builds the implication graph clause by clause. Each clause (a OR b) adds two edges: NOT a -> b and NOT b -> a. Active nodes (highlighted) show the current implication pair being added.',
-        'Once the graph is complete, Tarjan\'s SCC algorithm runs. Nodes in the same SCC are mutually forced: if any one is true, all must be true. The critical check is whether any variable x and its negation ~x land in the same SCC. If they do, x must be both true and false, which is impossible. If they do not, the formula is satisfiable, and the algorithm assigns truth values by SCC topological order. Found nodes (final highlight) are the TRUE literals in the satisfying assignment.',
-      
-        {type: 'image', src: './assets/gifs/two-sat.gif', alt: 'Animated walkthrough of the two sat visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The animation has one node for every literal, where a literal is a boolean variable or its negation. A directed edge p -> q means that if p is true, q must also be true.',
+        {
+          type: 'callout',
+          text: '2-SAT is fast because every clause becomes implication edges, and contradiction reduces to one SCC membership test for each variable and its negation.',
+        },
+        'Active edges are implications being added from clauses, and found groups are strongly connected components. A strongly connected component is a set of nodes where every node can reach every other node.',
+        {
+          type: 'image',
+          src: './assets/gifs/two-sat.gif',
+          alt: 'Animated walkthrough of the two sat visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Boolean satisfiability (SAT) asks whether a boolean formula has a truth assignment that makes it true. General SAT is NP-complete: no known polynomial-time algorithm exists, and most researchers believe none will be found. But 2-SAT, where every clause has exactly two literals, is solvable in linear time.',
-        'Aspvall, Plass, and Tarjan proved this in 1979 by reducing 2-SAT to strongly connected components on a directed implication graph. The reduction is clean: build a graph from the clauses, run one SCC pass, and read off the answer. The result is one of the sharpest complexity boundaries in computer science: 2-SAT is in P, but 3-SAT (three literals per clause) is NP-complete.',
-        'The practical payoff is large. Many real constraint systems naturally produce 2-literal clauses: scheduling with pairwise conflicts, circuit design rules, configuration compatibility checks, and type inference constraints. Recognizing that a problem is 2-SAT means it can be solved exactly and fast, instead of resorting to heuristic SAT solvers or exponential backtracking.',
+        'Boolean satisfiability asks whether true and false values can make a formula true. General SAT is hard in the worst case, but 2-SAT restricts every clause to two literals.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Try all possible truth assignments. With n boolean variables, there are 2^n assignments. For each one, check every clause. If all clauses are satisfied, return the assignment. If no assignment works, the formula is unsatisfiable.',
-        'This works for small n. Four variables means 16 assignments, each checking 5 clauses: 80 operations. Ten variables means 1,024 assignments. Twenty variables means about a million. The approach is correct and easy to implement.',
+        'The obvious approach is to try every truth assignment. With n variables, there are 2 to the n assignments, and each assignment can be checked against every clause.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Exponential growth kills brute force. Thirty variables produce a billion assignments. Fifty variables produce over 10^15. Real configuration problems and scheduling systems can have thousands of variables.',
-        'The waste is structural. Brute force treats every variable as independent, but 2-literal clauses create chains of forced consequences. If (x1 OR x2) is a clause and x1 is false, then x2 must be true. That truth may force x3 via another clause, which forces x4 via a third. These implication chains mean one choice can cascade through the entire formula. The question is whether the cascades are consistent or contradictory, and answering that does not require trying every starting point.',
+        'The wall is exponential growth. Thirty variables create about one billion assignments, and fifty variables create more than one quadrillion assignments.',
+        'Brute force also ignores forced consequences. If a clause is (a OR b), then setting a false immediately forces b true, and that new truth can force more truths through other clauses.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Every 2-literal clause (a OR b) is logically equivalent to two implications: NOT a implies b, and NOT b implies a. If a is false, b must be true. If b is false, a must be true. These implications form a directed graph where each literal is a node and each implication is an edge.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2f/Implication_graph.svg', alt: 'Implication graph for a 2-satisfiability instance with literals and directed edges', caption: 'An implication graph makes each clause operational: every OR clause becomes two forced edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Implication_graph.svg.'},
-        'In this implication graph, a directed path from p to q means "if p is true, then q is forced true." A cycle means all literals in the cycle are mutually forced. If a variable x and its negation ~x are in the same cycle (same strongly connected component), then x being true forces ~x true, and ~x being true forces x true. That is a contradiction: the formula is unsatisfiable. If no such contradiction exists, the formula is satisfiable, and the SCC structure directly produces a valid assignment.',
+        'Each clause (a OR b) is equivalent to two implications: NOT a -> b and NOT b -> a. If one side of the OR is false, the other side must be true.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/2f/Implication_graph.svg',
+          alt: 'Implication graph for a 2-satisfiability instance with literals and directed edges',
+          caption: 'An implication graph makes each clause operational: every OR clause becomes two forced edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Implication_graph.svg.',
+        },
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Step 1: Build the implication graph. For each clause (a OR b), add directed edge NOT a -> b and directed edge NOT b -> a. The graph has 2n nodes (one per literal) and 2m edges (two per clause).',
-        'Step 2: Run Tarjan\'s SCC algorithm on the implication graph. This finds every maximal group of mutually reachable literals in one DFS pass, using disc/low-link values.',
-        'Step 3: Check for contradictions. For each variable x, check whether x and ~x are in the same SCC. If any variable fails this check, the formula is unsatisfiable.',
-        'Step 4: Assign truth values. Tarjan\'s algorithm outputs SCCs in reverse topological order. For each variable x, compare the SCC index of x with the SCC index of ~x. Whichever literal appears in the later SCC (topologically) gets assigned TRUE. This ensures consistency: if p implies q, then whenever p is true, q is also true.',
+        'Build a graph with two nodes per variable, one for x and one for NOT x. For every clause (a OR b), add the two implication edges NOT a -> b and NOT b -> a.',
+        'Run a strongly connected components algorithm such as Tarjan or Kosaraju. Then check every variable; if x and NOT x share a component, return unsatisfiable.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The contradiction check is correct because of a symmetry property of the implication graph. For every edge NOT a -> b, there is also an edge NOT b -> a (the contrapositive). This means if there is a path from x to ~x, there is also a path from x to ~x through the same chain of contrapositives, creating a path from ~x to x. So x and ~x are in the same SCC: they mutually force each other, and no truth value can satisfy both.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/e1/Scc-1.svg', alt: 'Directed graph with shaded strongly connected components', caption: 'Strongly connected components partition a directed graph into mutually reachable regions; 2-SAT rejects exactly when a variable and its negation share one. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Scc-1.svg.'},
-        'The assignment rule is correct because of the topological ordering. If literal p implies literal q (there is a path from p to q), then the SCC of p appears no later than the SCC of q in topological order. The rule assigns TRUE to the literal whose SCC comes later. So if p is assigned TRUE and p implies q, then q\'s SCC is at least as late as p\'s, and q is also assigned TRUE. Implications are preserved.',
-        'The contrapositive symmetry also guarantees consistency of negations. If x is assigned TRUE, then ~x\'s SCC comes earlier in topological order. If ~x implied some literal r, then r\'s SCC is at least as late as ~x\'s, but the assignment of r depends on its own variable\'s SCC comparison, not on ~x. The structure prevents any chain of implications from forcing both a literal and its negation to be TRUE simultaneously.',
+        'If x and NOT x are in the same component, x true forces NOT x true and NOT x true forces x true. No boolean assignment can make both a variable and its negation true, so the formula is unsatisfiable.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/e/e1/Scc-1.svg',
+          alt: 'Directed graph with shaded strongly connected components',
+          caption: 'Strongly connected components partition a directed graph into mutually reachable regions; 2-SAT rejects exactly when a variable and its negation share one. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Scc-1.svg.',
+        },
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Building the implication graph: O(m) time and O(n + m) space, where n is the number of variables and m is the number of clauses. Each clause produces two edges.',
-        'Tarjan\'s SCC: O(V + E) = O(2n + 2m) = O(n + m). Every node is visited once, every edge examined once.',
-        'Contradiction check: O(n). One comparison per variable.',
-        'Assignment: O(n). One SCC-index comparison per variable.',
-        'Total: O(n + m). Linear in the size of the formula. Doubling the variables and clauses doubles the work. A formula with 10,000 variables and 50,000 clauses takes about 120,000 operations. Brute force on the same problem would need 2^10,000 assignments, a number with over 3,000 digits.',
+        'For n variables and m clauses, the graph has 2n nodes and 2m edges. SCC detection costs O(V + E), which becomes O(n + m).',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Scheduling with pairwise conflicts: "event A and event B cannot both happen at time slot 1" becomes a 2-SAT clause. The solver finds a conflict-free schedule or proves none exists in linear time.',
-        'Circuit design: design-rule checks often reduce to 2-SAT. Two signal wires cannot be routed through the same channel, two components cannot share the same power rail under certain conditions. Each constraint is a 2-literal clause.',
-        'Type inference: some type systems express compatibility constraints as implications between type variables. When each constraint involves at most two type variables, the inference problem reduces to 2-SAT.',
-        'Configuration management: software feature flags with pairwise compatibility rules. "If feature A is enabled, feature B must also be enabled" is a direct implication. "Features C and D cannot both be disabled" is a 2-SAT clause. The solver determines whether a valid configuration exists.',
-        'Network reliability: routing constraints where each path choice excludes at most one other path choice yield a 2-SAT instance.',
+        '2-SAT fits scheduling and configuration when constraints are pairwise. A rule such as not both A and B becomes (NOT A OR NOT B), and a dependency such as A requires B becomes (NOT A OR B).',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        '3-SAT is NP-complete. Adding even one clause with three literals to a 2-SAT formula moves the problem to a fundamentally harder class. No polynomial-time algorithm is known for 3-SAT, and the Cook-Levin theorem shows that any NP problem can be reduced to it. The boundary between 2-SAT (polynomial) and 3-SAT (NP-complete) is one of the sharpest in complexity theory.',
-        'Weighted and optimization variants are harder. MAX-2-SAT (maximize the number of satisfied clauses) is NP-hard. Weighted 2-SAT (each clause has a weight, maximize total weight of satisfied clauses) is also NP-hard. The tractability of 2-SAT depends on requiring all clauses to be satisfied simultaneously.',
-        'The implication graph offers no useful information about how close an unsatisfiable formula is to being satisfiable. It gives a binary yes/no answer. If the formula is unsatisfiable, 2-SAT does not suggest which clauses to relax or which variables to flip.',
-        'Dynamic updates are expensive. Adding or removing a clause changes the implication graph and can change the SCC structure. There is no efficient incremental 2-SAT algorithm; the standard approach rebuilds the graph and reruns SCC detection from scratch.',
+        'The method fails when clauses need three or more literals. 3-SAT is NP-complete, so the implication-graph shortcut no longer gives a linear-time decision procedure.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Formula: (x1 OR x2) AND (NOT x1 OR x3) AND (NOT x2 OR NOT x3) AND (x3 OR x4) AND (NOT x4 OR x1). Four variables, five clauses.',
-        'Build implication graph. Clause 1: (x1 OR x2) adds ~x1 -> x2 and ~x2 -> x1. Clause 2: (NOT x1 OR x3) adds x1 -> x3 and ~x3 -> ~x1. Clause 3: (NOT x2 OR NOT x3) adds x2 -> ~x3 and x3 -> ~x2. Clause 4: (x3 OR x4) adds ~x3 -> x4 and ~x4 -> x3. Clause 5: (NOT x4 OR x1) adds x4 -> x1 and ~x1 -> ~x4. Total: 8 nodes, 10 edges.',
-        'Run Tarjan\'s SCC. The algorithm discovers components by tracking disc/low-link values through DFS. Key cycles emerge: following x1 -> x3 -> ~x2 and other paths, the algorithm identifies which literals mutually force each other.',
-        'Check for contradictions. For each variable, verify that x_i and ~x_i are in different SCCs. Here, no variable shares an SCC with its negation. The formula is satisfiable.',
-        'Assign truth values. Compare SCC indices: x1\'s SCC appears later topologically than ~x1\'s SCC, so x1 = TRUE. Similarly, x2 = FALSE (its negation\'s SCC is later), x3 = TRUE, x4 = TRUE. Verify: (TRUE OR FALSE) = TRUE, (FALSE OR TRUE) = TRUE, (TRUE OR FALSE) = TRUE, (TRUE OR TRUE) = TRUE, (FALSE OR TRUE) = TRUE. All five clauses satisfied.',
+        'Use formula (x1 OR x2) AND (NOT x1 OR x3) AND (NOT x2 OR NOT x3). It has three variables, so brute force would check 8 assignments.',
+        'Build implications: ~x1 -> x2, ~x2 -> x1, x1 -> x3, ~x3 -> ~x1, x2 -> ~x3, and x3 -> ~x2. The assignment x1 = true, x2 = false, x3 = true satisfies all three clauses.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Aspvall, B., Plass, M.F., and Tarjan, R.E. (1979), "A linear-time algorithm for testing the truth of certain quantified boolean formulas," Information Processing Letters. This paper established the SCC-based linear-time algorithm for 2-SAT. Tarjan, R.E. (1972), "Depth-First Search and Linear Graph Algorithms," SIAM Journal on Computing, for the SCC algorithm itself. Cook, S.A. (1971), "The complexity of theorem-proving procedures," for the NP-completeness of SAT and the significance of the 2-SAT boundary.',
-        'Prerequisites: Strongly Connected Components (Tarjan\'s disc/low-link algorithm is the engine that powers the satisfiability check), topological sort (the assignment step uses SCC topological order to ensure consistency), graph DFS (the traversal primitive underlying SCC detection).',
-        'Natural extensions: 3-SAT and general SAT solvers (DPLL, CDCL) for the NP-complete case where 2-SAT\'s polynomial trick no longer applies; MAX-SAT for optimization variants; constraint satisfaction problems (CSP) as the broader framework that generalizes SAT.',
-        'Contrasting alternatives: backtracking SAT solvers handle arbitrary clause sizes but run in exponential worst case. Unit propagation in DPLL exploits forced assignments like 2-SAT does, but cannot guarantee polynomial time on 3-SAT instances.',
+        'Study Aspvall, Plass, and Tarjan, A linear-time algorithm for testing the truth of certain quantified boolean formulas (1979). Study directed graphs, DFS, strongly connected components, topological sort, 3-SAT, DPLL, CDCL, and MAX-SAT next.',
       ],
     },
   ],

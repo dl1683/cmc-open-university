@@ -207,118 +207,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The animation shows tokens arriving one at a time. A token is a unit of text after tokenization, such as a word piece. Standard attention stores keys and values for every prior token; linear attention folds them into prefix state.',
+        'Read S as the accumulated key-value summary and Z as the accumulated key summary used for normalization. The active query reads from those summaries instead of building a full table against every previous token. The safe inference is that memory grows with feature size, not with the number of stored token pairs.',
         {type: 'image', src: './assets/gifs/linear-attention-prefix-state-primer.gif', alt: 'Animated walkthrough of the linear attention prefix state primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Softmax attention is powerful partly because every token can compare itself to every earlier token. The price is that autoregressive decoding keeps a growing KV cache and each new token has more history to address.',
-        'Linear attention exists to ask a data-structure question: can the useful part of the past be stored in fixed-size prefix state instead of a full list of keys and values?',
+        'Self-attention lets each token use information from earlier tokens, but exact attention builds interactions between many token pairs. For a context of n tokens, the attention table has n by n scores during full-sequence processing. Long context makes that table and the key-value cache expensive.',
+        'Linear attention exists to change the storage contract. Instead of keeping every past token separately for the attention computation, it keeps updateable prefix statistics. That makes streaming and long-context processing cheaper when the approximation fits the task.',
         {type: 'callout', text: 'Linear attention trades exact token history for updateable prefix state, so memory grows with feature dimension instead of context length.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to keep exact attention and optimize the cache. That is still the right answer for many workloads. Exact KV state preserves token-level interactions and makes copy, retrieval, and inspection easier.',
-        'The wall appears when context gets long, serving memory becomes the bottleneck, or latency grows with every generated token. Compression becomes tempting, but compression means some interactions are no longer individually available.',
+        'The obvious approach is exact softmax attention. For each query, compute its score against every previous key, apply softmax normalization, and take a weighted sum of values. This is expressive because every token can directly attend to every prior token.',
+        'Caching helps during generation. The model stores previous keys and values, so each new token only computes attention from the new query to the existing cache. The cache still grows linearly with context length, and prefill still has quadratic all-pairs work.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is the softmax. Standard attention normalizes a query against the actual set of previous keys. You cannot simply sum values and call it attention; the denominator is part of the computation.',
-        'The second wall is approximation. Feature maps can make the algebra associative, but they change the attention kernel or approximate it. Faster memory is useful only when the lost exact interactions are not the ones the task needs.',
+        'The wall is sequence length. A 4096-token prompt has over 16 million query-key score positions in full attention. A 65536-token prompt has over 4 billion positions, before counting heads, layers, and batch size.',
+        'During decode, memory becomes the bottleneck. Every active request keeps key-value cache entries for every layer and prior token. Long contexts reduce batch size, raise latency, and make serving capacity depend on cache residency as much as raw compute.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Use a kernel feature map so the attention sum can be rearranged. Instead of computing each query against every past key-value pair, accumulate prefix state first and let the current query read from that state.',
-        'There are two states, not one. S stores accumulated key-value outer products for the numerator. Z stores accumulated key features for the denominator. Forgetting Z is the common explanation bug.',
-      ],
-    },
-    {
-      heading: 'Data structures',
-      paragraphs: [
-        'The core records are phi(q), phi(k), value v, numerator state S, denominator state Z, epsilon or stabilization metadata, precision policy, and per-layer reset policy. S is usually an accumulated sum of key-value outer products. Z is the accumulated key-feature vector used to normalize reads.',
+        'Rewrite attention so keys and queries pass through a feature map phi. If attention weights can be expressed through positive feature products, then sums over past tokens can be accumulated incrementally. The model stores S = sum phi(k_t) v_t and Z = sum phi(k_t).',
+        'A new query q computes phi(q), then reads numerator phi(q)S and denominator phi(q)Z. The prefix state contains the information needed for the approximation. The old tokens do not need to be revisited individually for that attention read.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'Prefix state is a directed dataflow: key features and values write into S and Z, and later queries read through those states. Source: Wikimedia Commons, David W., public domain.'},
-        'This looks like a small database index. Writes add key-value evidence, reads query the index, and normalization keeps scores comparable. The difference is that every operation must remain differentiable and accelerator-friendly.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The prefix-state view shows the algebraic bargain. Instead of keeping every old key and value, the layer keeps accumulated S and Z states. A new query reads through those states and then the current token updates them.',
-        'The normalization view shows why this is still attention-shaped. The numerator alone is not enough. The denominator state keeps the output scaled by the accumulated key features, and bad normalization can break an otherwise attractive memory design.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The algebra relies on associativity. A token writes phi(k) outer-product v into S and adds phi(k) into Z. A later query computes phi(q)S for the numerator and phi(q)Z for the denominator, then divides.',
-        'During autoregressive decode, this is recurrent. The layer updates S and Z once per token and carries them forward. During training, implementations use scans or chunking to expose parallelism instead of running a fully serial loop.',
+        'For each incoming token, compute its key feature phi(k) and value v. Update S by adding the outer product phi(k) times v. Update Z by adding phi(k). These two updates are the prefix state.',
+        'For a later query, compute phi(q). The output is phi(q)S divided by phi(q)Z, with small numerical safeguards to avoid division by zero. Causal order is preserved because each query reads only the prefix state built from earlier tokens.',
+        'Training usually processes chunks or sequences with parallel prefix-sum techniques. Inference can update state one token at a time. The exact implementation depends on the chosen feature map, normalization, and model architecture.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works when the feature map preserves the interactions the task actually needs. The model no longer stores a row for every old token, but it still has an updateable summary that future queries can read.',
-        'It also works because the state size can be independent of sequence length. That changes the serving budget: memory and per-token decode can depend more on feature dimension than on the number of previous tokens.',
+        'The algebraic invariant is that S and Z equal the sums over all previous transformed keys and values. After token t is added, the new state is the old sum plus that token contribution. By induction, the state after t tokens equals the full prefix sum.',
+        'The query formula is therefore the same as evaluating the kernelized attention sum over the prefix, but without enumerating each past token. Correctness is exact for the chosen kernelized formula. It is an approximation only relative to softmax attention if the feature map is meant to approximate softmax.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost moves from KV-cache length to feature dimension, state matrices, numerical stability, and kernel quality. A large feature map can erase the practical win. A small one can blur important distinctions.',
-        'Production systems should track denominator minima, NaNs, precision casts, state reset boundaries, long-context recall, output drift, and actual accelerator speed. A theoretical linear curve is not enough.',
-        'The state also changes observability. With exact KV cache, a system can inspect or reason about individual token positions more directly. With compressed prefix state, the past has been folded into matrices. Debugging a missed citation, copied identifier, or old timestamp may require task-level probes rather than token-level cache inspection.',
+        'If the feature dimension is r and value dimension is d, the prefix state S has r by d entries and Z has r entries per head. Updating one token costs O(rd), and reading one query also costs O(rd). The cost no longer grows with context length for each new token.',
+        'When context length doubles, exact attention work and cache storage grow with the number of tokens. Linear attention keeps per-layer state size fixed for a stream, but it pays in feature dimension and possible quality loss. The dominant behavior is the chosen r and how much information the compressed state can preserve.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Linear attention wins when the workload benefits from long streaming state and does not require exact token-level recall at every layer. It is attractive for streaming summarization, some long-signal modeling, and hybrid architectures that reserve exact attention for selected layers or windows.',
+        'Linear attention is useful for streaming, long-document, audio, and time-series workloads where the model needs long histories but cannot afford exact all-pairs attention. The access pattern is append-only context with repeated reads from the accumulated prefix. That is exactly the pattern prefix state serves.',
+        'It also appears in architectures that blend recurrent and attention-like behavior. The model gets constant-size state updates like a recurrent network while retaining a content-based read rule. The fit is strongest when tasks need broad history more than exact token-to-token retrieval.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with input, hidden, and output nodes.', caption: 'Linear attention is still a neural layer; the storage contract changes, but the state is trained inside the model graph. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
-        'It is also the conceptual bridge to RetNet, DeltaNet, Gated DeltaNet, Kimi Delta Attention, and SSD-style models. Those systems differ in update rule and gating, but they share the prefix-state question.',
-        'It is especially useful as a teaching bridge because it forces the learner to ask what memory means. A KV cache is a list of past token evidence. A prefix state is a compressed sufficient-statistic candidate. Those are different promises.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the compressed state loses rare but important interactions: exact IDs, code symbols, citations, timestamps, or needle-in-context facts. Retrieval-heavy tasks often expose this faster than average language-model loss.',
-        'It also fails when the explanation ignores normalization. A numerator-only story is not attention. A denominator that gets too small or unstable can produce bad outputs even if the high-level algorithm sounds right.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A team builds a streaming summarizer for long logs. Full attention is too expensive because the log keeps growing. A linear-attention layer stores prefix state for old log lines. The current token reads from that state, emits output, then writes its own key-value evidence.',
-        'The quality gate is strict. The model must still find old error IDs, timestamps, and causal chains. If exact retrieval fails, the architecture may need periodic full attention, an external retrieval tool, or a hybrid state budget rather than pure linear state.',
-      ],
-    },
-    {
-      heading: 'Deployment review',
-      paragraphs: [
-        'A deployment review should compare exact-attention baselines, linear-state variants, and hybrid designs on the same long-context tasks. Measure not only average loss, but needle retrieval, citation accuracy, code-symbol recall, streaming latency, memory footprint, and numerical failures.',
-        'The key policy question is where exact memory is still needed. Some architectures keep exact attention over a local window and linear state for distant context. Others add retrieval or periodic summary tokens. The best design is usually a memory budget, not a slogan about linear complexity.',
-        'Numerical health belongs in the review. Prefix states can accumulate over long streams, and small denominator values, low-precision accumulation, or reset mistakes can produce unstable outputs. A fast linear layer that silently drifts is not a usable memory system.',
+        'The compressed state can lose information. Exact attention can focus sharply on one specific prior token because that token remains separately addressable. A fixed-size prefix summary may blur distinct events that map to similar features.',
+        'Numerical stability also matters. Feature maps must usually be nonnegative for the normalization to behave like attention, and denominators can become small. Some tasks benefit more from exact retrieval, sparse attention, sliding windows, or hybrid memory than from fully linear attention.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider a decoder reading a long sensor stream. Each new token contributes a key feature and value to S and Z. The next query reads the accumulated state to produce an output without scanning every prior token. If the task is smoothing or summarizing broad trends, that fixed state can be enough.',
-        'Now change the task: the model must remember one exact serial number from 40,000 tokens ago. A compressed prefix state may blur that rare fact. The architecture may need exact local attention, retrieval, or a special memory mechanism. The example shows why linear attention is a tradeoff, not a free replacement for full attention.',
+        'Use one head with feature dimension r = 2 and value dimension d = 1. Suppose phi(k1) = [1, 2] with value 3, and phi(k2) = [2, 1] with value 5. Then S = [1*3 + 2*5, 2*3 + 1*5] = [13, 11], and Z = [1+2, 2+1] = [3, 3].',
+        'For a query with phi(q) = [1, 1], the numerator is [1,1] dot [13,11] = 24. The denominator is [1,1] dot [3,3] = 6. The output is 24 / 6 = 4, which is the normalized weighted value from the prefix state.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention at https://arxiv.org/abs/2006.16236, Rethinking Attention with Performers at https://arxiv.org/abs/2009.14794, and Linear Transformers Are Secretly Fast Weight Programmers at https://arxiv.org/abs/2102.11174. Study Fast Weight Delta-Rule Memory Case Study, Mamba-2 Structured State Space Duality Case Study, RetNet Retention State Case Study, Kimi Linear Attention, KV Cache, Attention, and Hybrid Attention State Budget Case Study next.',
+        'Study Katharopoulos et al., Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention, 2020, and Performer for random-feature softmax approximation. The shared lesson is that algebraic factorization can replace explicit all-pairs attention under the right kernel.',
+        'Study next by layer. Review softmax attention, key-value cache, prefix sums, kernel methods, recurrent neural networks, and sliding-window attention. Then compare linear attention with sparse attention, state-space models, and hybrid long-context architectures.',
       ],
     },
   ],

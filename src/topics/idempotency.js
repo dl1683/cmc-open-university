@@ -1,4 +1,4 @@
-﻿// Idempotency: exactly-once DELIVERY is provably impossible over a lossy
+// Idempotency: exactly-once DELIVERY is provably impossible over a lossy
 // network, but exactly-once EFFECT is an engineering problem with a clean
 // answer — at-least-once retries plus a dedup key. Watch both halves live.
 
@@ -189,169 +189,98 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Idempotency & Exactly-Once Delivery. Why no protocol can deliver a message exactly once — and how an idempotency key turns retries from double-charges into safety..",
+        'Read the animation as the execution trace for one logical payment request crossing an unreliable network. A logical request is the user intent, such as charge order 913 once; a transport attempt is one HTTP request, queue delivery, or retry carrying that intent.',
         {type: "callout", text: "Retry safety comes from remembered operation identity, not from a perfect network."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Active rows show the attempt currently being sent or received. Visited rows show attempts whose outcome has already been decided by the server. Found rows show a stored result that can be replayed without running the side effect again.',
+        'The safe inference rule is simple: if two attempts carry the same idempotency key and the same request fingerprint, the receiver must treat them as the same operation. Watch where the key is recorded, because that storage boundary is what turns a retry into a lookup instead of a second charge.',
       
         {type: 'image', src: './assets/gifs/idempotency.gif', alt: 'Animated walkthrough of the idempotency visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
-      heading: `Why this exists`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Distributed systems spend a surprising amount of effort on a simple question: if a client sends a request and hears nothing, what should it do next? The missing response could mean the request never reached the server. It could also mean the server performed the work and only the response was lost. From the client side those two worlds look the same. Silence contains no proof.`,
+        'Distributed systems must decide what to do after silence. A client sends a payment request and times out after 2 seconds. The server may have received nothing, or it may have charged the card and lost only the response. From the client side, those histories are indistinguishable.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif`, alt: `Animated packet switching diagram with packets moving through shared links`, caption: `Packet-switched networks make retries unavoidable: packets and acknowledgements can vanish independently of the operation they represent. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Packet_Switching.gif`},
-        `Idempotency exists because most useful systems must retry. Networks drop packets, load balancers close connections, workers crash after committing data, and queues redeliver messages when a consumer dies before acknowledging. If the operation is harmless when repeated, retries are a tool. If the operation creates money movement, inventory reservation, account creation, or email delivery, retries can turn one intended effect into two real effects.`,
+        'Idempotency exists because useful systems must retry anyway. Load balancers close connections, workers crash after committing data, and queues redeliver messages when a consumer dies before acknowledging. If the operation creates money movement, inventory reservation, account creation, or email delivery, a blind retry can turn one intended effect into two real effects.',
       ],
     },
     {
-      heading: `Where it fails`,
-      paragraphs: [
-        `The first naive policy is at-most-once: send the request once and never retry. That avoids duplicates, but it accepts permanent loss. A payment request can disappear in flight. A queue message can be dropped after a worker crash. A background sync can fail while the user has already moved on. At-most-once is reasonable for metrics, telemetry, or any signal where loss is cheaper than delay, but it is not acceptable for business effects that must eventually happen.`,
-        `The second naive policy is at-least-once: retry until an acknowledgement arrives. This avoids loss, but it creates duplicates. The dangerous case is not a malicious retry; it is the ordinary lost-ack case. The server charged the card, committed the row, or sent the message, then the acknowledgement vanished. The client retries in good faith. Without a stable identity for the original logical operation, the server sees a fresh request and repeats the effect.`,
-        `Exactly-once delivery sounds like the escape hatch, but it is not available over a lossy network. The last confirmation message can always be lost. Adding more confirmations only creates a new last message. The real target is exactly-once effect: the network may deliver attempts zero, one, or many times, but the state change happens once.`,
-      ],
-    },
-    {
-      heading: `The core insight`,
-      paragraphs: [
-        `The core move is to stop treating each transport attempt as a separate operation. The client creates one idempotency key for one logical request and reuses that same key on every retry. The server records the key before, during, or atomically with the effect, then uses that record to recognize replays.`,
-        `A repeated request with the same key is not an error and not a second command. It is a request for the already decided result. First arrival executes the operation and stores the response. Later arrivals return the stored response without touching the underlying state again. The client does not need to know whether the response came from first execution or replay. That sameness is the point.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `A typical API implementation has a table keyed by idempotency key and scoped by caller, endpoint, or tenant. The value stores status, request fingerprint, response body, and expiry time. On first arrival, the server claims the key. If the operation succeeds, it stores the final response under the key and returns it. If the same key arrives again, the server returns the stored response. If the same key arrives with a different request body, the server should reject it because the client is trying to reuse an identity for a different logical command.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with arrows between nodes`, caption: `Idempotent workflows are directed state machines: each operation identity should advance through a single decided path. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg`},
-        `The hard part is the atomic boundary. If the server stores the key but crashes before the effect, future retries may be falsely suppressed. If it commits the effect but crashes before storing the key result, future retries may repeat the effect. Correct designs tie the dedup record to the business transaction, or record an in-progress state that can be safely completed or retried. In payment and order systems, the idempotency table often lives in the same database transaction as the ledger row or order state transition.`,
-        `Multi-step workflows repeat the same pattern at every boundary. The service debits an account and writes an outbox event in one transaction. A relay publishes the outbox event at least once. Consumers deduplicate by event id. The email service, shipment service, and audit writer each need their own idempotent receiver logic. Exactly-once effect is not a global switch. It is a chain of local dedup contracts.`,
-      ],
-    },
-    {
-      heading: `How it works (2)`,
-      paragraphs: [
-        `The first view proves the ambiguity. A missing response gives the sender one observation and two possible histories. If the request was lost, retrying is correct. If the response was lost after the server acted, retrying is dangerous. No client-side rule can distinguish those histories from silence alone.`,
-        `The second view proves that idempotency changes the problem. The network still loses requests and acknowledgements. Attempts still repeat. The difference is that a replay carries the same operation identity, so the receiver can turn the retry into a read of stored outcome instead of a second state change. The visual is showing exactly-once effect, not exactly-once delivery.`,
-      ],
-    },
-    {
-      heading: `Why it works`,
-      paragraphs: [
-        `The reason this works is algebraic. An operation is idempotent when applying it twice leaves the same state as applying it once. Setting a field to 70 is idempotent. Deleting an already deleted row is idempotent. Incrementing a balance by 50 is not. An idempotency key wraps a non-idempotent command in a remembered decision: after the first decision, every duplicate maps to the same result without rerunning the command.`,
-        `The remembered decision must include enough information to be stable. Returning a different status on replay can confuse clients and cause compensating actions. Recomputing the operation can repeat side effects. The safe replay path returns the original outcome or a clearly defined terminal state.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `The lookup cost is usually small: a cache lookup, an indexed database lookup, or a unique constraint insert. The operational cost is larger. Dedup records consume storage. Responses may contain sensitive data and need retention rules. Hot keys can become contention points. Cross-region systems must decide whether idempotency is local to one region or globally replicated.`,
-        `Key lifetime is a real part of correctness. A system cannot remember every key forever. Stripe-like APIs may retain keys for about a day; queue systems may retain dedup ids for minutes. If the client can retry after the dedup window, the same key may be accepted as new. Retry budgets, backoff, timeout values, and dedup TTL must be designed together.`,
-      ],
-    },
-    {
-      heading: `Real-world uses`,
-      paragraphs: [
-        `Payment APIs use idempotency keys because charging twice is worse than waiting. Cloud control planes use request tokens when creating instances, volumes, or databases, because a client may lose the create response and ask again. Message queues use delivery ids, consumer offsets, or application-level event ids because at-least-once delivery is the common durability bargain.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg`, alt: `Rows of servers in a data center rack`, caption: `Real retry paths cross load balancers, workers, queues, and storage systems; the idempotency key is the shared operation identity across that path. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg`},
-        `Kafka exactly-once semantics is best understood as scoped effectively-once processing: producer sequence numbers, transactions, and committed offsets prevent duplicate effects inside the Kafka transaction model. SQS FIFO uses MessageDeduplicationId inside a finite window. Transactional outbox systems use database atomicity for the local effect, then dedup events downstream. All of these systems still rely on retries; they make retries safe by giving receivers memory.`,
-      ],
-    },
-    {
-      heading: `Where it fails (2)`,
-      paragraphs: [
-        `Bad keys break the guarantee. If the client generates a new key on every retry, the server cannot connect attempts. If the key is too broad, unrelated commands suppress each other. If the key is reused with different parameters, the system may return the wrong saved result unless it fingerprints the request. If the dedup table is eventually consistent, two concurrent first arrivals can both execute unless a unique constraint or compare-and-set protects the claim.`,
-        `Idempotency also does not solve semantic conflicts. A replay of the same charge can be suppressed, but two different valid charges still need business rules. A duplicate email can be skipped, but an email already sent cannot be unsent. Long-running workflows need cancellation, compensation, and audit trails in addition to dedup. Idempotency is a precise tool, not a complete distributed transaction system.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Retries, Backoff & Jitter for retry budgets that stay inside dedup windows. Study Message Queue for redelivery semantics and consumer acknowledgements. Study Transactional Outbox for the database-plus-event boundary. Study Transaction Isolation Levels for atomic key claims. Then read CRDTs for operations that are idempotent by construction, and Clocks & Ordering for the limits of knowing what happened first in distributed systems.`,
-      ],
-    },
-      {
       heading: 'The obvious approach',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'The first reasonable policy is at-most-once delivery: send once and never retry. That avoids duplicates, and it is fine for telemetry where losing one metric point is cheaper than blocking the caller. It fails for business effects because a real payment, order, or account creation can disappear forever.',
+        'The second reasonable policy is at-least-once delivery: retry until an acknowledgement arrives. That avoids permanent loss, and it is the normal bargain for durable queues. It fails when the first attempt performed the effect but the acknowledgement was lost, because the retry looks like a new command.',
+        'A third instinct is to ask the network for exactly-once delivery. The last confirmation message can always be lost, so adding another confirmation only creates a new last message. The practical target is exactly-once effect: attempts may arrive zero, one, or many times, but the state change happens once.',
       ],
     },
-
     {
       heading: 'The wall',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        'The wall is ambiguity after a timeout. Suppose the client sends charge $40 for order 913 and hears nothing. Retrying is correct if the request was lost; retrying is dangerous if the response was lost after the server committed the charge.',
+        'No client-side rule can distinguish those two cases from silence alone. Waiting longer reduces some errors but cannot prove what happened. The receiver needs memory of the logical operation, not more confidence in the transport attempt.',
       ],
     },
-
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Give the logical operation a stable identity. The client creates one idempotency key for order 913 and reuses that same key on every retry. The server records the key with the request fingerprint and the final outcome, then treats later arrivals with that key as replays.',
+        'A replay is not a second command. It is a request for the already decided result. The client does not need to know whether the response came from first execution or replay, because both carry the same logical meaning.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A typical API stores idempotency records keyed by caller, endpoint, and idempotency key. The record includes status, request fingerprint, response body, and expiry time. The fingerprint prevents a client from reusing the same key for a different command.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with arrows between nodes`, caption: `Idempotent workflows are directed state machines: each operation identity should advance through a single decided path. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg`},
+        'On first arrival, the server claims the key and runs the business transaction. If the transaction succeeds, it stores the final response under the key and returns it. If the same key arrives again with the same fingerprint, the server returns the stored response without touching the underlying state again.',
+        'The hard part is the atomic boundary. If the server stores the key but crashes before the effect, future retries may be falsely suppressed. If it commits the effect but crashes before storing the key result, future retries may repeat the effect. Correct designs put the idempotency record and business effect in the same transaction, or store an in-progress state that can be completed safely.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'An operation is idempotent when applying it twice leaves the same state as applying it once. Setting account_status to closed is idempotent; incrementing balance by 50 is not. An idempotency key wraps a non-idempotent command in a remembered decision.',
+        'The invariant is: one scoped key maps to one request fingerprint and one terminal outcome. If that invariant holds, every duplicate attempt reads the same outcome rather than rerunning the side effect. The system is correct because all repeated attempts collapse onto the first committed decision.',
+        'Multi-step workflows need the same invariant at each boundary. A service can debit an account and write an outbox event in one transaction; the relay can publish the event at least once; consumers can deduplicate by event id. Exactly-once effect is a chain of local dedup contracts, not a network property.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The hot-path cost is usually one indexed lookup or one unique-key insert, so the time cost is O(1) for a single request against a hash index or B-tree index. The storage cost is O(k), where k is the number of retained idempotency records. If a service processes 2 million keyed requests per day and keeps records for 24 hours, it must budget storage and cleanup for about 2 million records.',
+        'Cost shows up as behavior under retries. A retry storm with 100,000 duplicate attempts should become 100,000 cheap reads of stored outcomes, not 100,000 repeated charges. Hot keys can still create contention, because many duplicates may race to claim or read the same record.',
+        'Key lifetime is part of correctness. If records expire after 24 hours and a client retries after 25 hours, the same key may be accepted as new. Retry budgets, backoff, timeout values, and dedup retention must be designed together.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Payment APIs use idempotency keys because charging twice is worse than waiting. Cloud control planes use request tokens when creating instances, volumes, or databases, because a client may lose the create response and ask again. Message queues use delivery ids, consumer offsets, or application-level event ids because at-least-once delivery is the common durability bargain.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg`, alt: `Rows of servers in a data center rack`, caption: `Real retry paths cross load balancers, workers, queues, and storage systems; the idempotency key is the shared operation identity across that path. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Wikimedia_Foundation_Servers-8055_35.jpg`},
+        'Kafka exactly-once semantics is scoped to its transaction model: producer sequence numbers, transactions, and committed offsets prevent duplicate effects inside that boundary. SQS FIFO uses MessageDeduplicationId inside a finite window. Transactional outbox systems use database atomicity for the local effect, then deduplicate events downstream.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Bad keys break the guarantee. If the client generates a new key on every retry, the server cannot connect attempts. If the key is too broad, unrelated commands suppress each other. If the key is reused with different parameters, the server must reject it rather than return the wrong saved result.',
+        'Weak storage breaks the guarantee too. If two concurrent first arrivals can both insert the same key because the dedup table is eventually consistent, both may execute. The claim step needs a unique constraint, compare-and-set, or equivalent serialization point.',
+        'Idempotency does not solve semantic conflicts. A replay of the same charge can be suppressed, but two different valid charges still need business rules. A duplicate email can be skipped, but an email already sent cannot be unsent.',
+      ],
+    },
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'A client wants to charge order 913 for $40 and generates key pay_913_a7. Attempt 1 reaches the server, the server inserts an idempotency record in progress, charges the card, stores response charge_id ch_55 with status 200, and sends the response. The response packet is lost, so the client sees a timeout.',
+        'Attempt 2 uses the same key pay_913_a7 and the same request fingerprint. The server finds the completed record and returns status 200 with charge_id ch_55. The charge count stays 1, even though the network delivered two attempts.',
+        'If the client accidentally retries with key pay_913_b9, the server sees a different logical operation and may charge again. If the client reuses pay_913_a7 for $45 instead of $40, the fingerprint check rejects the request. Those two numbers show the whole contract: same key plus same body means replay; different key or different body is not the same operation.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Study Stripe API idempotent requests for a production API contract, AWS client tokens for control-plane create operations, Amazon SQS FIFO deduplication for finite-window message identity, and Kafka transactions for scoped exactly-once processing. These sources show the same idea under different storage and retention constraints.',
+        'Study retries, backoff, and jitter before this topic if timeout behavior is unfamiliar. Study transaction isolation and unique constraints to understand atomic key claims. Study transactional outbox, message queues, and CRDTs next to see how local idempotency combines with larger distributed workflows.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Idempotency & Exactly-Once Delivery moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

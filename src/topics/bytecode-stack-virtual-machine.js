@@ -147,36 +147,45 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has two views. The "stack bytecode" view shows how an expression like 1 + 2 * 3 compiles into a sequence of opcodes and how the value stack changes after each instruction. The "frames and calls" view shows how the VM manages function calls by pushing call frames that partition the value stack into per-call windows.',
+        'Each step highlights the active components in the VM pipeline: AST, bytecode chunk, constant pool, instruction pointer, dispatch loop, current opcode, value stack, and result. Watch the stack column in the bytecode table -- it shows the exact stack contents after every instruction executes. The number of items on the stack at each point is how you verify that the compiler emitted correct code.',
         {type: 'image', src: './assets/gifs/bytecode-stack-virtual-machine.gif', alt: 'Animated walkthrough of the bytecode stack virtual machine visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A tree-walking interpreter is a good first implementation because it keeps language semantics close to the parser. The runtime recursively evaluates AST nodes: visit this binary expression, evaluate the left child, evaluate the right child, apply the operator, and return. That is clear, but it pays for source-tree shape on every execution.',
+        'When you write a programming language, you need something that executes the parsed program. The simplest option is a tree-walking interpreter: parse source code into an abstract syntax tree (AST -- a tree where each node is a language construct like "add" or "if"), then recursively visit each node, evaluate it, and return the result. This works, but every execution retraces the shape of the source code. You pay for pointer chasing through heap-allocated tree nodes on every single run.',
         {
           type: 'callout',
           text: 'A stack VM makes execution explicit by replacing recursive syntax walking with a compact instruction stream and a visible value stack.',
         },
-        'A bytecode stack VM exists as a middle layer between tree walking and native code generation. The compiler lowers the AST into compact instructions. The runtime executes those instructions with an instruction pointer, value stack, constant pool, dispatch loop, and call frames. The language stops being a recursive walk over syntax and becomes a small machine with explicit state.',
-        'This is why bytecode appears in teaching languages, scripting runtimes, portable sandboxes, database expression engines, and early tiers of larger VMs. It is much easier to build than a native compiler, but it gives the implementation more control than evaluating the AST directly.',
+        'A bytecode stack virtual machine sits between tree walking and native machine code. A compiler pass walks the AST once and emits a flat array of bytecode instructions -- small numeric opcodes like CONST, ADD, CALL, RETURN. The runtime then executes those instructions using five pieces of state: an instruction pointer (which opcode to run next), a bytecode chunk (the instruction array), a constant pool (literals like numbers and strings referenced by index), a value stack (where operands and intermediate results live), and call frames (bookkeeping for function calls). The language stops being a recursive walk over syntax and becomes a small, inspectable machine.',
+        'This is the architecture behind CPython, Ruby\'s YARV, Lua 4, early Java, the JVM\'s interpreter tier, WebAssembly\'s execution model, and most teaching compilers. It is far simpler to build than a native code generator, yet it gives the implementation explicit control over execution state that a tree walker hides inside host-language recursion.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious first interpreter walks the AST directly: evaluate the left child, evaluate the right child, combine them, recurse into statements, and use host-language calls to model language calls. That is perfect for learning parsing and semantics because every evaluator branch mirrors a grammar rule.',
-        'The wall is runtime overhead and control. The AST stores syntax, not an execution schedule. It has many heap objects, many pointers, and many recursive function calls. It is harder to disassemble, harder to serialize, harder to validate compactly, and harder to run inside a VM loop with predictable state.',
-        'Native code is the other obvious answer. It can be very fast, but it requires machine-code generation, register allocation, calling conventions, executable memory, debugging tools, and target-specific safety boundaries. Bytecode is the pragmatic middle: compile once to a portable instruction stream, then interpret or later JIT from that instruction stream.',
+        'The most direct interpreter walks the AST. To evaluate the expression 1 + 2 * 3, the evaluator visits the "+" node, recurses into the left child (the literal 1), recurses into the right child (the "*" node), which recurses into 2 and 3, multiplies them, returns 6, and then adds 1. Every grammar rule maps to one evaluator function. This is clean, correct, and a perfect teaching tool for language semantics.',
+        'The cost is structural. Each AST node is a heap object with pointers to children. Evaluating a program of N nodes means N recursive calls, N pointer dereferences, and N dynamic-dispatch decisions (which node type am I?). You cannot easily serialize the execution, inspect it mid-flight, or validate it ahead of time. The program\'s control flow is entangled with the host language\'s call stack.',
+        'The opposite extreme is native code generation: emit x86 or ARM instructions, get hardware speed. But that requires register allocation, calling conventions, executable memory management, platform-specific backends, and careful security boundaries. Bytecode is the pragmatic middle ground. You compile once to a portable instruction stream, then either interpret it or use it as input for a JIT compiler later.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Tree-walking hits a wall on three fronts simultaneously. First, performance: the interpreter spends more time navigating the tree than doing useful computation. A loop that runs 10,000 iterations re-traverses the loop body\'s AST 10,000 times, chasing pointers and dispatching on node types each time. Second, observability: there is no compact representation of "what the program is doing right now" -- the state is spread across hundreds of host-language stack frames. You cannot pause a tree-walk mid-expression, serialize it, send it to another machine, and resume.',
+        'Third, validation: you cannot cheaply prove properties of a tree-walk program before running it. With bytecode, you can scan the instruction array and verify that every jump target is valid, every opcode\'s stack effect is balanced, and the maximum stack depth is bounded -- all before executing a single instruction. This is exactly how WebAssembly validators work, and it is impossible with a tree walker because there is no instruction stream to scan.',
+        'These three walls -- performance, observability, and pre-execution validation -- are what push every serious language implementation past tree walking and toward bytecode. The question is not whether to compile; it is how much to compile.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A stack VM makes temporary values implicit. Each opcode has a stack effect: how many values it pops, what it computes, and how many values it pushes. CONST pushes a constant. ADD pops two values and pushes their sum. RETURN pops a result and returns it to the caller.',
-        'Because the stack carries intermediate values, instructions can be tiny. The bytecode for 1 + 2 * 3 can be CONST 1, CONST 2, CONST 3, MUL, ADD. The compiler emits the expression in evaluation order, and the stack shape records the temporary results.',
-        'The VM state is small but powerful: instruction pointer for control, bytecode chunk for instructions, constant pool for literals, value stack for operands and temporaries, and call frames for function calls. Once you can name those pieces, most interpreter behavior becomes inspectable.',
+        'The core insight is that a stack eliminates the need to name temporary values. In a register machine, the compiler must decide which register holds each intermediate result: "put 2 * 3 in register R1, then add R1 to the literal 1." In a stack machine, the compiler just emits instructions in the order that produces and consumes values: CONST 2, CONST 3, MUL (pops two, pushes one), CONST 1, ADD (pops two, pushes one). The stack itself is the naming system. Whatever is on top is the next operand.',
+        'This means every opcode has a stack effect: a declaration of how many values it pops and how many it pushes. CONST pops 0, pushes 1 (net +1). ADD pops 2, pushes 1 (net -1). RETURN pops 1, pushes 0 (net -1). If the compiler emits instructions whose stack effects are consistent -- if every consumer finds the values it needs already on the stack -- the program executes correctly. If a single effect is wrong, the stack will be the wrong height at some later point, and the VM will read a number where it expected a function pointer, or vice versa.',
+        'The entire VM state fits in five pieces. The bytecode chunk is a flat array of opcode bytes and inline operand bytes. The constant pool is an array of values (numbers, strings, function objects) indexed by the operand of CONST instructions. The instruction pointer is an integer index into the bytecode chunk. The value stack is an array that grows and shrinks as instructions execute. Call frames are a small stack of records that track which function is running, where to return, and where each function\'s local variables start on the value stack.',
         {
           type: 'image',
           src: 'https://mermaid.ink/svg/pako:NY1BCsIwEEX3OcVcoFcQ2jQVwVUVN0MWIUZSGmZCMkG8vRDr6sH7D_4r8dtHVwSuqxpxvN0tDMMJJpw-Ejw_A_jYaLdq6l7jhaqU5mVjgswbSSj_cUbNVMWRQGZOVumuDc5bzU58hMScrVrw4VILUMX5_fdnlOlcDp5xDbUlAaYj-wI',
@@ -186,84 +195,66 @@ export const article = {
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The stack-bytecode view shows source syntax being turned into a bytecode chunk plus a constant table. The important transition is from tree shape to instruction sequence. The AST explains where the program came from; the bytecode explains what the VM will do next.',
-        'The instruction-pointer view shows the interpreter loop. It reads the next opcode, advances the instruction pointer, runs the handler, mutates the stack, and repeats. Correctness depends on each opcode leaving the stack in the shape the next instruction expects.',
-        'The frames-and-calls view shows why the value stack is not just an arithmetic scratchpad. Function calls need return addresses, base slots, local variables, arguments, and results. A call frame gives each invocation a window over the shared stack instead of copying a separate stack for every call.',
+        'Compilation walks the AST in postorder (children before parent) and emits bytecode. For a binary expression like a + b, the compiler first emits code for a, then code for b, then emits an ADD opcode. This guarantees that when the VM reaches ADD, the stack already holds the two operands. Literal values become CONST instructions with an index into the constant pool: emit CONST 0 to push constants[0]. Variable references become LOAD instructions that copy a value from a local slot to the top of the stack.',
+        'The dispatch loop is the VM\'s heartbeat. It reads the byte at bytecode[ip], increments ip, and jumps to the handler for that opcode. A switch statement is the simplest dispatch: switch(op) { case CONST: push(constants[readByte()]); break; case ADD: { let b = pop(); let a = pop(); push(a + b); } break; ... }. Each handler manipulates the stack, possibly reads inline operands from the bytecode stream, and falls back to the top of the loop. The loop terminates when it hits a HALT or RETURN with no remaining call frame.',
+        'The constant pool deserves attention. Without it, every number literal would need to be encoded inline in the bytecode stream, and strings would need length-prefixed byte sequences embedded among opcodes. The constant pool externalizes these values. The bytecode says "push constant number 3" (one opcode byte plus one index byte = 2 bytes), and the pool holds the actual value at index 3. This keeps the instruction stream dense and regular, which matters for cache locality and for disassembly.',
+        'Function calls add a call frame. When the VM executes a CALL opcode, it creates a new frame that records: (1) the callee\'s bytecode chunk, (2) the return instruction pointer (where to resume the caller), (3) the base slot (the index on the value stack where this call\'s arguments and locals begin), and (4) the number of local variable slots. The callee accesses its arguments and locals as stack[base + offset] rather than by absolute stack index. When the callee executes RETURN, the VM pops the frame, restores the caller\'s instruction pointer, and places the return value at the caller\'s expected stack position.',
       ],
     },
     {
-      heading: 'How the interpreter loop works',
+      heading: 'Why it works',
       paragraphs: [
-        'A bytecode chunk is usually an array of opcodes and operands. The VM keeps an instruction pointer, often an index into that array. The dispatch loop reads bytecode[ip], increments ip, and jumps to the handler for that opcode. The handler may read operands, push constants, perform arithmetic, branch by changing ip, or call another function.',
-        'The constant pool keeps instructions compact. Instead of embedding a whole string or number inside the instruction stream, the bytecode can say CONST 7, meaning "push constants[7]." This keeps the code dense and lets literals be shared or inspected separately.',
-        'A useful implementation tracks stack effects. If ADD needs two operands and only one is present, the program or compiler is wrong. If a conditional jump leaves an unexpected value behind, later instructions may break. Stack-depth validation, disassembly, and trace mode are not luxuries; they are how VM bugs become understandable.',
-      ],
-    },
-    {
-      heading: 'How calls and frames work',
-      paragraphs: [
-        'A function call needs more state than an arithmetic opcode. The VM must remember which function is running, where to resume the caller, where this call\'s locals begin on the value stack, and how many arguments and temporary slots belong to the callee.',
-        'A call frame stores that state. When a function is called, the VM pushes a new frame with a return instruction pointer and a base slot. The callee reads locals relative to that base slot. When it returns, the VM removes the frame, restores the caller instruction pointer, and leaves the return value where the caller expects it.',
+        'Stack bytecode works because the stack effect invariant composes. If opcode A has effect (pop 0, push 1) and opcode B has effect (pop 2, push 1), then the sequence A, A, B has a net effect of +1: two pushes followed by one instruction that pops 2 and pushes 1. The compiler can verify at compile time that the stack depth is non-negative after every instruction and that it equals exactly 1 at the end of an expression. If those checks pass, the bytecode is guaranteed not to underflow or leave garbage on the stack at runtime.',
+        'It works for portability because the instruction set is defined by the language implementation, not by hardware. The same bytecode runs on x86, ARM, or RISC-V -- the dispatch loop is just a C or JavaScript function. This is why Java\'s "write once, run anywhere" promise was built on a stack-based bytecode VM (the JVM), and why WebAssembly chose a structured stack machine for its binary format.',
+        'It works for optimization because bytecode is a stable intermediate form. A production VM can interpret bytecode for cold code, collect execution profiles (which branches are taken, which types appear), and then JIT-compile hot paths into native code using the bytecode as input. The V8 engine\'s Ignition interpreter and SparkPlug baseline compiler both consume bytecode. The bytecode layer decouples language semantics from machine-specific optimization, so each can evolve independently.',
         {
           type: 'image',
           src: 'https://mermaid.ink/svg/pako:TY5NCsIwEEb3OcVcoFcQklp_Vkp1N2QxhKmCkwQyib2-NCK4fe_j8S2S1_CkUuHujMWRRLjAUiiyh2HYgcOZaysJzldvbEcjOlIGlVx_aI-2PFrkVNWb6Zvh_8wBL2sCyYFkW3R2xBtFhjdJY9BK4eWN6-aEM2uLDKH_8R8',
           alt: 'Caller and callee frames sharing one value stack with return instruction pointer, base slot, arguments, and locals.',
           caption: 'Call frames let each invocation keep return state and local slots while sharing one physical value stack. Source: https://mermaid.ink/svg/pako:TY5NCsIwEEb3OcVcoFcQklp_Vkp1N2QxhKmCkwQyib2-NCK4fe_j8S2S1_CkUuHujMWRRLjAUiiyh2HYgcOZaysJzldvbEcjOlIGlVx_aI-2PFrkVNWb6Zvh_8wBL2sCyYFkW3R2xBtFhjdJY9BK4eWN6-aEM2uLDKH_8R8',
         },
-        'This makes recursion possible. Each recursive call has its own frame and local window, but all calls share one physical value stack. The stack grows and shrinks with call depth rather than copying all state at each call.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Take the expression 1 + 2 * 3. The parser builds an AST where multiplication is nested under addition. The compiler emits code in postorder: push 1, push 2, push 3, multiply, add. After the first three instructions, the stack is [1, 2, 3]. MUL pops 3 and 2, pushes 6, and leaves [1, 6]. ADD pops 6 and 1, pushes 7, and leaves [7].',
-        'Now add a function call such as square(4 + 1). The compiler emits instructions to push the callee, push arguments, compute 4 + 1, and call. The call instruction creates a frame for square. Inside square, local slot 0 may hold the argument. The return instruction places the result back into the caller\'s stack window.',
-        'This example is small, but it contains the whole VM contract. The compiler must emit instructions whose stack effects line up. The interpreter must advance the instruction pointer correctly. The frame machinery must restore the caller exactly. A bug in any one of those pieces becomes a wrong stack shape.',
+        'The dominant cost is dispatch overhead. Every opcode requires the interpreter to read a byte, branch to the right handler, execute it, and loop back. On modern CPUs, this branch is unpredictable -- the hardware branch predictor cannot guess which opcode comes next -- so the pipeline stalls on every dispatch. Measurements on CPython show that roughly 15-25% of execution time is pure dispatch overhead, depending on workload. Techniques to reduce this include direct threading (each handler jumps to the next handler\'s address instead of returning to the loop), computed goto (a GCC extension that eliminates the switch), superinstructions (fusing common opcode sequences into single opcodes), and JIT compilation (eliminating dispatch entirely for hot code).',
+        'The second cost is stack traffic. Consider the expression a + b + c. A stack VM emits: LOAD a, LOAD b, ADD, LOAD c, ADD -- 5 instructions, 5 stack operations. A register VM can emit: ADD R1 a b; ADD R2 R1 c -- 2 instructions, 0 stack operations. Shi et al. (2008) measured that Lua\'s register-based VM executes 25-47% fewer instructions than an equivalent stack VM for the same programs. The tradeoff is that register instructions are larger (they encode register operands), so the bytecode is less compact.',
+        'Memory cost is modest. The bytecode chunk is typically smaller than the AST it replaces because opcodes are 1-2 bytes versus 20-40 bytes per AST node (object header + type tag + child pointers). The value stack is a single pre-allocated array, usually 256 to 8,192 slots. Call frames are small fixed-size records. The constant pool grows with the number of unique literals in the program. For a program with 1,000 AST nodes, the bytecode might be 2-4 KB, the constant pool 1-2 KB, and the stack 2-8 KB.',
       ],
     },
     {
-      heading: 'Why it works',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Stack bytecode works because it separates language semantics from host-language recursion. The compiler commits to a compact instruction sequence. The VM owns execution state. That makes programs easier to serialize, disassemble, inspect, and run across platforms.',
-        'It also works because the stack is a simple compiler target. The compiler does not need to allocate registers for every temporary. It emits instructions in an order that naturally consumes subexpression results. This is why many educational compilers and portable VMs start with stack bytecode.',
-        'Finally, the model gives later optimization tiers a stable input. A production runtime may interpret bytecode first, collect profiles, compile hot paths into native code, or lower bytecode into a richer intermediate representation. The bytecode layer becomes the portable contract beneath those choices.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The main cost is dispatch overhead. Every opcode requires the interpreter to read, decode, and jump to a handler. Direct-threaded dispatch, computed goto, inline caches, superinstructions, and JIT compilation all try to reduce that cost.',
-        'The second cost is stack traffic. A register VM can name temporary slots directly, often using fewer instructions for the same work. Stack bytecode is compact and easy to emit, but it may need more push, pop, dup, and shuffle operations.',
-        'The behavior is still much better than a naive tree walk for many languages. Bytecode is dense, sequential, cache-friendly, and independent of source syntax objects. It gives the runtime one loop to optimize instead of thousands of recursive AST visits.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'A stack VM wins for teaching compilers, small languages, embedded scripting, portable runtimes, sandboxed formats, database expressions, rules engines, and first-tier execution in larger systems. It is a good fit when implementation simplicity and portability matter more than peak speed.',
-        'It also wins when validation matters. Because every opcode has a stack effect, a verifier can check maximum stack depth, underflow, jump targets, and some type constraints before execution. WebAssembly uses a structured stack-machine model partly because validation and portability are central to the format.',
+        'CPython compiles Python source to stack bytecode (.pyc files) and interprets it in a C dispatch loop. Every Python function object holds a reference to its bytecode. The dis module lets you disassemble any function: import dis; dis.dis(lambda x: x + 1) shows LOAD_FAST 0, LOAD_CONST 1, BINARY_ADD, RETURN_VALUE. This is a direct window into the stack VM.',
+        'The Java Virtual Machine (JVM) uses a stack-based bytecode as its portable instruction set. javac compiles .java files to .class files containing stack bytecode. The JVM interprets this bytecode on startup and JIT-compiles hot methods via C1 and C2 compilers. The stack bytecode is the stable contract between the compiler and the runtime -- it has not changed fundamentally since 1995.',
+        'WebAssembly (Wasm) defines a structured stack machine as its binary format. Each Wasm function declares its parameter and result types, and a validator statically checks that every instruction sequence has balanced stack effects before execution. This pre-execution validation is the reason Wasm can run untrusted code safely in browsers -- the stack effect invariant guarantees that valid bytecode cannot underflow the stack or access memory outside its linear memory sandbox.',
+        'Database query engines use stack VMs for expression evaluation. SQLite compiles SQL queries into bytecode programs for its VDBE (Virtual Database Engine). Each row-processing step is an opcode. This makes query execution inspectable: EXPLAIN in SQLite prints the bytecode program, and you can trace exactly which opcodes execute for each row.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A stack VM fails when dispatch overhead dominates or when explicit dataflow matters for optimization. Register VMs such as Lua-style designs use larger instructions but can reduce stack movement. Native compilers can use real registers, instruction scheduling, and CPU-specific optimizations.',
-        'It also fails when tooling is weak. Without a disassembler, trace mode, frame inspector, stack-effect checker, and clear error reporting, compiler bugs become mysterious runtime crashes. A VM is not only an instruction loop; it is an observability surface for a language implementation.',
+        'A stack VM fails when dispatch overhead dominates total execution time. For tight numeric loops -- matrix multiplication, physics simulation, signal processing -- the useful work per opcode is tiny (one addition, one multiplication), but the dispatch cost is fixed. The ratio of dispatch overhead to useful work can exceed 50%. This is why numeric code is almost always JIT-compiled or run through native libraries (NumPy calls into C/Fortran, not into CPython bytecode).',
+        'It fails when the optimizer needs explicit dataflow. In a register-based intermediate representation, the compiler can see that R3 = R1 + R2 and that R3 is only used once, so it can fold the addition into the consumer. In stack bytecode, the same information is implicit in the push/pop sequence and must be reconstructed by an analysis pass. This reconstruction is possible but adds complexity. Production JIT compilers (V8\'s TurboFan, HotSpot\'s C2) typically convert stack bytecode into an SSA-based IR before optimizing.',
+        'It fails when tooling is absent. A bytecode VM without a disassembler, stack-depth checker, and trace mode is a black box. When the compiler emits wrong stack effects, the symptom is a crash or wrong result many instructions later, because the stack is silently misaligned. Building a VM without building its debugging tools is building a machine you cannot diagnose.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'Remember the machine state: bytecode chunk, constant pool, instruction pointer, value stack, call frames. Those five pieces explain most simple VM behavior.',
-        'Remember the invariant: every instruction has a stack effect. If the compiler and interpreter agree on those effects, the program flows. If they disagree, the VM eventually reads the wrong value as the wrong thing.',
+        'Compile and execute the expression (3 + 5) * 2. The parser produces an AST: a MUL node whose left child is an ADD node (children 3 and 5) and whose right child is the literal 2. The compiler walks this tree in postorder. It visits 3 first: emit CONST 0 (constants[0] = 3). Visit 5: emit CONST 1 (constants[1] = 5). Visit the ADD node: emit ADD. Visit 2: emit CONST 2 (constants[2] = 2). Visit the MUL node: emit MUL. Final bytecode: [CONST 0, CONST 1, ADD, CONST 2, MUL]. Constant pool: [3, 5, 2]. Total: 5 opcode bytes + 3 operand bytes = 8 bytes of bytecode plus 3 constant pool entries.',
+        'Execute step by step. ip=0: CONST 0 pushes constants[0]=3. Stack: [3]. ip=2: CONST 1 pushes constants[1]=5. Stack: [3, 5]. ip=4: ADD pops 5 and 3, pushes 8. Stack: [8]. ip=5: CONST 2 pushes constants[2]=2. Stack: [8, 2]. ip=7: MUL pops 2 and 8, pushes 16. Stack: [16]. The result is 16, sitting alone on top of the stack. At every step, the stack depth matched what the next instruction expected: ADD found 2 values, MUL found 2 values, and the final depth is 1.',
+        'Now wrap this in a function: fn double(x) { return x * 2; }; double(3 + 5). The compiler emits bytecode for double\'s body: LOAD_LOCAL 0 (push argument x), CONST 0 (push 2), MUL, RETURN. For the call site: CONST 0 (push 3), CONST 1 (push 5), ADD (stack: [8]), CALL double with 1 argument. The CALL opcode creates a frame: return_ip=next instruction in caller, base_slot=current stack top minus 1 argument = index where 8 sits. Inside double, LOAD_LOCAL 0 reads stack[base_slot + 0] = 8. CONST 0 pushes 2. MUL pops 2 and 8, pushes 16. RETURN pops the frame, restores the caller\'s ip, and places 16 where the caller expects the result. The caller\'s stack now holds [16]. Total call overhead: 1 frame push, 1 frame pop, 2 ip saves/restores -- no heap allocation, no tree copying.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Crafting Interpreters bytecode VM at https://craftinginterpreters.com/a-bytecode-virtual-machine.html, chunks of bytecode at https://craftinginterpreters.com/chunks-of-bytecode.html, VM execution loop at https://craftinginterpreters.com/a-virtual-machine.html, and W3C WebAssembly Core Specification at https://www.w3.org/TR/wasm-core-2/. Study Pratt Parser Expression AST, Stack, Register Virtual Machine: Lua Case Study, Interpreter Dispatch Table & Threaded Code, and WebAssembly Linear Memory Case Study next.',
+        'Robert Nystrom, Crafting Interpreters, chapters 14-24 (bytecode VM from scratch in C): https://craftinginterpreters.com/a-bytecode-virtual-machine.html. Chunks of bytecode: https://craftinginterpreters.com/chunks-of-bytecode.html. The VM execution loop: https://craftinginterpreters.com/a-virtual-machine.html. W3C WebAssembly Core Specification (structured stack machine validation): https://www.w3.org/TR/wasm-core-2/. Shi et al., "Virtual Machine Showdown: Stack Versus Registers" (2008) for quantitative stack-vs-register comparison.',
+        'Study next: Stack (the data structure underlying the value stack), Register Virtual Machine: Lua Case Study (the opposite architectural choice), Interpreter Dispatch Table & Threaded Code (how to speed up the dispatch loop), Pratt Parser Expression AST (how the AST that feeds the compiler is built), and WebAssembly Linear Memory Case Study (how Wasm extends the stack VM with linear memory for heap data).',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-﻿// Thompson sampling: don't track one number per option — track a whole
+// Thompson sampling: don't track one number per option — track a whole
 // BELIEF about each, and let the width of your uncertainty decide how much
 // you explore. Bayesian bandits, 1933, still the production standard.
 
@@ -103,176 +103,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        "Read the animation as the execution trace for Thompson Sampling. Beta-distribution beliefs that sharpen with data — exploration that fades automatically as certainty grows..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type: "callout", text: "Thompson sampling explores in proportion to remaining doubt: an arm gets traffic only while its posterior can still plausibly win."},
-      
-        {type: 'image', src: './assets/gifs/thompson-sampling.gif', alt: 'Animated walkthrough of the thompson sampling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why Bandits Need This`,
-      paragraphs: [
-        `A bandit problem asks you to choose among options while learning which option pays best. A product team might choose between checkout pages. A recommender might choose between article cards. A trial might choose between treatments. Every choice both serves a user and teaches the system something.`,
-        `The hard part is the explore-exploit tradeoff. If you only exploit the current winner, you can get stuck on an option that looked lucky early. If you explore too much, you keep sending traffic to worse options after the evidence is already clear. Thompson sampling exists to make exploration shrink when uncertainty shrinks.`,
-      ],
-    },
-    {
-      heading: `The obvious approach`,
-      paragraphs: [
-        `The first reasonable solution is an A/B test. Split traffic evenly, wait for enough data, then ship the winner. That is clean when the experiment has a fixed horizon and the cost of showing a worse option is acceptable. It also gives a simple analysis story.`,
-        `Another common solution is epsilon-greedy. Most of the time it sends traffic to the arm with the best observed average. A fixed fraction of the time, epsilon, it explores randomly. That is easy to implement and often beats doing nothing, but the exploration rate is a knob outside the evidence.`,
-      ],
-    },
-    {
-      heading: `The wall`,
-      paragraphs: [
-        `Fixed exploration wastes traffic after the answer is obvious. If epsilon is 10 percent, the system still sends one in ten users to random arms even after millions of observations. Lowering epsilon helps later, but it can make the learner too timid early.`,
-        `Pure averages fail in the opposite direction. An arm with one success in one try has a 100 percent observed conversion rate, but that estimate is fragile. The missing quantity is uncertainty. A decision rule needs to know not only what each arm's current average is, but how much evidence supports that average.`,
-      ],
-    },
-    {
-      heading: `The core insight`,
-      paragraphs: [
-        `Thompson sampling represents each arm as a belief distribution over its unknown reward rate. Instead of asking "which arm has the largest point estimate," it asks "if I sampled one plausible world from my current beliefs, which arm would be best in that world?"`,
-        `That one sampled-world trick turns uncertainty into traffic allocation. An arm with little data has a wide distribution, so it sometimes draws a high plausible value and gets explored. An arm with lots of bad evidence has a narrow low distribution, so it rarely wins a sample. Exploration is no longer a fixed tax; it is the probability that the arm could still be best.`,
-      ],
-    },
-    {
-      heading: `Beta-Bernoulli Beliefs`,
-      paragraphs: [
-        `For yes/no rewards such as clicked or not clicked, converted or not converted, the Beta distribution is a convenient belief over an unknown probability. Beta(alpha, beta) can be read as successes plus failures. A success increments alpha. A failure increments beta.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/f/f3/Beta_distribution_pdf.svg`, alt: `Beta distribution probability density curves`, caption: `Beta curves show how different alpha and beta counts encode both center and uncertainty. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Beta_distribution_pdf.svg.`},
-        `The demo starts both arms at Beta(1,1), a flat prior. That means the learner begins with no preference. As visitors arrive, each arm's curve shifts and narrows. A curve centered farther right means a higher likely conversion rate. A narrower curve means the system has more evidence and less uncertainty.`,
-      ],
-    },
-    {
-      heading: `The Decision Loop`,
-      paragraphs: [
-        `For each decision, sample one possible conversion rate from every arm's current distribution. Serve the arm with the largest sampled rate. Observe the reward. Update only the chosen arm's distribution. Repeat. The algorithm is small because the belief state carries the exploration policy.`,
-        `The page's batch display uses a deterministic shortcut for teaching: it estimates the probability that B beats A and routes that share of the 200-visitor batch to B. A live implementation usually samples per request. Both versions expose the same idea: traffic share follows posterior probability of being the best arm.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The curves are beliefs, not historical conversion-rate lines. Wide overlap means the learner still has a real chance of being wrong, so both arms keep receiving traffic. When B's curve shifts right and the overlap shrinks, B wins more samples and receives more traffic.`,
-        `The visual also proves why early randomness is not a bug. At the start, the curves are flat and symmetric, so traffic naturally splits. Later, the worse arm still gets some traffic only where the distributions overlap. That overlap is the remaining uncertainty, not an arbitrary exploration quota.`,
-      ],
-    },
-    {
-      heading: `Why it works`,
-      paragraphs: [
-        `The algorithm is probability matching. If the posterior belief says arm B has a 70 percent chance of being the best arm, then B wins roughly 70 percent of posterior samples. The traffic share is tied to the learner's current uncertainty about optimality.`,
-        `This is useful because uncertain arms get tested in proportion to how plausible they are. A new arm is explored because its distribution is wide, not because a fixed epsilon command says "explore now." A bad arm fades because evidence moves and narrows its distribution, not because a scheduler manually turns it off.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `For k Bernoulli arms, the memory cost is two numbers per arm: alpha and beta. Updating a chosen arm is O(1). Choosing among k arms is O(k) if you draw one sample from each distribution. The algorithm is cheap enough to run per request in many product systems.`,
-        `The cost grows when the reward model grows. Contextual bandits need features, uncertainty estimates, and logged propensities. Delayed rewards need attribution windows. Non-binary rewards need different likelihood models. The core idea remains the same, but the tidy Beta update stops being enough.`,
-      ],
-    },
-    {
-      heading: `Real-world uses`,
-      paragraphs: [
-        `Thompson sampling fits online allocation problems where serving the current best option matters while learning continues. Ads, recommendations, email subject lines, ranking widgets, and adaptive experimentation all have this shape. The algorithm reduces regret by moving traffic toward good arms before a fixed-horizon test would be over.`,
-        `It is especially attractive when each decision has low individual risk and feedback arrives quickly. Fast feedback lets beliefs sharpen quickly. Low risk makes adaptive allocation acceptable because the system will intentionally test uncertain options while it learns.`,
-        `It is also useful when the opportunity cost of waiting is high. If a fixed experiment would spend two weeks evenly splitting traffic across a weak arm, Thompson sampling can shift traffic away as evidence accumulates while still leaving enough exploration to detect a surprise recovery.`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `The simple version assumes independent users, stable reward rates, and quick binary feedback. Real products violate those assumptions. Users return, campaigns age, inventory changes, rewards are delayed, and one choice can affect later behavior. Those conditions need contextual models, time decay, guardrails, or a different experiment design.`,
-        `Thompson sampling also does not replace statistical reporting. An adaptive allocation can be excellent for serving users and still require care when making a public ship/no-ship claim. If the goal is inference rather than allocation, study fixed A/B tests, confidence intervals, sequential testing, and logged-policy evaluation.`,
-        `The reward definition can fail too. If the algorithm optimizes clicks, it may favor clickbait over long-term satisfaction. If it optimizes immediate purchases, it may miss refunds, churn, or support cost. Thompson sampling chooses according to the reward signal it is given, so the reward window, guardrail metrics, and stop rules are part of the algorithm in practice.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Start with Multi-Armed Bandits for regret, epsilon-greedy, and UCB. Then study A/B Testing for the fixed-horizon contrast, Softmax Temperature for another way to turn scores into exploration, and Calibration Curves for checking whether probabilities mean what they claim.`,
-        `For production systems, study Contextual Bandit Logged Policy Evaluation, LinUCB, Policy Gradients, and Delayed Feedback Attribution Windows. Those topics show what changes when actions have features, rewards arrive late, or the decision affects a longer trajectory.`,
-      ],
-    },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Thompson Sampling moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+    { heading: 'How to read the animation', paragraphs: ['Read the animation as a choice-and-update loop. Each curve is a belief about one option, and wider curves mean more uncertainty. The selected option is the one that wins a random draw from current beliefs.', {type: 'callout', text: 'Thompson sampling explores in proportion to remaining doubt: an arm gets traffic only while its posterior can still plausibly win.'}, {type: 'image', src: './assets/gifs/thompson-sampling.gif', alt: 'Animated walkthrough of the thompson sampling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: ['A bandit problem asks a system to choose while learning. Every choice is both service and experiment. Thompson sampling exists so uncertain options get tested and proven options get most selections.'], },
+    { heading: 'The obvious approach', paragraphs: ['A fixed split test divides selections evenly until the experiment ends. That is simple, but it keeps spending selections on a weak option after evidence is already strong. A fixed random exploration rate has the same late-stage tax.'], },
+    { heading: 'The wall', paragraphs: ['The wall is uncertainty. One success in one trial looks perfect but says little. A rule that uses only observed averages cannot tell a lucky tiny sample from a reliable winner.'], },
+    { heading: 'The core insight', paragraphs: ['Keep a belief distribution for every option and sample from each belief before choosing. Options win selections in proportion to their chance of still being best. A bad option fades because its distribution moves low and narrow.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f3/Beta_distribution_pdf.svg', alt: 'Beta distribution probability density curves', caption: 'Beta curves show how different alpha and beta counts encode both center and uncertainty. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Beta_distribution_pdf.svg.'},], },
+    { heading: 'How it works', paragraphs: ['For binary rewards, use Beta(alpha, beta). Start at Beta(1, 1), draw one sample per option, choose the largest draw, observe success or failure, and update only the chosen option. Success adds to alpha; failure adds to beta.'], },
+    { heading: 'Why it works', paragraphs: ['The rule is probability matching. If current evidence says option B has a 70 percent chance to be best, B wins about 70 percent of belief samples. As evidence grows, uncertainty shrinks and selections concentrate.'], },
+    { heading: 'Cost and complexity', paragraphs: ['With k options, memory is two numbers per option and a choice costs O(k). Updating the chosen option is O(1). The behavior cost is regret: some selections still go to uncertain options so the system can learn.'], },
+    { heading: 'Real-world uses', paragraphs: ['This fits repeated low-risk choices with quick feedback, such as recommendations, ranking modules, interface variants, and routing choices. It is useful when learning cannot wait for a fixed experiment to finish.'], },
+    { heading: 'Where it fails', paragraphs: ['The simple version assumes stable binary rewards and quick feedback. Returning users, delayed outcomes, changing inventory, and long-term satisfaction need richer models or stricter experiment design. Bad reward definitions still produce bad behavior.'], },
+    { heading: 'Worked example', paragraphs: ['Start A and B at Beta(1, 1). After 10 trials, A has 3 successes, so A is Beta(4, 8), and B has 5 successes, so B is Beta(6, 6). B is favored, but A can still win some samples because uncertainty remains.', 'After 1000 trials, A might be Beta(301, 701) and B Beta(501, 501). The curves are narrow, so B wins nearly every sample. Exploration faded because the evidence became sharp.'], },
+    { heading: 'Sources and study next', paragraphs: ['Read Thompson 1933 and Russo et al. on Thompson sampling. Study multi-armed bandits, epsilon-greedy, UCB, fixed split testing, calibration, logged-policy evaluation, and contextual bandits next.'], },
+  ],
 };
-

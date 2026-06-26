@@ -243,258 +243,58 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation has two views. "Gapped inserts" shows a sorted array with deliberate empty slots, then walks through inserting a value into a nearby gap. "Density rebalance" shows what happens when a local region fills up and the PMA climbs to a larger window to redistribute values.',
-        { type: 'callout', text: 'The PMA buys update speed by treating empty slots as planned capacity, not as accidental fragmentation.' },
-        {
-          type: 'bullets',
-          items: [
-            'Active (highlighted) slots are where the current operation is deciding what to do -- the insert target or the region being checked.',
-            'Found markers show outcomes now locked in: a value placed, a region accepted as within density bounds.',
-            'Compare markers show the reference state -- the search key, the density threshold, or the pre-insert layout.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'Watch for the gap that disappears after an insert, and then watch the rebalance view to see how the structure creates fresh gaps by spreading values over a wider window. The cost of that spread is the price of keeping future inserts cheap.',
-        },
-      
-        {type: 'image', src: './assets/gifs/packed-memory-array-gapped-order.gif', alt: 'Animated walkthrough of the packed memory array gapped order visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A sorted array is the best layout for ordered reads. Binary search costs O(log n), range scans are sequential, and the CPU prefetcher has a trivial job. The problem is updates: inserting a value near the front of a dense array of n elements shifts up to n - 1 values one slot to the right.',
-        'Trees solve this by putting slack at the node level. A B-tree insert touches one leaf or splits a bounded-size node, and range queries walk leaf pointers. But in-memory trees pay for pointers, node headers, allocator fragmentation, and less predictable cache behavior.',
-        {
-          type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
-          alt: 'Small B-tree diagram with grouped keys in internal nodes',
-          caption: 'A B-tree keeps slack inside wide nodes; the PMA keeps slack inside a flat sorted array instead. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.',
-        },
-        {
-          type: 'quote',
-          text: 'The packed-memory array maintains elements in sorted order in a contiguous region of memory, but with gaps interspersed among the elements to facilitate fast insertions.',
-          attribution: 'Bender and Hu, "An Adaptive Packed-Memory Array," TODS 2007',
-        },
-        'A packed memory array (PMA) sits between those two designs. It keeps sorted values in physical array order but deliberately leaves empty slots throughout. Those gaps are not fragmentation -- they are reserved update capacity, distributed so many inserts stay local while scans still run over mostly contiguous memory.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Attempt 1: a dense sorted array. Binary-search for the insertion point, shift the suffix right, write the new value. For small arrays or append-only workloads, this is hard to beat -- almost no metadata, scans as good as they get.',
-        'Attempt 2: a balanced search tree or B-tree. Predictable O(log n) updates, no long suffix shifts. The right answer when updates dominate, disk pages matter, or concurrent modification and crash recovery are first-class requirements.',
-        {
-          type: 'bullets',
-          items: [
-            'Dense sorted array: middle insert shifts O(n) values; range scans are optimal and cache behavior is excellent.',
-            'B-tree: updates cost O(log n) and page splits are bounded; range scans pay leaf-to-leaf pointer traversal and node metadata.',
-            'PMA: updates copy only local runs most of the time; range scans stay near sequential while paying for gap skips.',
-          ],
-        },
-        {
-          type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg',
-          alt: 'Row-major and column-major memory layout diagrams',
-          caption: 'The PMA is a memory-layout argument first: keep ordered values close enough that scans behave like contiguous array reads. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.',
-        },
-        'Neither baseline is silly. The PMA is useful only when the workload wants both properties at once: ordered range scans with array-like locality and middle updates that do not routinely move half the structure.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Scattering random holes in a sorted array does not work. If gaps drift away from the hot insert region, inserting there still shifts a long run. If the array becomes too sparse, scans waste bandwidth crossing empty slots. If deletes leave large empty zones, search needs extra metadata to skip blanks.',
-        'The missing invariant is density control. It is not enough to say the array has gaps. Every region needs a bounded range of fullness: dense enough for efficient scans, sparse enough to absorb likely updates.',
-        {
-          type: 'diagram',
-          text: [
-            'Repeated inserts into one area without density control:',
-            '',
-            '  [10] [25] [__] [40] [__] [60]   -- insert 37: fills nearby gap, OK',
-            '  [10] [25] [37] [40] [__] [60]   -- insert 34: fills last gap nearby',
-            '  [10] [25] [34] [37] [40] [60]   -- insert 35: no local gap, must shift suffix',
-            '',
-            'Without a rule for spreading values over a larger window,',
-            'the structure collapses back into a dense array at the',
-            'exact place where updates are happening.',
-          ].join('\n'),
-          label: 'Gap exhaustion under localized inserts',
-        },
-        'The wall is gap exhaustion. A single gap handles the first insert. A few nearby gaps handle the next few. Then the local region fills. Without a rebalance policy, the structure degrades to the dense-array worst case precisely at the hot spot.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A PMA stores n elements in a physical array of size roughly (1 + epsilon) * n, where epsilon controls the gap budget. The array is partitioned into a hierarchy of regions. The smallest segments cover a few slots; each parent covers the union of two children; the root covers the entire array.',
-        {
-          type: 'note',
-          text: 'The hierarchy is implicit -- region boundaries are array index ranges, not separate nodes. No pointers, no allocations.',
-        },
-        {
-          type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Binary_tree_in_array.svg/500px-Binary_tree_in_array.svg.png',
-          alt: 'Binary tree nodes mapped onto array positions',
-          caption: 'Implicit region hierarchies store structure in positions. A PMA uses array ranges as levels without allocating separate tree nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree_in_array.svg.',
-        },
-        'Insert: binary-search for the predecessor in sorted order. If a nearby empty slot exists within the same small segment, shift a short run and write the new value. This is the cheap path -- constant or near-constant work.',
-        'If the small segment is too full, climb the hierarchy. Check the parent region density, then the grandparent, and so on until a window is found whose density will be within bounds after the update. Redistribute the live values in that window into evenly spaced positions, creating fresh gaps.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: [
-            '// Pseudocode: insert with density-driven rebalance',
-            'function pmaInsert(array, key) {',
-            '  const pos = binarySearch(array, key);',
-            '  const seg = smallestSegment(pos);',
-            '',
-            '  if (hasNearbyGap(seg)) {',
-            '    shiftAndPlace(array, pos, key);  // cheap path',
-            '    return;',
-            '  }',
-            '',
-            '  // Climb until density is acceptable',
-            '  let region = seg;',
-            '  while (density(region) > upperThreshold(region.level)) {',
-            '    region = parent(region);',
-            '  }',
-            '',
-            '  // Spread live values evenly across the region',
-            '  redistribute(array, region);',
-            '  shiftAndPlace(array, pos, key);',
-            '}',
-          ].join('\n'),
-        },
-        'Delete is the mirror: remove the value, leave a gap. If a region becomes too sparse, compact a larger region so the array does not decay into mostly blanks.',
-        {
-          type: 'bullets',
-          items: [
-            'Binary search fires on every insert or delete: O(log n) comparisons, plus metadata work to skip blanks.',
-            'Local shift fires when a nearby gap exists: O(1) to O(segment size) moves.',
-            'Hierarchy climb fires when a segment is too dense: only density summaries are checked while climbing.',
-            'Redistribute fires once an acceptable window is found: O(region size) moves that create fresh gaps.',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Three properties keep the structure correct and efficient.',
-        'Sorted physical order is preserved by every operation. Rebalancing never changes the relative order of live values -- it only changes how many gaps sit between them. Every repair keeps the same sorted sequence while improving future update capacity.',
-        {
-          type: 'diagram',
-          text: [
-            'Density thresholds by level (example):',
-            '',
-            '  Level 0 (leaf segment):    upper = 1.0    lower = 0.1',
-            '  Level 1 (2 segments):      upper = 0.9    lower = 0.2',
-            '  Level 2 (4 segments):      upper = 0.8    lower = 0.3',
-            '  ...',
-            '  Level h (root = full array): upper = 0.7  lower = 0.4',
-            '',
-            'Smaller regions tolerate more extreme density.',
-            'The root enforces the tightest global balance.',
-          ].join('\n'),
-          label: 'Graded density thresholds across the region hierarchy',
-        },
-        'Density thresholds provide the amortization argument. A region is rebuilt only after enough updates have pushed it outside its allowed density band. The cost of spreading a larger window is charged to the updates that consumed or created the slack in that window. One insert may trigger an expensive redistribution, but that redistribution buys room for many future local inserts.',
-        'The invariant is local at every scale. Small regions keep nearby update room. Larger regions prevent the whole array from becoming badly skewed. If every level stays within its density bounds after repair, no part of the array can silently become a dense wall or a sparse desert.',
-        {
-          type: 'note',
-          text: 'The proof pattern is conservation: rebalancing rearranges values without losing or creating any, and monotonicity: the density invariant can only be violated by a bounded number of updates before a repair restores it.',
-        },
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Search: O(log n), driven by binary search over physical slots plus gap-skipping metadata.',
-            'Insert: amortized O(log^2 n) moves in the standard model, driven by rare redistributions spread over cheap local inserts.',
-            'Delete: amortized O(log^2 n) moves, symmetric to insert with compaction when regions are too sparse.',
-            'Range scan of S live items: near sequential, with extra bandwidth proportional to the gap budget.',
-            'Space: O(n), because the array holds live values plus linear slack.',
-          ],
-        },
-        'When n doubles, the array roughly doubles and the hierarchy gains one level. The amortized insert cost grows by a log factor, not by n. This is the key improvement over a dense sorted array where every middle insert is O(n).',
-        {
-          type: 'note',
-          text: 'The adaptive PMA (Bender and Hu, 2007) tightens the amortized insert bound to O(log^2 n / log log n) by tuning thresholds to the observed insert distribution. The "Rewired" PMA (Khuong and Morin, 2017) uses virtual-memory page remapping to reduce physical data movement during redistribution.',
-        },
-        'The hidden constants matter. Redistributing a region means moving actual values, updating occupancy metadata, and possibly repairing auxiliary rank or index structures. A PMA can beat pointer-heavy trees on scan-heavy workloads, but it is not free.',
-        'Space overhead is a design parameter. Too little slack (small epsilon) makes inserts expensive because regions fill quickly. Too much slack wastes memory bandwidth and makes scans cross many empty cells. Typical implementations target 50-75% occupancy.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'The PMA wins when the workload has many ordered reads, enough updates to make a dense array painful, but not so much churn that a tree or log-structured design is clearly better.',
-        {
-          type: 'bullets',
-          items: [
-            'In-memory ordered indexes: cache-friendly range scans with moderate insert rates. The PMA avoids pointer chasing that makes in-memory B-trees slower than expected.',
-            'Learned index data nodes: ALEX and similar systems predict approximate key positions with a model, then store actual values in gapped sorted arrays. The PMA layout gives each data node local slack for inserts without rewriting everything after the predicted position.',
-            'Cache-oblivious B-trees: the Bender et al. (2000) cache-oblivious B-tree uses a PMA as its underlying storage to achieve optimal cache behavior without knowing the cache-line size.',
-            'Streaming sorted event stores: when events arrive mostly in order with occasional out-of-order corrections, a PMA absorbs the corrections locally without full re-sort.',
-          ],
-        },
-        {
-          type: 'quote',
-          text: 'The packed-memory array is essentially the array analog of a B-tree: it keeps elements in sorted order with enough slack to make updates efficient, but in a flat array instead of a tree of nodes.',
-          attribution: 'Demaine, Raman, and Rao, informal characterization',
-        },
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Disk-page workloads: redistribution can move values across pages, while B-tree splits are page-local. Prefer B-trees or LSM-trees.',
-            'High-concurrency updates: a rebalance touches a contiguous region, while trees can often lock smaller units. Prefer concurrent B-trees or skip lists.',
-            'Adversarial insert patterns: repeated inserts into one key range force cascading redistributions. Use adaptive thresholds or fall back to a tree.',
-            'Large records: redistribution copies records unless the PMA stores pointers. Pointer-based leaves may be better.',
-            'Strict per-operation latency: one insert can trigger a large redistribution. Use structures with tighter worst-case update bounds.',
-          ],
-        },
-        'Hot spots deserve special attention. Repeated inserts into a narrow key range keep forcing redistributions up the hierarchy. A simple PMA with fixed thresholds can spend most of its time repairing the same region. The adaptive PMA addresses this by adjusting thresholds based on observed insert distribution, but the problem is fundamental: concentrated updates fight against the structure.',
-        {
-          type: 'note',
-          text: 'A PMA is not automatically better than a B-tree. B-trees have decades of engineering for concurrency, crash recovery, and disk I/O. The PMA is strongest as an in-memory building block inside larger systems, not as a standalone replacement for general-purpose indexes.',
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Bender, Demaine, and Farach-Colton, "Cache-Oblivious B-Trees": introduced the PMA as the storage layer for cache-oblivious B-trees. https://erikdemaine.org/papers/CacheObliviousBTrees_SICOMP/paper.pdf',
-            'Bender and Hu, "An Adaptive Packed-Memory Array": adaptive density thresholds that respond to insert distribution. https://www3.cs.stonybrook.edu/~bender/newpub/BenderHu07-TODS.pdf',
-            'Khuong and Morin, "Packed Memory Arrays Rewired": virtual-memory remapping to reduce physical data movement. https://ir.cwi.nl/pub/28649/28649.pdf',
-            'Xu et al., "Packed Memory Array search layouts": search-optimized PMA layouts. https://itshelenxu.github.io/files/papers/spma-alenex-23.pdf',
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: B-tree -- understand page-oriented ordered indexes and node splits before comparing with gap-based flat arrays.',
-            'Extension: Eytzinger layout -- cache-conscious static search over sorted arrays, the read-only cousin of the PMA.',
-            'Related structure: Piece Table Text Buffer -- another gap-oriented editing strategy, optimized for text rather than sorted keys.',
-            'Case study: ALEX Adaptive Learned Index -- uses gapped data nodes that are essentially PMAs with learned routing on top.',
-            'Broader context: Database Indexing -- the full read/write design space where PMAs, B-trees, LSM-trees, and hash indexes compete.',
-          ],
-        },
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'The gapped-inserts view shows sorted values in a physical array with deliberate empty slots. Active slots are where the insert searches for local slack, and found slots show a value placed without shifting a long suffix. The safe inference is that gaps are planned capacity, not accidental holes.',
+      'The density-rebalance view shows what happens when a local region fills. The PMA climbs from a small segment to larger regions until density is acceptable, then spreads values evenly. The expensive spread is the maintenance that buys cheap future inserts.',
+      { type: 'callout', text: 'The PMA buys update speed by treating empty slots as planned capacity, not as accidental fragmentation.' },
+      {type: 'image', src: './assets/gifs/packed-memory-array-gapped-order.gif', alt: 'Animated walkthrough of the packed memory array gapped order visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+    ]},
+    { heading: 'Why this exists', paragraphs: [
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in internal nodes', caption: 'A B-tree keeps slack inside wide nodes; the PMA keeps slack inside a flat sorted array instead. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
+      'A sorted array is excellent for ordered reads: binary search is cheap and range scans are sequential. Its update problem is severe because a middle insert can shift O(n) values. A packed memory array, or PMA, exists to keep most of the read locality of an array while reducing update movement.',
+      'A B-tree solves updates with slack inside nodes, but it pays for pointers, node metadata, and less predictable cache behavior. A PMA keeps slack inside a flat array. It is useful when the workload wants ordered scans and moderate inserts in memory.',
+    ]},
+    { heading: 'The obvious approach', paragraphs: [
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg', alt: 'Row-major and column-major memory layout diagrams', caption: 'The PMA is a memory-layout argument first: keep ordered values close enough that scans behave like contiguous array reads. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.'},
+      'The first approach is a dense sorted array. Search for the insertion point, shift everything after it one slot to the right, and write the new value. This is excellent for small arrays, append-heavy data, and mostly static data.',
+      'The second approach is a balanced tree or B-tree. Updates are O(log n), and node splits are bounded. This is better when updates dominate or disk pages, concurrency, and recovery matter more than flat scan locality.',
+    ]},
+    { heading: 'The wall', paragraphs: [
+      'Random holes do not solve sorted-array insertion. If gaps are far from the hot insert region, a new value still shifts a long run. If the array is too sparse, scans waste bandwidth crossing empty slots.',
+      'The wall is density control. Every region needs enough emptiness to absorb inserts and enough fullness to scan efficiently. Without a density invariant, a PMA either becomes a dense array at the hot spot or a sparse array that wastes memory bandwidth.',
+    ]},
+    { heading: 'The core insight', paragraphs: [
+      'The core insight is to manage gaps at multiple scales. The physical array is divided into an implicit hierarchy of regions, from small segments to the whole array. Each region has density thresholds that say how full or sparse it is allowed to be.',
+      'When an insert overfills a small segment, the PMA climbs to a larger region that can absorb the new value, then redistributes values evenly across that region. The sorted order is unchanged; only the placement of gaps changes.',
+    ]},
+    { heading: 'How it works', paragraphs: [
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Binary_tree_in_array.svg/500px-Binary_tree_in_array.svg.png', alt: 'Binary tree nodes mapped onto array positions', caption: 'Implicit region hierarchies store structure in positions. A PMA uses array ranges as levels without allocating separate tree nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree_in_array.svg.'},
+      'Insertion starts with a search for the sorted position. If a nearby gap exists, the PMA shifts a short run and writes the value. If the local segment is too dense, it checks the parent region, then the grandparent, until it finds a window whose post-insert density is within bounds.',
+      'Rebalancing compacts the live values in that window and spreads them with even gaps. Deletion is the mirror image: remove the value, leave a gap, and compact a larger region if it becomes too sparse. Occupancy metadata helps search and scan code distinguish live values from blanks.',
+    ]},
+    { heading: 'Why it works', paragraphs: [
+      'Correctness follows from order preservation. Rebalancing never sorts by a new key or changes relative order; it copies the same live sequence into new physical slots. Therefore every search and scan sees the same sorted logical order after repair.',
+      'The amortized argument follows from density thresholds. A region is rebuilt only after enough updates have consumed or created slack. The O(region size) spread is charged to those earlier updates, so occasional large movement buys many cheap local operations.',
+    ]},
+    { heading: 'Cost and complexity', paragraphs: [
+      'Search is O(log n) plus gap-skipping metadata. Range scan over S live items is near sequential, with extra bandwidth proportional to the gap budget. Standard PMA insertion and deletion have polylogarithmic amortized movement, often described as O(log^2 n) in the classic model.',
+      'Space is O(n) because the array stores live values plus linear slack. When n doubles, the array and implicit hierarchy grow, adding roughly one level. The hidden constants are value movement, metadata updates, cache behavior, and the chosen occupancy target.',
+    ]},
+    { heading: 'Real-world uses', paragraphs: [
+      'PMAs fit in-memory ordered indexes with scan-heavy workloads and moderate updates. They also appear as data-node layouts in learned indexes such as ALEX, where a model predicts approximate key position and a gapped sorted array absorbs local error and inserts. Cache-oblivious B-tree designs use PMA-like storage to keep ordered data cache-friendly without fixed page-size assumptions.',
+      'The access pattern matters: many range scans, enough inserts to make dense arrays painful, and enough locality that rebalancing windows are reused. Streaming sorted event stores with occasional late arrivals are a natural example.',
+    ]},
+    { heading: 'Where it fails', paragraphs: [
+      'A PMA is weak for disk-first workloads, high-concurrency updates, strict per-operation latency, huge records that are expensive to move, and adversarial hot spots. One insert can trigger a large rebalance, which is unacceptable for some latency budgets. B-trees, LSM-trees, skip lists, or log-structured designs may fit better.',
+      'It also fails when slack is tuned poorly. Too little slack causes frequent rebalances. Too much slack makes scans cross too many empty slots. The structure is a memory-layout tradeoff, not a universal ordered index.',
+    ]},
+    { heading: 'Worked example', paragraphs: [
+      'Take eight slots with values [10, 25, gap, 40, gap, 60, gap, 80]. Insert 37 between 25 and 40. The nearest gap is slot 2, so the PMA writes 37 there and the region remains sorted: [10, 25, 37, 40, gap, 60, gap, 80].',
+      'Now insert 35 between 25 and 37 when the local segment [25, 37, 40] has no gap. The PMA climbs to a larger six-slot region with values 25, 37, 40, 60 and two gaps. It redistributes to [25, gap, 35, 37, gap, 40, 60] within the chosen window, preserving order while restoring local slack.',
+    ]},
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Bender, Demaine, and Farach-Colton, Cache-Oblivious B-Trees; Bender and Hu, An Adaptive Packed-Memory Array; Khuong and Morin, Packed Memory Arrays Rewired; ALEX learned-index papers for gapped data nodes.',
+      'Study B-trees, Eytzinger layout, cache-oblivious data structures, learned indexes, piece tables, skip lists, and database indexing next. The useful comparison is whether contiguous scans plus managed slack beat node-based updates for the actual workload.',
+    ]},
   ],
 };

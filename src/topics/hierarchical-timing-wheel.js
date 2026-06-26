@@ -220,91 +220,79 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the wheel as a circular array of time buckets. The hand is the current tick, and a timer goes into a bucket based on remaining ticks. A hierarchy keeps far-future timers in coarser buckets until they are near enough to refine.',
         {type: 'image', src: './assets/gifs/hierarchical-timing-wheel.gif', alt: 'Animated walkthrough of the hierarchical timing wheel visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Large systems manage huge numbers of timers: network request deadlines, retry delays, session expiry, delayed operations, idle connection cleanup, cache TTLs, and safety timeouts. Most of those timers do not need nanosecond precision. They need to fire close enough to a deadline and be cheap to start, cancel, and expire.',
+        'Servers create timers for deadlines, retries, cache TTLs, sessions, and idle connections. Many timers tolerate firing on a nearby tick boundary. Timing wheels exist to make start, cancel, and expire cheap under high timer churn.',
         {type: 'callout', text: 'A timing wheel spends precision only near expiration: most timeout work becomes bucket movement instead of global sorting.'},
-        'A binary heap gives exact next-deadline ordering, but every insert costs O(log n), and cancellation needs handles or lazy deletion. That is often fine for small timer sets. It becomes expensive when a server creates and cancels millions of approximate timeouts per minute.',
-        'A timing wheel trades exact global ordering for bucketed time. Timers go into slots of a circular array. Each tick advances a hand and scans the current bucket. A hierarchy adds coarser wheels so far-future timers do not force one enormous wheel or long round counters.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious structure is a binary heap keyed by deadline. It is precise, simple, and often correct. It becomes less attractive when the workload has huge timer counts, frequent cancellation, and tolerance for firing on a nearby tick boundary.',
+        'The obvious structure is a min-heap keyed by exact deadline. It is precise and simple: insert and remove-min cost O(log n). That is often right for small timer sets or strict ordering.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Binary_Heap_with_Array_Implementation.JPG/500px-Binary_Heap_with_Array_Implementation.JPG', alt: 'Binary heap diagram with the corresponding array representation', caption: 'A deadline heap is the baseline timer scheduler that timing wheels often replace at very high churn. Source: Wikimedia Commons, Binary heap with array implementation.'},
-        'The opposite mistake is assuming a wheel is always better. If every timer needs strict ordering or high-resolution precision, the wheel tax shows up as rounding, bucket bursts, and more complicated expiry logic.',
-        'Another naive approach is one OS timer per logical timeout. That gives the kernel too much bookkeeping and the application too little control over batching, cancellation, and callback pacing. Timing wheels are usually application-level data structures built to manage many logical timers behind a smaller scheduling mechanism.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'For a wheel of size W, a timer due in d ticks maps to slot (now + d) mod W. If the deadline is farther than the inner wheel can represent, the timer either carries a rounds counter or waits in an outer wheel until it cascades inward.',
+        'The heap wall is churn. Millions of starts and cancels per minute make O(log n) maintenance visible. A single wheel also has a range wall: far deadlines either need round counters or an enormous mostly empty wheel.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A timer due in d ticks maps to slot (now + d) mod W. Expiration becomes scanning the current bucket instead of sorting every deadline. Coarse outer wheels delay precision until the timer is close enough for precision to matter.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/75/RingNetwork.svg', alt: 'Ring network diagram with nodes connected in a circle', caption: 'A timing wheel is also a circular structure: the active cursor repeatedly visits buckets. Source: Wikimedia Commons, Ring network.'},
-        'The invariant is bucket eligibility: a timer is only examined when its slot becomes current or when a coarser bucket cascades down. Insertion can be O(1), cancellation can be O(1) with a handle, and tick work is proportional to the timers in the active bucket plus cascades. The price is resolution and possible burstiness.',
-        'The deeper idea is that many timeout systems care about scale more than exact ordering. If a request timeout can fire anywhere in the next tick interval, then sorting it precisely among thousands of neighboring deadlines is wasted work. Bucketed time turns that tolerance into cheaper operations.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A hashed wheel has an array of buckets and a current slot. To start a timer, compute how many ticks remain until its deadline, map that delay to a bucket, and insert the timer into that bucket’s list. If the wheel uses rounds counters, a timer several rotations away stores how many full cycles must pass before it is eligible.',
-        'On each tick, the wheel advances the current slot. It scans that bucket, decrements or checks rounds counters, and fires timers whose deadline is due. Cancellation is usually handled by a timer handle pointing into a bucket list, making removal cheap when the implementation keeps enough bookkeeping.',
-        'A hierarchical wheel adds multiple wheels with coarser resolutions. Near timers go into the inner wheel. Far timers go into outer wheels. When an outer slot becomes current, its timers cascade down to a lower level where their deadlines can be represented more precisely.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The hashed-wheel view proves that expiry is local to the current bucket. The data structure does not search the whole timer set on every tick. It advances one slot and handles the timers assigned there. That is the core throughput win.',
-        'The slot table proves how far-future timers can share buckets. A timer due in 9 ticks and one due in 17 ticks may map to the same slot on an 8-slot wheel, but a rounds counter or hierarchy distinguishes which rotation should fire it.',
-        'The hierarchy view proves why multiple wheels help. Far deadlines wait in coarse buckets until time advances enough to justify refining them. The cascade is not incidental; it is the mechanism that avoids paying near-deadline precision cost for timers that are still far away.',
+        'Choose a tick size and wheel size. Insert computes remaining ticks and links the timer into a bucket. Each tick advances the hand, scans that bucket, fires due timers, and cascades outer-wheel timers down when their coarse bucket becomes current.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because timeout workloads are often approximate, bursty, and cancellation-heavy. A network timeout firing a few milliseconds late is usually acceptable. A retry scheduled for the next tick boundary is usually fine. What matters more is that starting and canceling timers does not become the bottleneck.',
-        'It also works because deadlines naturally cluster. Many requests use the same timeout values: 100 ms, 1 second, 30 seconds, 5 minutes. Buckets exploit that clustering. The system can group timers with similar deadlines rather than maintaining a total order among them.',
-        'The hierarchical version works because most timers are not near expiry at insertion time. Coarse placement is enough until the timer becomes closer. Refinement is delayed until it can matter.',
+        'The invariant is bucket eligibility. A timer is examined when its bucket becomes current at the resolution that represents it. If the deadline is due under the tick contract, it fires; otherwise it moves closer to a finer bucket.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Insertion is often O(1), cancellation can be O(1) with handles, and each tick scans only the current bucket plus any cascaded timers. But the worst case can still be ugly if too many timers land in one bucket or a cascade dumps a large batch at once.',
-        'The tick duration is a contract. A 100 ms tick means timers fire on nearby 100 ms boundaries. Smaller ticks improve precision but increase tick overhead and may create more scheduler pressure. Larger ticks improve throughput but add latency jitter.',
-        'Callbacks are outside the data-structure cost. If the current bucket expires ten thousand heavy callbacks, the event loop or timer thread can stall. Production systems often batch, cap work per tick, or dispatch callbacks onto worker pools to prevent expiry storms from blocking timer maintenance.',
+        'Insertion is O(1) for fixed wheel levels, and cancellation is O(1) with a handle. Tick cost is O(k + c), where k is timers in the active bucket and c is cascaded timers. Smaller ticks improve precision but increase tick overhead; larger ticks add jitter.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Timing wheels fit numerous, approximate, cancelable timeouts: network I/O deadlines, retry timers, request purgatories, session expiry, cache TTLs, and systems where a timeout is a safety fallback rather than a precise alarm.',
+        'Timing wheels fit approximate, cancel-heavy timeouts in RPC systems, brokers, kernels, event loops, game servers, and cache systems. Kafka request purgatory and Netty HashedWheelTimer use this shape because cheap common-case timer maintenance matters.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'State transition diagram for process states', caption: 'Timeouts and retries drive state transitions in systems that use high-volume timer schedulers. Source: Wikimedia Commons, Process states.'},
-        'Kafka request purgatory is the systems example. A delayed request can complete early when its condition becomes true or complete later when the wheel reaches its timeout. Netty uses a hashed wheel for approximate I/O timeout scheduling for the same reason: cheap common-case timer management matters more than microsecond exactness.',
-        'The design also appears in kernels, brokers, RPC runtimes, and game servers. Anywhere the system has many future events with bounded precision needs, a wheel is worth considering.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'A timing wheel is the wrong tool for strict next-deadline ordering, high-resolution timers, small timer sets where a heap is simpler, or workloads where many timers fall into one bucket and create expiry bursts.',
-        'Callbacks still need bounds. If one current bucket triggers thousands of heavy callbacks, the tick loop stalls even though timer insertion was cheap. The data structure manages deadlines; it does not make the work behind them free.',
-        'Another failure is hidden clock assumptions. Tick drift, pauses, scheduler delays, VM suspension, and long stop-the-world events can all make many timers appear due at once. A robust implementation must decide whether to catch up aggressively, coalesce, shed, or preserve approximate spacing after a pause.',
+        'A wheel is wrong for strict next-deadline ordering, very high precision, or tiny timer sets where a heap is simpler. It also fails under bucket storms: 100,000 timers in one bucket still means 100,000 callbacks to manage.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Varghese and Lauck timing wheel paper at https://www.cs.columbia.edu/~nahum/w6998/papers/sosp87-timing-wheels.pdf, Confluent Kafka purgatory writeup at https://www.confluent.io/blog/apache-kafka-purgatory-hierarchical-timing-wheels/, Netty HashedWheelTimer docs at https://netty.io/4.0/api/io/netty/util/HashedWheelTimer.html, and Linux timer-wheel discussion at https://lwn.net/Articles/646950/. Study Kafka Request Purgatory Timing Wheel Case Study, Ring Buffer, Linked List, Binary Heap, The Event Loop, Retries, Backoff & Jitter, Circuit Breakers & Deadlines, and MillWheel Streaming Case Study next.',
-        'A good exercise is to simulate one heap and one timing wheel under the same workload: many starts, many cancels, and a small set of common timeout values. Measure insertion cost, cancellation cost, expiry burst size, and timer lateness. That makes the tradeoff concrete.',
+        'Use an 8-slot wheel with 10 ms ticks and current slot 3. A timer due in 25 ms is 3 ticks away, so it maps to (3 + 3) mod 8 = slot 6 and fires around 30 ms. The tick contract explains the 5 ms lateness.',
+        'A timer due in 95 ms is 10 ticks away. It maps to slot 5 with one full round remaining, or to an outer wheel until it gets close. Compared with a heap of 1,000,000 timers, the wheel avoids about log2(n)=20 comparisons on insert but accepts bucketed time.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Read Varghese and Lauck on hashed and hierarchical timing wheels, Kafka request purgatory notes, and Netty HashedWheelTimer documentation. Study binary heaps, ring buffers, linked lists, event loops, retries, jitter, and request deadlines next.',
       ],
     },
   ],

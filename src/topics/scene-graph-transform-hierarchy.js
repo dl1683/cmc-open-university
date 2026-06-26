@@ -234,116 +234,46 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/scene-graph-transform-hierarchy.gif', alt: 'Animated walkthrough of the scene graph transform hierarchy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why This Exists',
-      paragraphs: [
-        'Scene graphs exist because visual objects are rarely independent. A hand follows an arm, a weapon follows a character, a muzzle flash follows the weapon, a UI badge follows its parent panel, and a camera rig follows a target. The system needs a way to express those relationships directly instead of rewriting positions everywhere.',
-        {type: 'callout', text: 'A scene graph stores relationship once, then derives world transforms and bounds by traversing the affected subtree.'},
-        'The main idea is to store local transforms in a hierarchy. A child is placed relative to its parent. The runtime composes those local transforms into world transforms when it needs to render, cull, pick, simulate, or show editor handles. Relationship is stored once, and derived world-space data is produced from it.',
-        'This is both a data-structure topic and a graphics topic. The tree gives ownership, traversal order, invalidation scope, and editing semantics. The transforms give the math that moves points from local space to parent space to world space.',
-      ],
-    },
-    {
-      heading: 'Why World Coordinates Fail',
-      paragraphs: [
-        'The obvious approach is to store every object directly in world coordinates. That works for independent objects. It even feels simpler because rendering can read a single transform for each object without walking a parent chain.',
-        'The approach fails when attachment and grouping matter. If the player moves, the weapon, hand marker, muzzle flash, nameplate, and selection bounds must move consistently. Without hierarchy, each system has to remember which objects follow which other objects. Bugs become stale positions, double-applied offsets, drifting effects, or bounds that no longer cover the visible object.',
-        'World-only storage also makes authoring awkward. Artists and editors usually want to say "this object is one meter in front of that object" or "this icon is anchored to this panel." A local transform expresses that intent. A world transform is only the result after the parent chain is evaluated.',
-      ],
-    },
-    {
-      heading: 'Core Mechanism',
-      paragraphs: [
-        'Each node stores a parent reference, zero or more children, and a local transform. The local transform may be represented as translation, rotation, and scale; as a matrix; or as engine-specific components such as quaternion plus vector. The cached world transform is derived data.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A transform hierarchy is a directed parent-child graph; traversal order gives each child valid parent input before composition. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        'The invariant is world(child) = world(parent) composed with local(child). The root usually has an identity or explicit world transform. A parent-before-child traversal computes each node world transform after its parent world transform is current. Rendering and picking can then read the cached world values quickly.',
-        'Composition order matters. Matrix conventions differ across engines, and non-uniform scale combined with rotation can produce shear-like effects. A scene graph article is not complete without saying this plainly: the structure is simple, but transform math must follow one consistent convention everywhere.',
-      ],
-    },
-    {
-      heading: 'Derived Data',
-      paragraphs: [
-        'World transforms are not the only derived values. A node may also cache world-space bounds, aggregate subtree bounds, visibility state, render-layer membership, picking identifiers, physics debug transforms, or editor gizmo positions. These values are fast to read but must be invalidated when the source hierarchy changes.',
-        'Bounds show why the hierarchy is useful beyond placement. A parent can aggregate child bounds into one world-space box or sphere. If that aggregate bound is outside the camera frustum, a renderer can reject an entire subtree before visiting each child mesh. The same idea helps editor selection and broad-phase collision systems.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/R-tree.svg/500px-R-tree.svg.png', alt: 'R-tree diagram with object rectangles grouped by blue parent bounding rectangles', caption: 'Hierarchical bounds let systems prune whole groups; scene graphs use the same summary idea for culling and picking. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:R-tree.svg.'},
-        'The scene graph is therefore not just a render list. It is a relationship structure that feeds render lists, culling, picking, animation, UI layout, and tools. Production engines often flatten the final draw work, but the hierarchy remains valuable for editing and transform propagation.',
-      ],
-    },
-    {
-      heading: 'Dirty Subtree Updates',
-      paragraphs: [
-        'Recomputing every world transform every frame is correct but wasteful when only a few objects move. Dirty flags turn transform propagation into a cache-invalidation problem. When a node local transform changes, that node and its descendants can no longer trust their cached world transforms. Unrelated branches remain clean.',
-        'The update step walks only dirty subtrees, recomputes world transforms from valid parent data, updates derived bounds, and clears the dirty flags. If a parent is dirty, a child must be treated as dirty even if the child local transform did not change. A clean child under a dirty parent is using stale input.',
-        'This changes the cost model. A full update is O(n) for n nodes. A dirty subtree update is O(k) for k affected descendants, plus any cost to update aggregate bounds or flattened render data. The improvement is large when scenes are mostly static and edits are localized.',
-      ],
-    },
-    {
-      heading: 'Why It Works',
-      paragraphs: [
-        'Correctness comes from traversal order. If the root is valid and every child is visited after its parent, then each child world transform is computed from valid inputs. The proof follows the tree: root is current, children of root become current, grandchildren become current, and so on.',
-        'Dirty propagation is the proof that cached data is safe. A local edit marks the node. An ancestor edit marks descendants. Reparenting marks the moved subtree and often requires a choice: preserve local transform and change world placement, or preserve world transform and recompute local transform relative to the new parent.',
-        'The tree also gives natural scope. Moving a player affects the player subtree, not the camera or unrelated UI. Hiding a parent can hide children. Rejecting a parent bound can skip child bounds. Selecting a group can operate on a branch. The structure turns relationship into an efficient traversal boundary.',
-      ],
-    },
-    {
-      heading: 'Worked Example',
-      paragraphs: [
-        'Consider a character node at world position (10, 2). A weapon node is a child with local rotation 15 degrees and local offset from the hand. A muzzle-flash node is a child of the weapon with local offset at the barrel tip. The application edits the character movement and weapon recoil locally.',
-        'During update, the character world transform is computed from the root. The weapon world transform is character world composed with weapon local. The muzzle world transform is weapon world composed with muzzle local. The effect appears at the barrel because the graph composes the parent chain every time the source transforms change.',
-        'Now the editor drags the character three meters right. The character subtree becomes dirty. Weapon, hand marker, muzzle flash, and character bounds update. The camera and UI panel do not update unless they are attached to that same branch. The user sees immediate consistent motion without every tool owning separate follow logic.',
-      ],
-    },
-    {
-      heading: 'Representation Choices',
-      paragraphs: [
-        'The abstraction is a hierarchy, but storage can vary. Pointer nodes are easy to edit and common in simple engines. Arena or slot-map indices avoid dangling pointers and make serialization easier. Flat arrays sorted so parents appear before children are cache-friendly. ECS designs may store parent, local transform, world transform, and dirty flags as components.',
-        'No representation wins everywhere. Pointer graphs are flexible but can chase memory. Flat arrays scan well but make insertion and reparenting more deliberate. ECS rows batch systems well but need parent lookup and careful ordering. Many engines keep an authoring tree, a runtime transform hierarchy, and a separate flattened render list.',
-        'The choice should follow the workload. A level editor values reparenting, selection, undo, and serialization. A renderer values dense arrays and stable draw batches. A UI system values layout invalidation and clipping. A skeletal animation system may use a specialized bone hierarchy rather than a general scene graph node for every bone.',
-      ],
-    },
-    {
-      heading: 'Operational Guidance',
-      paragraphs: [
-        'Prevent cycles. A scene graph transform hierarchy must be a tree or a directed acyclic structure with clear ownership rules. If a node becomes its own ancestor, parent-before-child traversal no longer makes sense. Reparent operations should validate the new parent and update dirty state immediately.',
-        'Define transform conventions once. Choose row-major or column-major matrices, pre-multiply or post-multiply order, handedness, angle units, and whether scale is inherited. Document how to preserve world transform during reparenting. Many transform bugs are not data-structure bugs; they are convention mismatches exposed by hierarchy.',
-        'Track derived-data ownership. If bounds, render lists, physics proxies, or editor handles cache world-space values, they need invalidation hooks or version checks. A transform system that updates matrices but leaves stale bounds can render correctly while culling, picking, or collisions fail.',
-      ],
-    },
-    {
-      heading: 'Failure Modes',
-      paragraphs: [
-        'A common failure is overusing the scene graph as the only runtime structure. Particles, crowds, tile maps, grass, and thousands of similar props may be better represented as dense arrays, instanced draw batches, spatial indexes, or ECS archetypes. A hierarchy is useful for relationship, not for every repeated object.',
-        'Another failure is mixing visual hierarchy with simulation authority without a clear boundary. Physics may own the world transform of a rigid body. Animation may own bone transforms. UI layout may own child positions. If several systems write the same local transform without ordering rules, the graph becomes a conflict point.',
-        'Precision and scale can also fail. Deep hierarchies accumulate floating-point error. Non-uniform scale can distort children. Negative scale can flip handedness. Large worlds may need origin rebasing or double precision for high-level transforms while keeping local render data in smaller coordinates.',
-      ],
-    },
-    {
-      heading: 'Where It Matters',
-      paragraphs: [
-        'Scene graph transform hierarchies appear in game engines, UI frameworks, CAD tools, animation packages, SVG, glTF, browser rendering internals, robotics visualization, and level editors. The shared need is not just drawing; it is preserving relationship while objects move, group, attach, hide, select, and update.',
-        'They are especially important in tools. A user dragging a parent expects children, bounds, handles, labels, and snapping guides to follow. A model imported from glTF expects node transforms to compose according to the file format. A UI panel expects child controls to inherit placement and clipping from the parent.',
-      ],
-    },
-    {
-      heading: 'Cost And Tradeoffs',
-      paragraphs: [
-        'The main cost is traversal and invalidation complexity. Full traversal is simple and predictable but can waste time. Dirty traversal is efficient but requires careful propagation. Flattened render lists are fast to draw but must be rebuilt or patched when hierarchy affects visibility, bounds, material grouping, or draw order.',
-        'The graph also does not solve the whole renderer. Draw ordering, GPU resource lifetimes, render-pass dependencies, visibility buffers, damage regions, and batching belong to render lists, render graphs, spatial indexes, and dirty-region systems. A scene graph is the relationship layer that supplies transforms and scope to those systems.',
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        'Primary references to compare include the glTF 2.0 node hierarchy and transform specification, Unity Transform documentation, Godot scene tree documentation, and engine architecture texts that separate scene hierarchy from render submission. Read them with one question: where is relationship stored, and where is draw work flattened?',
-        'Inside this curriculum, study Tree Traversals, Matrix Multiplication, Quaternion Rotation, Generational Arena Slot Map, Archetype ECS Column Store, Dirty Rectangle Damage Tracking, Dynamic AABB Tree Broad Phase, Depth Buffer Z-Test, Deferred G-Buffer, and Render Graph Framegraph Resource Lifetimes.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'The animation shows a scene graph, which is a parent-child structure for visual objects. Active nodes are the branch being composed, and found marks derived data such as bounds.',
+      {type: 'image', src: './assets/gifs/scene-graph-transform-hierarchy.gif', alt: 'Animated walkthrough of the scene graph transform hierarchy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+    ]},
+    { heading: 'Why this exists', paragraphs: [
+      'Visual objects often move as groups: a muzzle flash follows a weapon, the weapon follows a hand, and the hand follows a player. A scene graph stores that relationship once instead of making every system manually chase world positions.',
+      {type: 'callout', text: 'A scene graph stores relationship once, then derives world transforms and bounds by traversing the affected subtree.'},
+    ]},
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to store one world transform per object. That works for independent objects and is attractive because rendering can read a flat list directly.',
+    ]},
+    { heading: 'The wall', paragraphs: [
+      'World-only storage fails when attachment is the source of truth. If the player moves, child objects, labels, effects, and bounds must move consistently, or the scene develops stale positions and duplicated offset logic.',
+    ]},
+    { heading: 'The core insight', paragraphs: [
+      'Store local transforms and parent links, then cache world transforms as derived data. The invariant is world(child) = world(parent) composed with local(child), so parents must be visited before children.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A transform hierarchy is a directed parent-child graph; traversal order gives each child valid parent input before composition. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
+    ]},
+    { heading: 'How it works', paragraphs: [
+      'Each node stores a local transform, cached world transform, children, and dirty flags. When a local transform changes, the node and descendants become dirty, and the update pass recomputes only that subtree.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/R-tree.svg/500px-R-tree.svg.png', alt: 'R-tree diagram with object rectangles grouped by blue parent bounding rectangles', caption: 'Hierarchical bounds let systems prune whole groups; scene graphs use the same summary idea for culling and picking. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:R-tree.svg.'},
+    ]},
+    { heading: 'Why it works', paragraphs: [
+      'Correctness follows by induction over the tree. The root world transform is valid by definition, and if a parent world transform is valid, composing it with the child local transform gives a valid child world transform.',
+    ]},
+    { heading: 'Cost and complexity', paragraphs: [
+      'A full update costs O(n) for n nodes, while a dirty-subtree update costs O(k) for k affected descendants. The price is bookkeeping: reparenting, cycle prevention, matrix convention choices, and invalidation of bounds or render lists.',
+    ]},
+    { heading: 'Real-world uses', paragraphs: [
+      'Scene graphs appear in game engines, UI frameworks, CAD tools, animation packages, SVG, glTF, browser rendering internals, robotics visualization, and level editors. They are strongest when relationship and editing semantics matter.',
+    ]},
+    { heading: 'Where it fails', paragraphs: [
+      'A scene graph is not ideal for particles, grass, crowds, tiles, or thousands of similar props. Dense arrays, instanced batches, spatial indexes, or ECS archetypes often serve repeated objects better.',
+    ]},
+    { heading: 'Worked example', paragraphs: [
+      'Let the player world position be (10, 2), the weapon local offset be (1, 0), and the muzzle local offset be (2, 0). Ignoring rotation, the weapon is at (11, 2) and the muzzle is at (13, 2).',
+      'Move the player by (+3, 0). The player becomes (13, 2), the weapon becomes (14, 2), and the muzzle becomes (16, 2), while unrelated camera and UI branches stay clean.',
+    ]},
+    { heading: 'Sources and study next', paragraphs: [
+      'Study the glTF 2.0 node transform specification, Unity Transform documentation, Godot scene tree documentation, tree traversal, matrix multiplication, quaternion rotation, dirty flags, dynamic AABB trees, ECS storage, and render graphs.',
+    ]},
   ],
 };

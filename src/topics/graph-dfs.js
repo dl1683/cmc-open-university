@@ -158,92 +158,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Each node displays two numbers separated by a slash: discovery time / finish time. A node with only a discovery time (like "3/–") is currently on the stack — DFS is still exploring its subtree. A node with both numbers (like "3/8") is finished — DFS has explored everything reachable from it and backtracked.',
+        'Read the graph as vertices connected by directed edges. Discovery time is when depth-first search first reaches a node; finish time is when every outgoing edge from that node has been handled. A discovered node without a finish time is active on the stack.',
         {type: 'callout', text: 'DFS is a stack invariant: every active node is on the current path, and finishing a node proves its whole unexplored subtree is exhausted.'},
-        'Node colors encode three states. Unvisited nodes have no timestamp — DFS has not reached them. Active nodes (highlighted) are on the stack, forming the current path from the source. Visited/finished nodes have both timestamps and are grayed — DFS is done with them.',
-        'The stack contents shown at each step are the current path from source to frontier. When the stack grows, DFS is diving deeper. When it shrinks, DFS is backtracking because a dead end was reached. The finish timestamps always appear in reverse depth order: the deepest node on a path finishes first.',
-      
-        {type: 'image', src: './assets/gifs/graph-dfs.gif', alt: 'Animated walkthrough of the graph dfs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The safe inference is about ancestors. An edge to an active node points back to an ancestor and proves a cycle. An edge to a finished node points into work already closed.',
+        {type: 'image', src: './assets/gifs/graph-dfs.gif', alt: 'Animated walkthrough of the graph dfs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Trémaux invented the idea around 1882 as a maze-solving method: walk forward, mark your path, and when you hit a dead end or a corridor already marked, turn around and backtrack to the last unmarked fork. Nearly a century later, Tarjan (1972) formalized this as depth-first search on general graphs, adding discovery and finish timestamps, edge classification, and showing that a single DFS pass could find strongly connected components in linear time. DFS became the backbone of graph algorithms — cycle detection, topological sort, SCC decomposition, articulation points, and bridges all reduce to properties of a single DFS traversal.',
+        'Many graph problems are about structure, not distance. A package manager needs to detect circular dependencies, and a compiler needs to know which blocks are reachable. DFS exists because the current path and finish order expose that structure.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/7f/Depth-First-Search.gif', alt: 'Animated depth-first search trace through a small graph', caption: 'The animation shows DFS committing to one branch before backtracking, the same behavior the topic trace exposes with timestamps. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Depth-First-Search.gif.'},
-        'The core need: many graph problems do not care about shortest paths. They care about structure — is there a cycle? What depends on what? Which nodes are mutually reachable? DFS answers all of these in one O(V + E) pass using only O(V) memory for the stack, no matter how wide the graph is.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The natural first instinct for exploring a graph is breadth-first search: use a queue, visit all neighbors at distance 1 before any at distance 2, and expand level by level. BFS finds shortest hop-count paths and works well when the target is shallow or when shortest distance is the goal.',
-        'BFS pays for this guarantee with memory. The queue holds the entire frontier — every node at the current distance. On a graph where each node has 10 neighbors, the frontier at depth d can hold 10^d nodes. On a balanced binary tree with a million leaves, the last level alone queues 500,000 nodes. If you never needed shortest paths and only wanted structural properties, that memory is wasted.',
+        'The obvious traversal is breadth-first search. It uses a queue, visits all nodes one edge away, then all nodes two edges away, and finds shortest unweighted paths. It is the right tool when distance is the question.',
+        'A simpler visited-set walk also feels enough at first. It prevents infinite loops, but it loses whether a seen node is still active or already finished. DFS keeps that distinction.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'BFS reveals distance but nothing about depth structure. It cannot tell you whether the graph has a cycle, what order to process dependencies in, or which nodes are ancestors versus siblings in the exploration. The queue processes nodes by distance, which answers "how far?" but not "what depends on what?"',
-        'BFS also cannot classify edges. When BFS encounters an already-visited node, it knows the node was seen — but not whether it is an ancestor on the current path (indicating a cycle) or a node from a completely different branch (harmless). Cycle detection requires distinguishing "on the current stack" from "already finished." Topological sort requires finish-time ordering. Strongly connected components require both discovery and finish times. BFS provides none of these.',
+        'A queue gives levels, not ancestry. When BFS sees an already visited node, it does not know whether the node is on the current path. Cycle detection and topological sorting need that fact.',
+        'A plain visited set cannot explain finish order. Topological order needs a node to finish only after all reachable descendants below it have finished. That is a stack property.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'DFS keeps one unfinished path alive. The stack bottom is the start, the stack top is the frontier, and every active node is an ancestor of the frontier. Backtracking happens only when the frontier has no unvisited neighbor.',
+        'The invariant is that a node finishes after all work below it finishes. That makes reverse finish order useful for dependency scheduling and makes active-back-edge detection a cycle proof.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Push the source onto a stack and stamp it with a discovery time. Peek at the top of the stack. If the current node has an unvisited neighbor, push that neighbor, stamp it discovered, and continue. If all neighbors are visited, pop the current node, stamp it finished, and backtrack. The stack is the engine: LIFO order means DFS always continues the deepest unfinished path before anything shallower.',
+        'Push a source node and mark its discovery time. If the top node has an unvisited neighbor, push that neighbor and mark it discovered. If it has none, pop it and assign its finish time.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1f/Depth-first-tree.svg', alt: 'Tree labeled by the order in which depth-first search expands nodes', caption: 'The numbered tree makes preorder visible: DFS follows a path until it cannot continue, then returns to the latest unfinished fork. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Depth-first-tree.svg.'},
-        'Recursion does the same thing implicitly. A recursive call on a neighbor is a push; returning from that call is a pop. Trémaux’s 1882 maze version uses no call stack but follows the same logic: commit to one corridor, remember where to resume, never enter the same passage twice. The explicit-stack version avoids stack overflow on deep graphs and makes it easy to pause, resume, and inspect the traversal state.',
-        'Edge classification falls directly out of the timestamps. When DFS examines an edge (u, v): if v is undiscovered, the edge is a tree edge and v becomes u’s child in the DFS forest. If v is discovered but not yet finished (still on the stack), the edge is a back edge pointing to an ancestor — this proves a cycle exists. If v is already finished with discover(v) > discover(u), the edge is a forward edge skipping down to a descendant already explored. If v is finished with discover(v) < discover(u), the edge is a cross edge linking separate branches. In undirected graphs, only tree edges and back edges can occur because every edge is traversed in both directions.',
+        'Recursive DFS uses the language call stack for the same behavior. An explicit stack is safer for very deep graphs because the heap can hold more frames than the call stack.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Every node is discovered exactly once and finished exactly once. The stack ensures a node is not finished until everything reachable from it through unvisited edges has been discovered and finished first. This produces the parenthesis property: for any two nodes u and v, either the interval [discover(u), finish(u)] fully contains [discover(v), finish(v)], or the two intervals are completely disjoint. There is never partial overlap.',
+        'Every vertex is discovered once because DFS marks it before expanding it. Every edge is examined from its source adjacency list. Therefore no reachable edge or vertex is silently skipped.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/57/Tree_edges.svg', alt: 'DFS tree showing tree, back, forward, and cross edges', caption: 'Edge classes are a timestamp consequence, not an extra data structure. Back edges point to an active ancestor and prove a cycle. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Tree_edges.svg.'},
-        'The parenthesis property makes DFS a structural X-ray. Containment means ancestor-descendant in the DFS tree. Disjointness means neither is an ancestor of the other. A back edge to a node still on the stack proves a cycle: the stack path from that ancestor to the current node, plus the back edge, forms a closed loop. No back edges means no cycles — exactly the condition for a directed acyclic graph. The white-path theorem completes the picture: v is a descendant of u in the DFS tree if and only if, at the moment u is discovered, there exists a path from u to v consisting entirely of undiscovered nodes.',
+        'The timestamp proof is the parenthesis property. For two nodes, discovery-finish intervals either nest or do not overlap. Partial overlap cannot occur because DFS will not finish an ancestor while a descendant is active.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Time: O(V + E). DFS visits every vertex once and examines every edge once (twice in undirected graphs, once per direction). Space: O(V) for the visited set plus O(V) worst-case for the stack. The stack reaches depth V on a path graph (a single chain of nodes) but holds only about 20 frames on a balanced binary tree with a million nodes.',
-        'Doubling the edges doubles the work. Doubling the vertices adds at most one stack frame per vertex. DFS and BFS have identical O(V + E) time, but DFS stores only the current root-to-frontier path while BFS stores the entire level-width frontier. On a binary tree with a million leaves, DFS holds 20 frames; BFS queues 500,000.',
-        'Recursive DFS uses the call stack, typically limited to around 10,000 frames. A chain of a million nodes overflows it. The fix is mechanical: replace recursion with an explicit stack on the heap. The cost per node stays constant — one discovery, one finish, one scan of its adjacency list.',
+        'With adjacency lists, DFS costs O(V + E), where V is vertices and E is edges. Each vertex is pushed and popped once, and each directed edge is inspected once. In an undirected graph, each edge appears twice but the bound stays O(V + E).',
+        'Space is O(V) for visited state and O(V) worst-case stack depth. A chain of 1,000,000 nodes can require 1,000,000 stack entries. A balanced binary tree with about 1,000,000 nodes has path depth about 20, while BFS may hold hundreds of thousands of frontier nodes.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Topological sort: process nodes in reverse finish-time order. A node finishes only after all its descendants finish, so reversing finish order puts every dependency before the things that depend on it. Make, npm, apt, and course prerequisite planners all rely on this.',
-        'Cycle detection: a directed graph has a cycle if and only if DFS finds a back edge. Build systems and package managers run DFS on the dependency graph before doing any work. A back edge means circular dependency; they report it instead of deadlocking.',
-        'Strongly connected components: Tarjan’s algorithm runs a single DFS with low-link values to find maximal groups of mutually reachable vertices. Kosaraju’s algorithm uses two DFS passes (one on the original graph, one on the transpose). Both run in O(V + E).',
-        'Articulation points and bridges: a single DFS pass with low-link tracking identifies vertices and edges whose removal disconnects the graph. Network reliability analysis uses this.',
-        'Maze generation: DFS carves corridors by committing to one direction and backtracking at dead ends — Trémaux’s original use case. Backtracking algorithms for N-queens, Sudoku, and SAT solvers are DFS over the search tree of partial assignments. Compiler control-flow analysis uses DFS to find dominators, loops, and unreachable code.',
+        'Build systems and package managers use DFS to find dependency cycles before work starts. Reverse finish order gives a valid build order when no cycle exists. Compilers use DFS over control-flow graphs for reachability and loop-related structure.',
+        'DFS is also the base pass for strongly connected components, bridges, articulation points, and many backtracking searches. In each case, the useful state is the current path plus what has already finished.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'DFS does not find shortest paths. It may reach a target via a long detour when a two-hop path exists. For shortest unweighted paths, use BFS. For shortest weighted paths, use Dijkstra.',
-        'On graphs with high branching factor and shallow targets, DFS can waste time burrowing deep before finding something one level away. Iterative deepening DFS (IDDFS) fixes this by running DFS with increasing depth limits — it combines DFS memory efficiency with BFS’s level-order optimality, at the cost of re-exploring shallow nodes.',
-        'Recursive DFS overflows the call stack on deep graphs (millions of nodes in a chain). The explicit-stack conversion is straightforward but a common source of bugs around the timing of discovery and finish events. DFS is also inherently sequential — the stack imposes a total order on exploration, making it harder to parallelize than BFS.',
+        'DFS does not find shortest paths. It can reach a target through a long detour even when a two-edge path exists. Use BFS for shortest unweighted paths and Dijkstra for nonnegative weighted paths.',
+        'Recursive DFS can overflow on deep graphs, and DFS is not naturally parallel because the stack chooses one path at a time. Explicit stacks and iterative deepening address some failures but add implementation detail.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider a 6-node directed graph: edges A→B, A→D, B→C, C→A, C→D, D→E, E→F, F→D. DFS from A, visiting neighbors in alphabetical order.',
-        'Step 1: Discover A (d=1). Stack: [A]. Push neighbor B. Step 2: Discover B (d=2). Stack: [A, B]. Push neighbor C. Step 3: Discover C (d=3). Stack: [A, B, C]. Examine edge C→A: A is discovered but not finished (on the stack), so C→A is a back edge — cycle detected (A→B→C→A). Examine edge C→D: D is undiscovered, so C→D is a tree edge. Step 4: Discover D (d=4). Stack: [A, B, C, D]. Push neighbor E. Step 5: Discover E (d=5). Stack: [A, B, C, D, E]. Push neighbor F. Step 6: Discover F (d=6). Stack: [A, B, C, D, E, F]. Examine edge F→D: D is discovered but not finished (on the stack), so F→D is a back edge — second cycle (D→E→F→D).',
-        'F has no more neighbors. Finish F (f=7), pop. Back to E: no more neighbors. Finish E (f=8), pop. Back to D: no more neighbors. Finish D (f=9), pop. Back to C: no more neighbors. Finish C (f=10), pop. Back to B: no more neighbors. Finish B (f=11), pop. Back to A: examine edge A→D. D is already finished and discover(D)=4 > discover(A)=1, so A→D is a forward edge — A is an ancestor of D in the DFS tree (via the tree path A→B→C→D), and this edge skips down to that descendant. Finish A (f=12), pop. Stack empty.',
-        'Final timestamps: A[1/12], B[2/11], C[3/10], D[4/9], E[5/8], F[6/7]. Tree edges: A→B, B→C, C→D, D→E, E→F. Back edges: C→A, F→D (both prove cycles). Forward edge: A→D (skips from ancestor to descendant already explored via a longer tree path). Every interval nests cleanly: A[1/12] contains B[2/11] contains C[3/10] contains D[4/9] contains E[5/8] contains F[6/7]. This is the parenthesis property — a single chain of containment because the DFS tree here is a single path.',
+        'Use edges A -> B, A -> D, B -> C, C -> A, C -> D, D -> E, E -> F, and F -> D. Visit neighbors alphabetically. Start at A with d(A)=1, then B with d(B)=2, then C with d(C)=3.',
+        'From C, edge C -> A points to active ancestor A, so A -> B -> C -> A is a cycle. Then C discovers D at 4, E at 5, and F at 6. From F, edge F -> D points to active ancestor D, so D -> E -> F -> D is another cycle.',
+        'Finishing unwinds as F=7, E=8, D=9, C=10, B=11, A=12. The intervals A[1,12], B[2,11], C[3,10], D[4,9], E[5,8], F[6,7] nest perfectly. That nesting is the proof that DFS kept one active path.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Trémaux (~1882) devised the first known depth-first exploration as a maze-solving algorithm. Tarjan (1972, "Depth-First Search and Linear Graph Algorithms") formalized DFS on general graphs, introduced timestamps and edge classification, and used them to find strongly connected components in linear time. Hopcroft and Tarjan (1973, Algorithm 447) gave practical implementations. Cormen, Leiserson, Rivest, and Stein (CLRS, chapters 22–23) cover DFS, topological sort, and SCC algorithms with full proofs.',
-        'Study BFS next to understand the queue-vs-stack tradeoff: BFS finds shortest unweighted paths; DFS finds structural properties. Study Topological Sort to see why reversing DFS finish order schedules dependencies correctly. Study Tarjan’s SCC algorithm for the most elegant application of DFS timestamps and low-link values. Study Articulation Points and Bridges for DFS-based network reliability analysis. Review the Stack data structure — DFS is "use a stack to remember where to backtrack" — and Recursion, since recursive DFS is the clearest form and the explicit-stack version is a mechanical translation of it.',
+        'Read Tarjan, Depth-First Search and Linear Graph Algorithms, for linear-time graph applications. CLRS covers DFS timestamps, edge classes, topological sort, and strongly connected components. Tremaux maze search is the older maze-walking form of the idea.',
+        'Study BFS next to contrast queue order with stack order. Then study topological sort, Tarjan strongly connected components, articulation points, bridges, stacks, and recursion.',
       ],
     },
   ],

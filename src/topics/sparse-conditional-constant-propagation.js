@@ -190,99 +190,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the graph as compiler intermediate representation in SSA form. SSA means each variable name is assigned once, and phi nodes at joins choose a value based on which incoming control-flow edge ran.',
         {type: 'image', src: './assets/gifs/sparse-conditional-constant-propagation.gif', alt: 'Animated walkthrough of the sparse conditional constant propagation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Active values move through the lattice unknown, constant, and overdefined. Active edges are control-flow edges proven executable. The safe rule is that a phi may merge only operands from executable predecessors.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Sparse conditional constant propagation, usually called SCCP, exists because constant propagation and reachability are not independent compiler problems. A constant condition can prove that a branch will not run. A dead branch can prove that a phi node has only one live incoming value. Those facts feed each other.`,
+        'Sparse conditional constant propagation, or SCCP, exists because constant values and reachability feed each other. A constant branch condition can kill an edge, and a dead edge can stop a phi from merging a conflicting value.',
         {type: 'callout', text: 'SCCP is precise because reachability is a value fact: dead edges are excluded before phi nodes merge operands.'},
-        `A compiler that separates the two problems often needs several cleanup rounds. First it discovers constants, then it simplifies branches, then it removes dead blocks, then it may discover more constants. SCCP puts value facts and executable control-flow edges into one sparse fixed point so the compiler can find the combined result directly.`,
+        'Separate compiler passes often need several rounds: propagate constants, simplify branches, remove dead blocks, and propagate again. SCCP finds that combined fixed point directly over SSA values and executable edges.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is ordinary constant propagation over the control-flow graph. Start with known constants, evaluate operations whose inputs are known, and repeat until no value changes. Then another pass can simplify branches whose conditions became constant.`,
-        `The wall appears at joins. If the analysis assumes every syntactic edge may execute, a phi node must merge values from branches that are actually unreachable. A value that is constant on every real path may be marked overdefined because a dead predecessor contributed a conflicting value.`,
-        `This is not only a missed optimization. Once a value becomes overdefined, its users may also become overdefined, and branch conditions that should have simplified may stay unknown. Treating dead paths as live can spread pessimism through the SSA graph.`,
+        'The obvious approach is ordinary constant propagation. If x = 2 and y = 3, replace x + y with 5, and repeat until no expression changes.',
+        'That works for straight-line code and for joins where every predecessor can really execute. It becomes pessimistic when program text contains branches that constants already prove unreachable.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is premature merging. A phi that merges every written operand can combine a live constant with a value from a dead branch and mark the result overdefined.',
+        'That pessimism spreads. Once one value becomes overdefined, its users can become overdefined, branch conditions stay unknown, and more dead edges appear live to the analysis.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to make executable edges first-class facts. An edge is not considered live just because it appears in the CFG. It becomes executable only after SCCP has evidence that control can reach it.`,
+        'Make edge executability a first-class fact. An edge is not live just because it appears in the control-flow graph; SCCP marks it executable only when known control can take it.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png', alt: 'Examples of control flow graph shapes with branches and loops', caption: 'SCCP needs edge-level reachability because constants flow through branches, joins, and loops. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.'},
-        `That one extra fact changes phi handling. A phi node merges only operands whose predecessor edges are executable. Dead code cannot poison live values. Constants decide branches, decided branches remove incoming phi operands, simpler phis create more constants, and those constants may decide more branches.`,
+        'That changes phi handling. Constants decide branches, decided branches remove impossible phi operands, simpler phis create more constants, and those constants may decide more branches.',
       ],
     },
     {
-      heading: 'The invariant',
+      heading: 'How it works',
       paragraphs: [
-        `The main invariant is simple: a value fact is based only on executable evidence. A phi with two written operands is not forced to merge both operands unless both predecessor edges can run. This is what lets SCCP be more precise than ordinary constant propagation.`,
-        `The second invariant is monotonicity. Value states move from unknown to a constant and, if later executable evidence conflicts, to overdefined. Edges move from not executable to executable. The algorithm never needs to make a fact more optimistic, so the fixed point is stable.`,
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `The lattice view shows why SCCP is cautious. Unknown means the compiler does not yet have executable evidence. A constant means all executable evidence agrees on one value. Overdefined means the value varies, is not modeled, or has conflicting executable inputs.`,
-        `The graph view shows the part ordinary constant propagation usually hides: the edge worklist. The branch can mark only the true successor executable when the condition is known. The dead-branch case then shows the payoff at the phi: the else value exists in the program text, but it does not enter the merge because its edge was never proven executable.`,
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        `SCCP maintains two worklists. The value worklist contains SSA users of values whose lattice state changed. The edge worklist contains CFG edges that just became executable and may expose a block that was previously ignored.`,
-        `For ordinary operations, SCCP evaluates a transfer function under the current operand facts. Adding two constants can produce a constant. Adding an overdefined value usually produces overdefined. Operations with unsupported or unsafe semantics may also force overdefined.`,
-        `For branches, a constant condition marks only the feasible successor. An overdefined condition marks every possible successor. For phis, the merge looks only at operands from executable predecessor edges. The algorithm stops when both worklists are empty.`,
+        'SCCP stores a lattice state for each SSA value and an executable bit for each control-flow edge. Unknown means no executable evidence yet, constant means all executable evidence agrees, and overdefined means the value varies or is not modeled as one constant.',
+        'The algorithm uses worklists. Value changes revisit SSA users. Newly executable edges revisit the destination block and the phi operands exposed by that edge. A branch with a constant condition marks only the feasible successor executable.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument comes from the two invariants. If an edge has not been proven executable, no real execution discovered by the analysis can reach the block through that edge. Ignoring that edge at a phi is the same reachability fact applied before value merging.`,
-        `Monotonic updates guarantee termination. There are only a few states per SSA value and one executability bit per CFG edge. Each fact can change only a small number of times. When the worklists drain, all consequences expressible by this lattice have already been propagated through the reachable part of the program.`,
+        'Correctness follows from the executable-evidence invariant. A value fact is based only on operations reachable through executable edges. Ignoring a non-executable phi operand is sound because no discovered execution can arrive on that edge.',
+        'Termination follows from monotonicity. A value can move from unknown to constant to overdefined, but not backward. An edge can become executable only once, so finite values and edges give a finite fixed point.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Take this program: a = 2; b = 3; if (a < b) c = 4; else c = 5; return c. The entry edge is executable, so a and b become constants. The branch condition evaluates to true, so SCCP marks the then edge executable and leaves the else edge not executable.`,
-        `At the join, the phi for c has two written operands: 4 from then and 5 from else. Only the then predecessor is executable, so the phi becomes constant 4 rather than overdefined between 4 and 5. The return becomes return 4, and later cleanup can replace the branch with a jump and delete the unreachable else block.`,
-        `This is the exact case that ordinary constant propagation can miss if it merges both phi operands before reachability is known. SCCP does not need a later pass to tell it that the false edge should not affect the live value.`,
+        'Sparse processing avoids rescanning the whole program after every change. Work follows SSA use-def links and newly executable edges, so practical cost is close to the relevant instructions, edges, and lattice transitions.',
+        'Each value changes state only a small number of times, and each edge becomes executable at most once. Calls, memory operations, floating-point corner cases, poison values, and undefined behavior often force overdefined and reduce precision.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `SCCP is strongest after other passes expose constants. Inlining, template expansion, specialization, interprocedural constant propagation, and partial evaluation can leave behind branches whose outcomes are now fixed. SCCP converts those fixed outcomes into both simpler values and simpler control flow.`,
-        `It also wins in SSA middle ends because SSA already gives the sparse graph SCCP wants. Use-def links identify which operations to revisit after a value changes, and phi nodes make join behavior explicit. The pass can avoid scanning the entire CFG on every iteration.`,
+        'SCCP is useful after inlining, specialization, template expansion, and interprocedural propagation expose constants. It turns fixed branch outcomes into simpler values and unreachable blocks.',
+        'It fits SSA compiler middle ends because phi nodes and use-def chains are already explicit. Optimizers use SCCP-like reasoning before dead-code elimination, register allocation, and code generation.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `SCCP loses precision when the needed facts do not fit the lattice. Alias-heavy memory, unknown calls, floating-point corner cases, exception edges, input-dependent loops, volatile operations, poison or undef semantics, and target-specific behavior can force overdefined even when a richer analysis could prove more.`,
-        `It also does not do every cleanup by itself. SCCP can mark constants and unreachable edges, but later passes usually rewrite branches, delete blocks, simplify phis, and remove instructions whose results are no longer used. Treat it as a discovery pass plus rewrite support, not the whole optimizer.`,
-        `A bad implementation can become unsound if it folds operations without respecting language rules. Integer overflow, floating-point NaNs, traps, memory ordering, and undefined behavior must be handled according to the compiler's IR semantics, not according to what seems algebraically convenient.`,
+        'It fails when the needed fact does not fit the lattice. Alias-heavy memory, unknown calls, volatile operations, exceptions, NaNs, poison, overflow rules, and target-specific semantics can force overdefined.',
+        'It also fails if folding ignores language or IR rules. A compiler must respect traps, undefined behavior, memory ordering, and floating-point semantics rather than applying informal algebra.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        `Implement SCCP around a small explicit lattice type. Avoid encoding unknown, constant, and overdefined as ad hoc nullable values. The transfer functions should make it clear when an operation can be folded, when it must stay unknown, and when it must become overdefined.`,
-        `Keep executable edges separate from visited blocks. A block may have several incoming edges, and a phi needs edge-level information. Marking only the block as reachable loses the reason SCCP is precise at joins.`,
-        `Add tests that cover dead predecessors, loops, overdefined branch conditions, calls, memory loads, and IR edge cases. The most useful tests are small programs where ordinary constant propagation would merge too early but SCCP should keep the live value constant.`,
+        'Take a = 2; b = 3; if (a < b) c = 4; else c = 5; return c. The entry edge is executable, so a and b become constants. The comparison a < b becomes true.',
+        'SCCP marks the then edge executable and leaves the else edge not executable. At the join, the phi for c has operands 4 and 5, but only the then predecessor is executable, so c becomes constant 4.',
+        'The return becomes return 4. A later cleanup pass can replace the branch with a jump and delete the else block. Ordinary propagation that merges both phi operands too early would lose this result.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Read Wegman and Zadeck's paper PDF at https://www.cs.utexas.edu/~lin/cs380c/wegman.pdf, the ACM DOI page at https://dl.acm.org/doi/10.1145/103135.103136, and the Cornell CS6120 SCCP implementation note at https://www.cs.cornell.edu/courses/cs6120/2019fa/blog/sccp/.`,
-        `Inside this curriculum, study Static Single Assignment Phi Nodes, Data-Flow Worklist Analysis, Control Flow Graph and Dominator Tree, Dominance Frontier SSA Construction, MemorySSA Alias Graph, Dead-Code Elimination, Sparse Set Entity Index, and compiler register-allocation topics that consume simplified IR.`,
+        'Read Wegman and Zadeck on SCCP and the Cornell CS6120 implementation note. Compare SCCP with dense data-flow analysis to see what SSA sparsity changes.',
+        'Next study Static Single Assignment, Phi Nodes, Data-Flow Worklist Analysis, Control-Flow Graphs, Dominator Trees, Dominance Frontiers, Dead-Code Elimination, MemorySSA, and Abstract Interpretation.',
       ],
     },
   ],

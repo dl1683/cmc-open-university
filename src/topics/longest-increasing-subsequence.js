@@ -110,107 +110,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The array displays your input sequence. Each element is processed left to right. The active highlight marks the element currently being placed. Range highlights mark the indices whose values sit in the tails array -- the compact bookkeeping structure that tracks the best subsequence endings found so far.',
-        {type: 'callout', text: 'The tails array does not store the answer; it stores the cheapest possible ending for each answer length.'},
-        'Two things can happen at each step. If the current element is larger than every tail, it extends the tails array and the LIS length grows by one. If not, a binary search finds the first tail that is greater than or equal to the current element and replaces it. The length stays the same, but the tails array now has a smaller value at that position -- a better springboard for future growth.',
-        'At the end, found highlights trace the actual longest increasing subsequence recovered through parent pointers. The tails array itself is not the LIS. It is the working structure that makes O(n log n) possible.',
-      
-        {type: 'image', src: './assets/gifs/longest-increasing-subsequence.gif', alt: 'Animated walkthrough of the longest increasing subsequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Given a sequence, find the longest subsequence whose elements are strictly increasing. The elements do not need to be adjacent -- they just need to appear in left-to-right order with each value larger than the last.',
-        'LIS measures how "sorted" a sequence already is. A fully sorted sequence has LIS length n. A fully reversed sequence has LIS length 1. Everything else falls somewhere between, and the LIS length tells you the largest monotone thread you can pull from the data without rearranging anything.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/LISDemo.gif/500px-LISDemo.gif', alt: 'Animated demo of a longest increasing subsequence in a numeric sequence', caption: 'The highlighted subsequence shows the rule visually: keep original order, skip anything needed, and preserve strict increase. Source: Wikimedia Commons, LIS demo.'},
-        'The problem appears everywhere. Patience sorting is literally the LIS algorithm dealing cards into piles. Version control systems reduce longest common subsequence (LCS) to LIS when comparing file versions. Bioinformatics uses LIS to anchor genome alignments. Scheduling problems -- box stacking, Russian doll envelopes -- reduce to LIS on pairs. Ulam studied the expected LIS length in random permutations in the 1960s; the Erdos-Szekeres theorem guarantees that any sequence of more than n*m elements contains either an increasing subsequence of length n+1 or a decreasing one of length m+1.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Enumerate every subsequence, check if it is increasing, keep the longest. A sequence of n elements has 2^n subsequences. For n = 20 that is a million candidates. For n = 40 it is a trillion. Correct, but unusable.',
-        'A better first attempt uses dynamic programming. Define dp[i] as the length of the longest increasing subsequence ending at index i. Initialize every dp[i] to 1 (the element by itself). For each i, scan every earlier index j < i: if values[j] < values[i], set dp[i] = max(dp[i], dp[j] + 1). The answer is max(dp[0], dp[1], ..., dp[n-1]). This runs in O(n^2) time and O(n) space.',
-        'For n under 10,000 the quadratic DP is fine. For n = 100,000 or 1,000,000, it is too slow.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The brute-force enumeration is exponential -- every added element doubles the work. The O(n^2) DP kills the exponential blowup but still does quadratic work: every element scans all previous elements looking for the best predecessor to extend.',
-        'Most of that inner scan is wasted. When processing element i, we do not need to inspect every j < i. We just need to know: for each possible subsequence length, what is the smallest value a subsequence of that length can end with? If we maintain that information in a sorted structure, finding where the current element fits takes one binary search instead of a linear scan.',
-        'Replacing the O(n) inner loop with an O(log n) binary search is the move that drops the total cost from O(n^2) to O(n log n).',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The O(n^2) DP builds a table. dp[i] = 1 + max(dp[j] for all j < i where values[j] < values[i]), or 1 if no such j exists. After filling the table, the answer is the largest dp[i]. To recover the actual subsequence, store which j gave the maximum at each i and trace back from the position with the overall maximum.',
-        'The O(n log n) patience/tails algorithm replaces that table with a single sorted array called tails. tails[k] holds the smallest ending element of any increasing subsequence of length k+1 found so far. Because tails is always sorted (proven below), binary search works.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array by testing the midpoint', caption: 'Binary search is the operation that turns each tails placement from a scan into logarithmic work. Source: Wikimedia Commons.'},
-        'For each input element: if it is larger than tails[last], append it -- the LIS length grows. Otherwise, binary-search for the leftmost tail >= the element and replace it. The replacement does not change the LIS length, but it installs a smaller ending value at that position, keeping the door open for longer subsequences later.',
-        'To reconstruct the actual subsequence, maintain parent pointers. When element at index i is placed at position pos in tails, record that its predecessor is the element currently at position pos - 1 in tails. After processing all elements, walk parent pointers backward from the end of the longest subsequence.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The tails array maintains the invariant: tails[k] is the smallest value that can end an increasing subsequence of length k+1. Two properties guarantee this.',
-        'Tails is always sorted. Suppose tails[a] >= tails[b] for some a < b. The subsequence of length b+1 ending at tails[b] contains a subsequence of length a+1 ending at some value <= tails[b] <= tails[a]. That contradicts tails[a] being the minimum such ending value. So tails is strictly increasing.',
-        'Replacements preserve correctness. When we replace tails[pos] with a smaller value v, we claim there exists an increasing subsequence of length pos+1 ending at v. This is true: binary search placed v at position pos, meaning v >= tails[pos-1] (otherwise it would have gone earlier) and v < the old tails[pos]. The subsequence that ended at tails[pos-1] extended by v is valid and ends smaller.',
-        'The DP correctness rests on optimal substructure. The LIS ending at position i must extend some LIS ending at an earlier position j where values[j] < values[i]. Taking the longest such extension and adding 1 gives dp[i]. The global optimum is the maximum over all ending positions.',
-        'The tails array never shrinks. Appends grow the LIS length by one. Replacements keep the length the same but improve future extensibility. The final length of tails equals the LIS length.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The naive DP costs O(n^2) time and O(n) space. Each element scans all predecessors. For n = 10,000, that is 50 million comparisons -- fast enough. For n = 1,000,000 it is 500 billion -- not feasible.',
-        'The patience/tails algorithm costs O(n log n) time and O(n) space. Each of the n elements requires one binary search over tails, which has length at most n. Each search costs O(log n). For n = 1,000,000, about 20 million comparisons -- seconds, not hours.',
-        'When n doubles, the O(n log n) version does roughly double the work (the log factor grows slowly). The O(n^2) version does four times the work.',
-        'Space is O(n) in both cases: the DP table in one, the tails array plus parent pointers in the other. The tails approach has better cache behavior because tails is a compact sorted array accessed via binary search -- the same pattern that makes binary search fast in practice.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Patience sorting. The LIS algorithm is the first phase of patience sort: deal cards into piles where each pile\'s top is decreasing; the number of piles equals the LIS length. This is not an analogy -- it is the same algorithm. The tails array holds the pile tops.',
-        'Longest chain of pairs. Given pairs (a_i, b_i), find the longest chain where both coordinates increase. Sort by the first coordinate, run LIS on the second. Russian doll envelopes and box stacking are instances of this pattern.',
-        'Version control. The Hunt-Szymanski algorithm computes longest common subsequence by reducing LCS to LIS. When comparing two file versions with few matching lines, this is faster than the standard O(nm) DP.',
-        'Bioinformatics. Genome alignment tools find long increasing runs of matching positions between two sequences, then refine alignment around those anchors. LIS provides the initial skeleton.',
-        'Scheduling. Any problem where you need the longest chain of compatible, ordered items -- jobs with deadlines, nested intervals, monotone paths in a grid -- can often be cast as LIS or a close variant.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Counting or enumerating all optimal subsequences. There may be exponentially many LIS of the same length. The tails algorithm finds one. If you need the count, you need the full O(n^2) DP with counting, or a Fenwick tree approach.',
-        'Weighted LIS. If each element carries a weight and you want the heaviest increasing subsequence, the tails trick does not apply directly. You need a segment tree or binary indexed tree over DP values -- still O(n log n) but with higher constants and more code.',
-        'Non-strict increase. The standard algorithm uses strict inequality. Allowing equal consecutive elements requires changing the binary search from lower bound to upper bound. Getting this wrong is a common bug.',
-        'Higher dimensions. Finding the longest chain of points where every coordinate increases (2D, 3D) does not reduce cleanly to 1D LIS. The 2D case (longest chain of pairs) works with sorting plus LIS, but 3D and beyond need different techniques like Dilworth\'s theorem or specialized data structures.',
-        'The tails array is not the LIS. After replacements, tails may mix elements from different subsequences. Reconstructing the actual LIS requires parent pointers -- a detail easy to forget.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Input: [10, 9, 2, 5, 3, 7, 101, 18]. We trace both algorithms.',
-        'O(n^2) DP. Initialize dp = [1, 1, 1, 1, 1, 1, 1, 1]. Index 0 (value 10): no earlier elements, dp[0] = 1. Index 1 (value 9): 9 < 10, no valid predecessor, dp[1] = 1. Index 2 (value 2): 2 < 10, 2 < 9, dp[2] = 1. Index 3 (value 5): 5 > 2, so dp[3] = dp[2] + 1 = 2. Index 4 (value 3): 3 > 2, so dp[4] = dp[2] + 1 = 2. Index 5 (value 7): 7 > 2 (dp 1), 7 > 5 (dp 2), 7 > 3 (dp 2), so dp[5] = 2 + 1 = 3. Index 6 (value 101): 101 > everything, best predecessor is index 5 with dp 3, so dp[6] = 4. Index 7 (value 18): 18 > 7 (dp 3), so dp[7] = 4. Final dp = [1, 1, 1, 2, 2, 3, 4, 4]. Maximum is 4. Traceback from index 6: 101 <- 7 <- 5 <- 2, giving [2, 5, 7, 101].',
-        'O(n log n) patience/tails. Element 10: tails empty, append. Tails = [10], length 1. Element 9: 9 < 10, binary search finds position 0, replace. Tails = [9], length 1. Element 2: 2 < 9, replace at position 0. Tails = [2], length 1. Element 5: 5 > 2, append. Tails = [2, 5], length 2. Element 3: 3 < 5, binary search finds position 1, replace. Tails = [2, 3], length 2. Element 7: 7 > 3, append. Tails = [2, 3, 7], length 3. Element 101: 101 > 7, append. Tails = [2, 3, 7, 101], length 4. Element 18: 18 < 101, binary search finds position 3, replace. Tails = [2, 3, 7, 18], length 4.',
-        'Both algorithms find LIS length 4. Valid subsequences include [2, 5, 7, 101], [2, 3, 7, 101], and [2, 3, 7, 18]. The final tails array [2, 3, 7, 18] happens to be a valid LIS here, but that is coincidence -- in general, the tails array after replacements is not a subsequence of the input.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Fredman (1975) proved the O(n log n) lower bound for comparison-based LIS. Aldous and Diaconis (1999) formalized the patience sorting connection and its link to random matrix theory. Knuth covers the DP formulation in The Art of Computer Programming, Vol. 3.',
-        'Prerequisites: binary search (the engine inside the tails algorithm), dynamic programming (the O(n^2) formulation), memoization (understanding overlapping subproblems).',
-        'Extensions: longest common subsequence (two-sequence generalization, O(nm) DP, reducible to LIS in special cases), edit distance (DP on two sequences with insertions, deletions, and substitutions), patience sorting (the full sorting algorithm built on LIS machinery).',
-        'Alternatives: 0/1 knapsack (another table-filling DP with traceback and capacity constraints), segment trees and Fenwick trees (the data structures behind weighted LIS and faster DP transitions).',
-      ],
-    },
+    {heading: 'How to read the animation', paragraphs: ['Read the sequence left to right because a subsequence must preserve input order. The active value is being placed into tails, where tails[k] is the smallest ending value seen for an increasing subsequence of length k + 1.', {type: 'callout', text: 'The tails array does not store the answer; it stores the cheapest possible ending for each answer length.'}, 'Appending grows the best length. Replacing keeps the length but lowers an ending value, which gives later numbers more room to extend.', {type: 'image', src: './assets/gifs/longest-increasing-subsequence.gif', alt: 'Animated walkthrough of the longest increasing subsequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    {heading: 'Why this exists', paragraphs: ['A longest increasing subsequence, or LIS, is the longest ordered selection whose values strictly rise. The values do not need to be adjacent, so LIS finds monotone structure hidden inside noisy order.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/LISDemo.gif/500px-LISDemo.gif', alt: 'Animated demo of a longest increasing subsequence in a numeric sequence', caption: 'The highlighted subsequence shows the rule visually: keep original order, skip anything needed, and preserve strict increase. Source: Wikimedia Commons, LIS demo.'}, 'The problem appears whenever compatibility means later and larger. Scheduling chains, envelope nesting, genome anchors, and some diff reductions all need the longest ordered chain.']},
+    {heading: 'The obvious approach', paragraphs: ['Try every subsequence, keep the increasing ones, and return the longest. That is correct, but n values have two to the n subsequences, so n = 40 is already about one trillion candidates.', 'The first serious improvement is dynamic programming. Let dp[i] be the best increasing subsequence ending at i, then scan every earlier j and extend dp[j] when values[j] is less than values[i].']},
+    {heading: 'The wall', paragraphs: ['The dynamic program costs O(n squared) because every value scans all earlier values. At one million values, that is roughly 500 billion predecessor checks.', 'Most of those checks ask for the same kind of fact. For each possible length, the algorithm only needs the cheapest ending value, not every index that ever achieved that length.']},
+    {heading: 'The core insight', paragraphs: ['For a fixed length, a smaller ending value is always better than a larger one. A length-3 subsequence ending at 7 can be extended by 8, but a length-3 subsequence ending at 18 cannot.', 'The tails array stores this frontier of cheapest endings. Because those endings are sorted, binary search finds the first length that the active value can improve.']},
+    {heading: 'How it works', paragraphs: ['For each value x, binary-search tails for the first value greater than or equal to x. If no such value exists, append x; otherwise replace that position with x.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array by testing the midpoint', caption: 'Binary search is the operation that turns each tails placement from a scan into logarithmic work. Source: Wikimedia Commons.'}, 'The length of tails is the LIS length. To reconstruct an actual subsequence, store parent pointers and the input index that currently owns each tails position.']},
+    {heading: 'Why it works', paragraphs: ['The invariant is that tails[k] is the smallest possible ending value for a length k + 1 increasing subsequence seen so far. Replacement preserves existence because x is placed after a valid previous-length tail and before the first tail it improves.', 'Appending is the only way the known length grows, and it happens exactly when x is larger than every frontier ending. Replacements cannot destroy a valid length; they only make that length easier to extend later.']},
+    {heading: 'Cost and complexity', paragraphs: ['The dynamic program is O(n squared) time and O(n) memory. Doubling input length roughly quadruples the predecessor checks.', 'The tails algorithm is O(n log n) time and O(n) memory. For n = 1,000,000, log2 n is about 20, so the work is about 20 million searches steps instead of hundreds of billions.']},
+    {heading: 'Real-world uses', paragraphs: ['Patience sorting uses the same pile-top rule, and the number of piles equals the LIS length. The pile tops are exactly the tails frontier.', 'Two-dimensional chain problems sort one coordinate and run LIS on the other. Genome alignment and diff-style matching use similar monotone anchor chains to keep matches in a consistent order.']},
+    {heading: 'Where it fails', paragraphs: ['Tails alone is not necessarily the subsequence. It may combine values from incompatible positions, so parent pointers are required when the actual elements matter.', 'Duplicate handling is a common failure. Strictly increasing uses lower bound, while non-decreasing uses upper bound; choosing the wrong boundary changes answers on equal values.']},
+    {heading: 'Worked example', paragraphs: ['Use [10, 9, 2, 5, 3, 7, 101, 18]. Tails evolves as [10], [9], [2], [2, 5], [2, 3], [2, 3, 7], [2, 3, 7, 101], then [2, 3, 7, 18].', 'The final length is 4. Valid answers include [2, 3, 7, 18] and [2, 5, 7, 101], which shows why many different subsequences can share the same optimal length.']},
+    {heading: 'Sources and study next', paragraphs: ['Study patience sorting through Aldous and Diaconis, and study Fredman for comparison bounds. Study binary search first, dynamic programming for the O(n squared) baseline, and Fenwick trees for weighted LIS variants.']},
   ],
 };

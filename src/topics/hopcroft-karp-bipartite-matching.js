@@ -211,111 +211,61 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        `The animation shows two columns of vertices -- left (U) and right (V) -- connected by edges. Matched edges are distinguished from candidate edges. A sentinel node NIL marks free right endpoints. Active highlights mark the vertices and edges the algorithm is currently examining. Found highlights mark edges that have been added to the matching. Compare highlights mark edges that were already matched before this phase.`,
+    { heading: 'How to read the animation', paragraphs: [
+        'The animation shows a bipartite graph: left vertices U, right vertices V, and allowed pairs as edges. A matching is a set of edges with no shared endpoint. Active highlights show the current BFS or DFS step, compared edges are already matched, and found edges join the matching.',
         {type: `callout`, text: `Hopcroft-Karp is fast because one BFS phase finds the shortest legal layer graph, then DFS spends that layer graph on a whole batch of disjoint augmenting paths.`},
-        `In the layered-search view, watch BFS build distance labels outward from every free left vertex, alternating between unmatched edges (left to right) and matched edges (right back to left). The search stops the moment a free right vertex is reached. In the augment-phase view, watch DFS trace vertex-disjoint paths through those layers, then flip matched and unmatched edges along each path.`,
-        `After each frame, identify: which vertices gained a distance label, which edges changed status, and why the algorithm chose to stop or continue. The layer graph is the structure; the augmenting paths are the payoff.`,
+        'The safe inference rule is that an augmenting path starts at a free left vertex, ends at a free right vertex, and alternates unmatched and matched edges. Flipping that path increases matching size by one. Watch BFS build shortest layers, then DFS spend those layers on several disjoint paths.',
       
         {type: 'image', src: './assets/gifs/hopcroft-karp-bipartite-matching.gif', alt: 'Animated walkthrough of the hopcroft karp bipartite matching visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `Bipartite matching pairs items from a left set with items from a right set, one partner each. Workers to shifts, students to dorm rooms, reviewers to papers, kidneys to patients, tests to machines. An edge means the pair is allowed. The question: how many compatible pairs can be chosen without sharing endpoints?`,
+    { heading: 'Why this exists', paragraphs: [
+        'Bipartite matching pairs items from two sets, one partner per item. Workers can do certain jobs, students can take certain rooms, and reviewers can handle certain papers. An edge means the pair is allowed.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Simple_bipartite_graph%3B_two_layers.svg/500px-Simple_bipartite_graph%3B_two_layers.svg.png`, alt: `Bipartite graph drawn as two layers with edges only between layers`, caption: `A bipartite graph makes the two-part assignment constraint visible: every allowed pair crosses from left to right. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Simple_bipartite_graph;_two_layers.svg`},
-        `That count is often the feasibility layer before any optimizer runs. If only 93 of 100 shifts can be covered under the eligibility graph, no cost function can cover all 100 without relaxing constraints. Maximum matching answers a binary capacity question that weighting cannot bypass.`,
-        `The problem was formalized by Denes Konig in 1931, who proved that in bipartite graphs the size of the maximum matching equals the size of the minimum vertex cover. Harold Kuhn published the Hungarian algorithm for weighted assignment in 1955. Hopcroft and Karp gave an O(E*sqrt(V)) algorithm for unweighted maximum matching in 1973 by batching shortest augmenting paths instead of finding them one at a time.`,
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `The brute-force method enumerates all possible matchings. With n vertices on each side, there are up to n! permutations to check. For 10 workers and 10 jobs, that is 3,628,800 candidates. For 20, it is over 2 * 10^18. Enumeration is correct but useless at any real scale.`,
-        `A better first attempt uses augmenting paths one at a time. Start with an empty matching. Search for any augmenting path -- an alternating path from a free left vertex to a free right vertex, switching between unmatched and matched edges. Flip that path to increase the matching by one. Repeat until no augmenting path exists. This is correct by Berge's lemma, and each search costs O(E), so the total is O(V*E).`,
-        `For sparse graphs with small matchings, one-path-at-a-time works fine. It is the right starting point and should not be dismissed. The question is what happens when both V and the matching size are large.`,
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `The wall is repeated scanning. Each augmenting-path search traverses the graph from scratch. If the maximum matching has size k, the algorithm runs k full searches. On a graph with 10,000 vertices per side and 50,000 edges, that can mean 10,000 BFS passes over 50,000 edges each -- 500 million edge scans total.`,
-        `The deeper problem is that one-path-at-a-time ignores structure. When many short augmenting paths exist simultaneously, taking just one forces a new full search to rediscover the rest. Augmenting paths interact: flipping one can destroy or create others. But when multiple shortest paths are vertex-disjoint, they can all be flipped safely in one batch.`,
-        `Hopcroft and Karp observed that batching shortest augmenting paths per phase bounds the total number of phases to O(sqrt(V)), cutting the total work to O(E*sqrt(V)). The insight is scheduling discipline, not a new correctness argument.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `Phase discipline. Each phase asks two questions: what is the shortest augmenting-path length right now, and how many vertex-disjoint paths of that length can be flipped before allowing longer paths?`,
-        `BFS from all free left vertices simultaneously builds a layered graph of shortest alternating paths. From a left vertex, follow unmatched edges to the right. From a matched right vertex, follow the matched edge back to the left. The first time BFS reaches a free right vertex, the shortest augmenting distance is fixed. No longer paths enter this phase.`,
-        `DFS then searches inside that layered graph for a maximal set of vertex-disjoint shortest augmenting paths. After flipping, every shortest path of that length is gone. The next phase must find longer paths, and there can be at most O(sqrt(V)) phases before the matching is maximum. The algorithm is faster not because it finds better paths, but because it refuses to waste a phase on a single path when a batch is available.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `State: adjacency lists from left to right vertices, arrays pairU and pairV storing matched partners (NIL if free), and a distance array dist for left vertices. NIL is a sentinel representing any free right endpoint.`,
-        `BFS phase: enqueue every free left vertex at distance 0. For each dequeued left vertex u, scan its neighbors v. If v is free (pairV[v] = NIL), record that NIL is reachable at distance dist[u]+1 but do not explore further -- the shortest augmenting length is fixed. If v is matched to some u2 = pairV[v] and dist[u2] is not yet set, assign dist[u2] = dist[u]+1 and enqueue u2. BFS ends when the queue is empty. If NIL was never reached, no augmenting path exists and the algorithm terminates.`,
+        'Maximum matching asks for the largest feasible set of pairs. It is often the feasibility check before cost optimization. If only 93 of 100 shifts can be covered by eligibility edges, no objective function can cover all 100 without relaxing constraints.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The brute-force approach enumerates possible matchings. With n vertices on each side, the complete case has n! possible perfect pairings. For n = 10, that is 3,628,800 candidates; for n = 20, it is over 2 * 10^18.',
+        'A better first attempt is one augmenting path at a time. Search for any alternating path from a free left vertex to a free right vertex, flip it, and repeat. This is correct, but it may rescan the graph once per added match.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'The wall is repeated rediscovery. If a graph has many short augmenting paths at once, a one-path algorithm finds one, flips it, and then scans again for the next. With 10,000 matches and 50,000 edges, that can mean hundreds of millions of edge inspections.',
+        'The wasted work is not in the correctness idea. Augmenting paths are still the right proof object. The waste is scheduling: the algorithm refuses to use other shortest paths that were visible in the same search.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Batch shortest augmenting paths by phase. BFS from all free left vertices builds a layered graph of shortest alternating paths. The first free right vertex reached fixes the shortest augmenting length for that phase.',
+        'DFS then finds a maximal set of vertex-disjoint paths inside that layer graph. Because the paths are disjoint, they can be flipped together. After the phase, no augmenting path of that length remains, so the shortest length must increase.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Maintain pairU and pairV arrays for current matches, plus dist for left-side BFS layers. BFS enqueues every free left vertex at distance 0. From a left vertex, it follows unmatched edges to right vertices; from a matched right vertex, it follows the matched edge back to the next left vertex.',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with nodes connected by arrows`, caption: `The alternating search can be read as a directed reachability problem: unmatched edges move left-to-right, matched edges move back. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg`},
-        `DFS phase: for each free left vertex u, attempt to reach NIL through the layered graph. At vertex u, try each neighbor v. Accept v if v is free, or if pairV[v] has dist equal to dist[u]+1 and the recursive DFS from pairV[v] succeeds. On success, set pairU[u] = v and pairV[v] = u along the way -- this flips the path. On failure, set dist[u] = infinity so no other DFS re-enters this dead end during the same phase.`,
-        `Repeat BFS and DFS phases until BFS finds no path to NIL. The union of all flipped paths across all phases is the maximum matching.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Correctness rests on Berge's lemma: a matching M is maximum if and only if no augmenting path exists with respect to M. Hopcroft-Karp searches for augmenting paths and stops only when none remain, so the final matching is maximum by the same argument that validates the one-path-at-a-time method.`,
-        `Flipping an augmenting path preserves the matching property. Internal vertices on the path have exactly one matched edge before and after the flip. The two endpoints are free before and matched after. The path has one more unmatched edge than matched, so the matching size increases by exactly one per path. Vertex-disjoint paths can be flipped simultaneously because they share no endpoints.`,
-        `The speed argument: after flipping a maximal set of shortest augmenting paths of length L, no augmenting path of length L or shorter remains. The shortest augmenting length strictly increases between phases. Once the shortest length exceeds sqrt(V), each remaining augmenting path uses more than sqrt(V) vertices, so at most sqrt(V) vertex-disjoint paths can remain. That means at most sqrt(V) more phases. Total phases: at most 2*sqrt(V). Each phase costs O(E). Total: O(E*sqrt(V)).`,
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        `Time: O(E*sqrt(V)) total. Each BFS phase scans every edge once. Each DFS phase scans edges inside the layered graph, and marking dead ends prevents rescanning. The number of phases is at most O(sqrt(V)), proven by the path-length monotonicity argument.`,
-        `Space: O(V + E). Adjacency lists dominate. The pairU, pairV, and dist arrays are each O(V). BFS uses a queue of at most V entries. DFS uses a stack bounded by V.`,
+        'If BFS reaches a free right vertex, DFS tries to reach free rights while respecting the layer distances. A successful DFS call updates pairU and pairV along the path. A failed left vertex can be marked dead for the current phase so other DFS calls do not re-enter it.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'Correctness uses Berge\'s lemma: a matching is maximum if and only if no augmenting path exists. Hopcroft-Karp only flips valid augmenting paths and stops only when BFS cannot reach a free right vertex. At that point no augmenting path remains, so the matching is maximum.',
+        'Flipping preserves the matching property. Internal vertices trade one matched edge for another, and the free endpoints become matched. Vertex-disjoint augmenting paths can be flipped in the same phase because they share no endpoints.',
+        'The phase bound comes from shortest-path growth. After a maximal batch of shortest paths is flipped, no path of that length remains. Once path length exceeds sqrt(V), only about sqrt(V) disjoint paths can remain, so the total number of phases is O(sqrt(V)).',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Each phase costs O(E): BFS scans edges to build layers, and DFS scans edges within those layers while pruning dead ends. The number of phases is O(sqrt(V)). Total time is O(E * sqrt(V)), and space is O(V + E).',
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Biclique_K_3_5_bicolor.svg/500px-Biclique_K_3_5_bicolor.svg.png`, alt: `Complete bipartite graph K three five with two colored vertex sets`, caption: `Dense bipartite graphs make the E term visible: one phase may inspect many left-right eligibility edges. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Biclique_K_3_5_bicolor.svg`},
-        `Doubling V with constant average degree roughly doubles E. The sqrt(V) factor grows slowly: 100 vertices need at most ~10 phases, 10,000 need ~100, 1,000,000 need ~1,000. In practice, most graphs need far fewer phases because the matching saturates early.`,
-        `Compared to the simple augmenting-path method at O(V*E): on a graph with 10,000 vertices per side and 50,000 edges, Hopcroft-Karp does roughly 100 * 50,000 = 5 million edge scans versus 10,000 * 50,000 = 500 million. That is a 100x difference from scheduling discipline alone.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `Job assignment under binary eligibility. Each worker can do certain jobs; each job needs one worker. Maximum matching finds the largest feasible assignment before any cost optimization. The unmatched set identifies which skills or positions are the binding constraint.`,
-        `The National Resident Matching Program (NRMP) matches medical residents to hospitals. While the full system uses stable matching (Gale-Shapley with extensions), the feasibility check -- can every resident be placed somewhere? -- is a maximum matching question. Stable matching refines the answer; maximum matching establishes whether it exists.`,
-        `Compiler register allocation models variables as one side and registers as the other. Eligibility edges encode which variables can live in which registers during overlapping lifetimes. Maximum matching determines how many variables can be register-allocated before spilling to memory.`,
-        `Image stitching in panorama construction matches feature points between overlapping images. Each feature in one image can match at most one feature in the adjacent image. Maximum bipartite matching selects the largest consistent set of correspondences, which then feeds into a homography estimator.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `Non-bipartite graphs. If the graph has odd cycles -- roommate problems, general friendship networks, non-planar circuit routing -- Hopcroft-Karp cannot be applied. Edmonds' blossom algorithm handles general graphs by contracting odd cycles into single vertices, but it is substantially more complex.`,
-        `Weighted assignment. Maximum cardinality says nothing about cost. Assigning 100 workers to 100 jobs with maximum matching may pick the worst-cost perfect matching. The Hungarian algorithm solves the weighted case in O(V^3), and min-cost flow generalizes further. Use Hopcroft-Karp only when every valid assignment is equally good, or as a feasibility check before optimization.`,
-        `Online and dynamic settings. If workers and jobs arrive over time, rerunning Hopcroft-Karp from scratch after each arrival wastes work and causes assignment churn. Online bipartite matching algorithms (Karp-Vazirani-Vazirani 1990) and incremental matching maintain solutions under updates, trading optimality for stability and speed.`,
-        `Hidden capacity constraints. If a worker can take two shifts, or a job needs three workers, the unit-capacity bipartite model is wrong. Multi-capacity assignment requires b-matching or network flow. Forcing a multi-capacity problem into unit matching silently drops valid assignments.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Four workers (u1-u4), four jobs (v1-v4). Edges: u1-v1, u1-v3, u2-v1, u2-v2, u3-v2, u3-v4, u4-v2, u4-v4. Initial matching: u2-v1, u4-v2. Free left: u1, u3. Free right: v3, v4.`,
-        `Phase 1 BFS: enqueue u1 (dist 0) and u3 (dist 0). u1 scans v1 (matched to u2, but we check v3 first) and v3 (free -- NIL reachable at distance 1). u3 scans v2 (matched to u4, but check v4 first) and v4 (free -- NIL reachable at distance 1). Shortest augmenting length is 1 (direct free-to-free edges).`,
-        `Phase 1 DFS: from u1, try v3 -- v3 is free, augment. Set pairU[u1]=v3, pairV[v3]=u1. From u3, try v4 -- v4 is free, augment. Set pairU[u3]=v4, pairV[v4]=u3. Two vertex-disjoint paths flipped in one phase. Matching is now {u1-v3, u2-v1, u3-v4, u4-v2} -- size 4, a perfect matching.`,
-        `Phase 2 BFS: no free left vertices remain. BFS finds no path to NIL. Algorithm terminates. Maximum matching size: 4. A one-path-at-a-time algorithm would have found u1-v3 in pass 1, then u3-v4 in pass 2 -- two separate graph scans instead of one batched phase.`,
-        `If the graph were larger and the two short paths were not available, BFS would build longer alternating layers -- say u1 to v1 (unmatched), v1 to u2 (matched back), u2 to v2 (unmatched), v2 to u4 (matched back), u4 to v4 (unmatched to free) -- a length-5 augmenting path. Hopcroft-Karp would take all length-5 paths in that phase before allowing length-7 paths in the next.`,
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        `Primary source: Hopcroft and Karp, "An n^(5/2) Algorithm for Maximum Matchings in Bipartite Graphs" (SIAM Journal on Computing, 1973). Konig's theorem (1931) established the max-matching = min-vertex-cover duality for bipartite graphs. Berge's lemma (1957) gave the augmenting-path characterization that underpins all augmenting-path algorithms.`,
-        `Prerequisite: study Graph BFS for the layered construction and DFS Traversal for the restricted search within layers. Extension: study the Hungarian algorithm (Kuhn 1955) for weighted bipartite assignment, and Dinic's algorithm for maximum flow -- Dinic uses the same phase-discipline idea (level graphs + blocking flows) in a capacity-flow setting. Contrast: study Edmonds' blossom algorithm (1965) for maximum matching in general (non-bipartite) graphs, and Gale-Shapley stable matching for preference-based assignment.`,
-      ],
-    },
+        'With 10,000 vertices and 50,000 edges, sqrt(V) is about 100, so the rough phase-scan budget is 5 million edge scans. A one-path approach can approach 10,000 * 50,000 = 500 million scans. The behavior difference comes from batching, not from a different final answer.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Eligibility assignment is the direct use: workers to shifts, students to rooms, papers to reviewers, and tests to machines. Maximum matching tells whether enough compatible pairs exist before any weighted objective is considered.',
+        'It also appears as a subroutine in scheduling, feature matching, and feasibility checks for larger optimization systems. If costs matter, Hopcroft-Karp can establish whether a perfect matching exists before a weighted assignment algorithm chooses the cheapest one.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'Hopcroft-Karp only applies to bipartite, unweighted, unit-capacity matching. General graphs with odd cycles need blossom-style algorithms. Weighted assignment needs Hungarian algorithm or min-cost flow.',
+        'Dynamic and online settings also weaken the fit. If vertices and edges arrive continuously, recomputing from scratch can cause churn. Multi-capacity cases, such as one worker covering two shifts, need b-matching or flow rather than plain matching.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Workers u1-u4 and jobs v1-v4 have current matches u2-v1 and u4-v2. Free left vertices are u1 and u3; free right vertices are v3 and v4. Edges include u1-v3 and u3-v4, so two direct augmenting paths exist.',
+        'BFS starts from u1 and u3 at distance 0 and reaches free rights v3 and v4 at length 1. DFS takes u1-v3 and u3-v4, which are vertex-disjoint. After flipping both, the matching is {u1-v3, u2-v1, u3-v4, u4-v2}, size 4.',
+        'A one-path algorithm would add u1-v3 in one pass, then rescan to add u3-v4. Hopcroft-Karp takes both in one phase because BFS proved they are shortest and DFS proved they do not share vertices.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary source: Hopcroft and Karp, An n^(5/2) Algorithm for Maximum Matchings in Bipartite Graphs, 1973. Berge\'s augmenting-path lemma and Konig\'s theorem are the proof background for bipartite matching.',
+        'Study BFS, DFS, and augmenting paths first. Study Dinic\'s max-flow algorithm for a similar level-graph plus blocking-flow pattern, Hungarian algorithm for weighted assignment, and Edmonds blossom for general graph matching.',
+      ], },
   ],
 };

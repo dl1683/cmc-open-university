@@ -246,103 +246,94 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The shape-transitions view shows a transition tree. Each node is a hidden class (V8 calls them Maps). Edges are property additions: Map0 is the empty object, Map1 adds x, Map2 adds y. The main chain is the happy path; the side branch (MapA) shows what happens when properties arrive in a different order. The descriptor table shows the fixed offsets that make the fast path possible.',
+        'The shape-transition view shows hidden classes, which V8 calls Maps. A hidden class is layout metadata: it says which properties exist and where their values live inside the object.',
         {
           type: 'callout',
           text: 'A dynamic property access becomes fast only after the engine can guard it with a stable shape and a cached offset.',
         },
-        'The inline-cache view shows one property access site (obj.x) and the three IC states it can reach. Monomorphic: the site has seen exactly one Map, so the fast path is a single pointer comparison plus an offset read. Polymorphic: two to four Maps, each with its own handler stub. Megamorphic: too many Maps, so the site falls back to generic dictionary lookup.',
-        'Watch which nodes light up. Active nodes are the current execution path. Compared nodes are the slower alternative the optimization avoids.',
+        'The safe inference is guarded reuse. If an object still has the cached Map, the inline cache may read the cached offset; if the Map differs, the engine must take a slower path or update feedback.',
+        'In the inline-cache view, monomorphic means one Map has been seen, polymorphic means a few Maps have been seen, and megamorphic means the access site has become too diverse for a tight fast path.',
       
         {type: 'image', src: './assets/gifs/v8-hidden-classes-inline-caches.gif', alt: 'Animated walkthrough of the v8 hidden classes inline caches visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'JavaScript objects are open dictionaries. Code can add properties at any time, delete them, reorder them, or pass unrelated objects through the same function. The language spec promises property semantics, not fixed layouts.',
-        'Without optimization, every property access is a dictionary lookup: hash the name, probe the table, follow the chain. A hot loop reading obj.x a million times would repeat that work every iteration, even if every object has exactly the same properties in exactly the same order.',
-        'V8 recovers near-static-language speed by discovering structure at runtime. Hidden classes capture the shape; inline caches attach that shape to hot access sites so property reads become guarded offset loads instead of dictionary probes.',
+        'JavaScript objects can gain and lose properties at runtime. The language behaves like every object is a flexible dictionary, but hot programs need property access that is closer to a fixed-offset load.',
+        'Hidden classes and inline caches exist to recover stable structure from dynamic code. They let the engine say: this access is fast as long as the object shape is the one we already proved.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Store each object as a hash map from property names to values. This is how early JavaScript engines worked: SpiderMonkey in 1995 used a property table per object. It correctly handles arbitrary keys, late additions, deletions, and unusual objects without a separate layout system.',
-        'The representation matches the language. If JavaScript promises dynamic properties, a dictionary delivers dynamic properties. For small scripts and cold code, it is simple and correct.',
+        'The obvious representation is a hash table per object from property name to value. It handles dynamic keys, deletion, unusual prototypes, and late additions without needing a separate layout system.',
+        'That representation is correct and often fine for cold code. A one-off configuration object does not need a transition tree or compiled fast path.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Dictionary lookup on every obj.x is slow. Hashing the property name, probing the table, and following the result chain costs tens of nanoseconds per access. In a tight loop over an array of points, that overhead dominates actual computation.',
-        'The deeper problem is that a JIT compiler cannot emit efficient machine code when the shape is unknown at compile time. Without a fixed offset, the compiler cannot inline the load. Without inlining, it cannot eliminate redundant loads, hoist invariants, or allocate values in registers. The dictionary wall is not just a constant-factor cost; it blocks the entire optimization pipeline.',
+        'The wall is repeated lookup at hot access sites. Reading obj.x one million times should not hash the string x and probe a table one million times if every object has the same layout.',
+        'A compiler also needs a stable offset to produce good machine code. Without a guarded layout assumption, it cannot inline the load, keep values in registers, or remove redundant property checks.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Make the offset assumption conditional on shape. A hidden class records which named properties exist and at which offsets their values live. Objects that receive the same properties in the same order share the same hidden class and the same descriptor metadata.',
+        'The core insight is to make layout assumptions explicit and cheap to check. Objects that receive the same properties in the same order share the same hidden class and descriptor metadata.',
         {type: 'image', src: 'https://v8.dev/_img/fast-properties/adding-properties.png', alt: 'V8 hidden class transition tree while adding object properties', caption: 'The transition tree shows why property order matters: the same additions in the same order share one final hidden class. Source: V8 blog, Fast properties in V8, CC BY 3.0.'},
-        'An inline cache is shape feedback attached to one access site. At obj.x in a particular function, the IC records the last Map it saw and the offset for x on that Map. The fast path is: compare the object Map pointer to the cached Map; if they match, read the cached offset directly. If they do not match, fall back or update.',
-        'The key move is that shapes form a deterministic transition tree. Adding x, then y always produces the same sequence of Maps. This makes the transition predictable, the descriptor shareable, and the IC check cheap.',
+        'An inline cache stores a Map pointer and an offset for one property access site. The Map pointer proves the layout, and the offset tells the engine where to load the value.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'An object starts with an initial Map (the empty shape). Adding property x transitions to Map1. Adding y transitions to Map2. Any other object that adds x then y walks the same transitions and arrives at Map2, sharing its descriptor array. The descriptors record each property name, offset, and attributes.',
-        'Some properties are stored in-object (slots allocated directly inside the object). Others overflow into a backing store. Very dynamic objects -- those that suffer deletions or receive many late additions -- can be demoted to dictionary mode, where the Map is abandoned and each object carries its own property table.',
-        'At each property access site, the inline cache starts uninitialized. The first execution observes the object Map, looks up the property in the descriptor array, and caches the Map-offset pair. On the next call with the same Map, the IC skips the lookup entirely. A monomorphic IC has cached one Map (fastest). A polymorphic IC has cached two to four Maps, each with its own handler stub. A megamorphic IC has seen too many Maps and falls back to a generic lookup that checks the full descriptor chain.',
-        'Array elements follow a parallel system. V8 tracks elements kinds: packed SMI (small integers), packed doubles, packed objects, and holey variants of each. Transitions go from specific to general and never reverse: storing a double in a SMI array widens it permanently.',
+        'An empty object starts at an initial Map. Adding x transitions to a new Map with x at offset 0, and adding y transitions to another Map with y at offset 1.',
+        'The first execution of obj.x performs the full lookup and records feedback. The next execution with the same Map performs one pointer comparison and then reads the value directly from the known offset.',
+        'If a new Map appears, the site may become polymorphic and cache a small set of handlers. If too many unrelated Maps arrive, it becomes megamorphic and falls back to generic lookup.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Most JavaScript code is de facto typed. Constructors add the same fields in the same order. Factory functions return objects with the same shape. Hot loops process arrays of structurally identical records. The IC amortizes the shape check to a single pointer comparison because the Map pointer encodes the entire property layout.',
-        'The fast path is correct because it is guarded. The cached offset is used only after the Map pointer proves the descriptor layout is the one the IC learned. If the Map differs, the cached offset is not trusted: the engine checks another polymorphic handler, updates feedback, or triggers deoptimization of compiled code that assumed a particular shape.',
-        'Shape transitions are deterministic: adding properties in the same order always produces the same Map. This means the transition tree is a DAG, not a random graph, and sharing is the common case rather than a lucky accident.',
+        'The fast path is correct because it is guarded by identity of the hidden class. The offset is trusted only after the Map comparison proves that the object layout is the layout the cache learned.',
+        'Shape transitions are deterministic for the same addition order. That means a constructor that always assigns x then y creates objects with the same final Map, so feedback collected on one instance applies to the next.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'A monomorphic IC hit costs one pointer comparison (roughly 2-3 ns on modern hardware) plus a direct offset read. An IC miss -- seeing an unexpected Map -- costs roughly 100 ns to fall back through the lookup chain, update feedback, and possibly patch the IC.',
-        'The engine pays memory for Maps, descriptor arrays, transition tree metadata, IC feedback vectors, compiled code, and deoptimization metadata. Stable shapes let that metadata amortize across millions of property reads. Shape diversity wastes it: each new Map costs memory, and each IC transition costs time.',
-        'Deoptimization is the hidden cost. When optimized code assumed a monomorphic site and a new shape arrives, the JIT must discard the compiled code, reconstruct the interpreter frame from on-stack replacement metadata, and eventually recompile with broader feedback. A single megamorphic site in a hot function can force the entire function back to unoptimized code.',
+        'A monomorphic hit costs roughly a pointer comparison plus a memory load. A miss costs a slower lookup, feedback update, and sometimes deoptimization if compiled code assumed the narrower shape.',
+        'Cost behaves badly when shape diversity grows. Two shapes add a small dispatch; many shapes can force a megamorphic fallback, so a hot loop that looked like O(n) arithmetic becomes O(n) generic property lookup with a much larger constant.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Hot loops accessing objects with consistent shapes: point clouds, parsed JSON rows, AST nodes, UI component models, HTTP request records. Any code path where a constructor or factory always adds the same properties in the same order produces monomorphic IC sites.',
-        'The practical rule: initialize all fields in the constructor, always in the same order. Keep configuration bags and dynamic key-value maps in separate objects from performance-critical records. A hot function that only ever sees Point objects stays monomorphic; the IC check is a single compare-and-branch before a direct memory read.',
+        'This is the reason constructors and factories should initialize the same fields in the same order. Point objects, AST nodes, parsed JSON rows, UI models, and request records all become faster when hot code sees stable shapes.',
+        'The same idea extends to array element kinds. Packed integer arrays, double arrays, object arrays, and holey arrays each carry layout feedback that lets the engine choose specialized code until the program widens the representation.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Adding properties in different orders creates different Maps, even if the final set of property names is identical. function Point(x,y) {this.x=x; this.y=y} and function Point(x,y) {this.y=y; this.x=x} produce two different transition chains. Code that mixes them at one access site pays polymorphic or megamorphic cost.',
-        'The delete operator destroys the fast path. Deleting a property from an object can force it into dictionary mode, where it no longer shares a Map with other objects and every property access goes through the slow hash-table path.',
-        'Megamorphic sites never fully optimize. A generic utility function like serialize(obj) that accepts dozens of unrelated object shapes will see its IC degrade to the generic fallback. The fix is architectural: narrow the set of shapes reaching hot code paths.',
-        'Too many shapes also create memory pressure on the transition tree itself. Each unique construction order spawns a new chain of Maps. In extreme cases (code-generated objects with randomized property order), the transition tree grows without bound.',
-        'This lens is wrong for cold code, I/O-bound code, or code whose bottleneck is algorithmic. A better data structure or fewer DOM operations will matter far more than shape stability.',
+        'Different property orders produce different Maps even when the final property names match. Deleting properties can push objects into dictionary mode, where the fast shared layout no longer applies.',
+        'Generic utilities also defeat the cache. A serializer that accepts dozens of unrelated object shapes at one access site may be inherently megamorphic, and the right fix is often to move shape-normalization outside the hot loop.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Start with function Point(x, y) { this.x = x; this.y = y; }. Calling new Point(1, 2) produces three shape transitions: {} (Map0, the initial empty shape) then {x: offset 0} (Map1, after this.x = x) then {x: 0, y: 1} (Map2, after this.y = y). Every Point created by this constructor shares Map2.',
-        'A hot distance function -- function dist(p) { return Math.sqrt(p.x*p.x + p.y*p.y); } -- accesses p.x and p.y. At the p.x site, the IC caches Map2 with offset 0. At the p.y site, the IC caches Map2 with offset 1. Both sites are monomorphic: one pointer compare, one offset read, no dictionary lookup.',
-        'Now introduce a variant: function PointYX(x, y) { this.y = y; this.x = x; }. Objects from PointYX have {y: 0, x: 1} -- a different Map (MapA) with the same property names but different offsets. Passing both Point and PointYX objects through dist makes the p.x site polymorphic: it must check two Maps and dispatch to two different offsets. Pass five or more unrelated shapes and the site goes megamorphic, falling back to generic lookup on every call.',
+        'function Point(x, y) { this.x = x; this.y = y; } creates Map0 for empty, Map1 after x, and Map2 after y. In Map2, x is offset 0 and y is offset 1.',
+        'A hot function dist(p) reads p.x twice and p.y twice. After warmup, each site can check Map2 and load offsets 0 and 1 directly, so 1,000,000 calls avoid 4,000,000 dictionary probes.',
+        'Now add PointYX, which assigns y before x. It has a different Map where x is offset 1, so the same dist site becomes polymorphic; after five unrelated shapes, it is likely megamorphic and the offset proof no longer stays small.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'The hidden-class idea descends from the Self language: Chambers, Ungar, and Lee, "An Efficient Implementation of SELF, a Dynamically-Typed Object-Oriented Language Based on Prototypes" (1989), introduced Maps as a way to share layout metadata across prototype-based objects. V8 adapted the same concept for JavaScript.',
-        'Primary sources: V8 blog "Fast Properties in V8" (https://v8.dev/blog/fast-properties), V8 blog "Elements Kinds in V8" (https://v8.dev/blog/elements-kinds), Mathias Bynens and Benedikt Meurer "JavaScript Engine Fundamentals: Shapes and Inline Caches" (https://mathiasbynens.be/notes/shapes-ics), and the V8 source code (https://github.com/nicolevanderhoeven/v8).',
-        'Study next: V8 Array Elements Kinds for the parallel optimization on indexed storage. V8 Ignition Bytecode Pipeline for how feedback flows between interpreter and JIT tiers. Deoptimization Stack Maps & Safepoints for what happens when JIT shape assumptions break. Hash Table for the generic lookup path that hidden classes replace. Cache Invalidation & Versioning for the broader pattern of guarded cached assumptions.',
+        'Primary sources are Chambers, Ungar, and Lee, An Efficient Implementation of SELF (1989); the V8 blog Fast Properties in V8; the V8 blog Elements Kinds in V8; and Mathias Bynens and Benedikt Meurer, JavaScript engine fundamentals: Shapes and Inline Caches. These explain Maps, descriptor arrays, elements kinds, and feedback-driven optimization.',
+        'Study hash tables to understand the fallback path, then JIT compilation, deoptimization, array elements kinds, cache invalidation, and object layout. The general pattern is guarded speculation: make a fast assumption, prove it cheaply, and exit when the proof fails.',
       ],
     },
   ],

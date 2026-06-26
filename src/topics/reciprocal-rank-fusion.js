@@ -255,89 +255,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each input list as one retriever voting with order, not with raw score. Rank 1 means the retriever liked that document most for this query; rank 4 means it liked three documents more. A missing document gives no vote from that retriever.',
+        'The fused-score table shows the safe inference rule: add 1 / (k + rank) for every list where the document appears, then sort by the sum. A document supported by several retrievers can beat a document that won one list and disappeared from the others.',
         {type: 'image', src: './assets/gifs/reciprocal-rank-fusion.gif', alt: 'Animated walkthrough of the reciprocal rank fusion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Reciprocal Rank Fusion exists because modern search often has several useful retrievers whose scores cannot be compared directly. BM25 returns lexical scores shaped by term frequency and document length. Vector search returns distances or similarities from an embedding space. Graph retrieval may return relationship strength. Metadata or freshness rules may create yet another signal. Adding those raw numbers together is usually nonsense.',
-        'The practical problem is candidate recall. A support assistant, RAG system, enterprise search box, or code search tool wants exact term matches, semantic paraphrases, graph-neighbor evidence, and recent documents to all have a chance to reach the reranker. RRF gives those systems a cheap, robust way to merge ranked lists before expensive reranking.',
-        'The method is deliberately modest. It does not decide truth, authorization, freshness, or final relevance. It solves one narrow but important problem: take several ranked lists and create one candidate pool without brittle score normalization.',
+        'Search systems often use more than one retriever. A lexical retriever finds exact words, while a vector retriever finds nearby meaning in an embedding space. Their scores are not measured in the same units, so adding BM25 score 12.7 to cosine score 0.81 has no stable meaning.',
+        'Reciprocal Rank Fusion, or RRF, solves the candidate-merging problem before final reranking. It turns each rank into a small vote and sums those votes across retrievers. The output is not final truth; it is a better pool for a later filter or reranker.',
         {type: 'callout', text: 'RRF treats rank as the shared currency between retrievers, so lexical, vector, graph, and freshness signals can vote without score calibration.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is score normalization: rescale BM25, cosine similarity, graph scores, and metadata boosts onto a shared range, then add them. That looks principled until the distributions shift by query type. Exact identifier queries, broad semantic questions, short queries, long queries, and rare terms all produce different score shapes. A normalization that works in one slice can fail in another.',
-        'Another approach is to pick one retriever as the source of truth. That gives stable behavior but poor recall. Lexical search misses paraphrases. Vector search misses exact rare identifiers. Graph expansion can find related objects but drift away from the user query. Hybrid systems exist because each retriever has a different blind spot.',
-        'RRF avoids those traps by throwing away raw score magnitudes. It asks only where a candidate appeared in each list. That is less expressive than calibrated scoring, but it is also much harder to break accidentally.',
+        'The obvious approach is score normalization. Put every retriever score on a zero-to-one scale, add the results, and sort. That can work in a controlled benchmark where score distributions stay stable.',
+        'Real queries do not stay stable. Exact identifier queries, broad semantic queries, misspellings, rare terms, and long policy questions produce different score shapes. A normalization rule that helps one slice can bury useful documents in another.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that rank position is a common currency. A document ranked first by a retriever is receiving a strong vote from that retriever, even if the raw score scale is incomparable to another retriever. RRF turns that position into a contribution of 1 / (k + rank), then sums contributions across lists.',
+        'The wall is score calibration. BM25, vector similarity, graph proximity, and freshness boosts are produced by different mechanisms. Their raw values do not carry a shared probability or utility interpretation.',
+        'Choosing one retriever avoids calibration but loses recall. Lexical search misses paraphrases, while vector search can miss exact part numbers or legal citations. Hybrid search exists because each retriever fails in a different direction.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Rank position is a weaker signal than score, but it is much more portable. If a retriever places a document near the top, that fact can be compared with another retriever placing another document near the top. RRF uses rank as the common unit.',
         {type: 'image', src: 'https://qdrant.tech/articles_data/hybrid-search/fusion.png', alt: 'Dense and sparse search result lines normalized and fused into one mixed ranking', caption: 'Hybrid search exposes the reason RRF exists: dense and sparse retrievers produce different score spaces, so fusion needs a rank-level bridge. Source: https://qdrant.tech/articles/hybrid-search/.'},
-        'The constant k controls how sharply top ranks dominate. With the common k = 60 baseline, rank 1 contributes 1/61, rank 2 contributes 1/62, and so on. The difference between adjacent ranks is smooth rather than explosive. That lets broad agreement across retrievers beat a lonely first-place result when the lonely result is invisible elsewhere.',
-        'This makes RRF a candidate-pool algorithm. It is not a final judge. Its job is to preserve diverse plausible evidence so a downstream reranker, filter, or answer generator has something worth evaluating.',
+        'The reciprocal formula gives diminishing credit as rank gets worse. With k = 60, rank 1 contributes 1/61, rank 2 contributes 1/62, and rank 10 contributes 1/70. Top ranks matter, but agreement across lists can still win.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For each input list, assign ranks starting at 1. For each document in a list, add 1 / (k + rank) to that document’s fused score. If a document is missing from a list, it contributes zero for that list. After processing all lists, sort documents by fused score and keep the top candidates.',
-        'Suppose BM25 ranks a refund policy first, vector search ranks it second, and graph expansion ranks it fourth. With k = 60, the policy receives 1/61 + 1/62 + 1/64. A document ranked first by only one retriever receives 1/61. The broadly supported policy can outrank the isolated winner because several weakly discounted votes add up.',
-        'In production, RRF usually runs after filtering and before reranking. Access control, tenant filters, language filters, freshness filters, or document-type constraints should run before fusion when they are hard requirements. The reranker then spends more expensive compute on a fused candidate pool rather than on every document.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The first visual proves the join point in a hybrid retrieval system. BM25, vector search, and graph retrieval each return their own ranked list. RRF sits where those lists meet. It does not need to know why a retriever liked a document, only where that document ranked.',
-        'The contribution table proves the math. A top result gets a little more credit than a second-place result, but not infinitely more. A missing document gets nothing. The fused-score table then shows the behavior that matters: a document that appears near the top of several lists can outrank a document that appears at the top of only one.',
-        'The hybrid-search case proves the boundary between recall and precision. RRF widens recall by preserving several retrieval perspectives. A cross-encoder, late-interaction model, or other reranker later decides final precision. If the relevant document never appears in any input list, RRF cannot invent it.',
+        'Start with several ranked lists for the same query. Number each list from rank 1 downward. For each document, add 1 / (k + rank) to its fused score for every list where it appears.',
+        'Missing documents add zero for that list. After all lists are processed, sort by fused score and keep the top candidates. Production systems usually run hard filters such as tenant access before fusion, then send the fused pool to a stronger reranker.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because retrievers make different errors. Lexical search is good at exact identifiers and rare terms. Vector search is good at paraphrase and semantic neighborhood. Graph search is good at relationships. A relevant document that appears in several independent lists is often worth keeping, even if none of the raw scores can be compared.',
-        'It also works because rank is robust. The difference between a BM25 score of 13 and 9 may not mean the same thing as the difference between cosine 0.82 and 0.78. But rank 1 versus rank 20 has a shared operational meaning: this retriever preferred one item strongly enough to place it high in its own ordering.',
-        'The reciprocal formula gives a smooth discount. It rewards top positions without letting a single top rank dominate every other signal. That balance is why RRF is common as a default hybrid-search merger.',
+        'RRF works because independent retrieval methods make partly independent errors. A document that appears near the top of both lexical and semantic retrieval has survived two different tests. That agreement is useful even when the raw scores cannot be compared.',
+        'The correctness claim is narrow: given ranked input lists and the RRF formula, the algorithm returns the documents in descending fused-score order. Each contribution is nonnegative, so adding another appearance can only help a document. Sorting the accumulated map therefore implements exactly the stated voting rule.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'RRF is cheap. It needs ranked lists, a map from document ID to accumulated score, and a final sort. The expensive work is upstream retrieval and downstream reranking. For short candidate lists, the cost is usually negligible compared with embedding search or cross-encoder scoring.',
-        'The important knobs are k, per-list cutoff, duplicate handling, filters, and optional weights. Smaller k makes top positions matter more. Larger k makes agreement across lists matter more. Short cutoffs reduce cost but can hide late evidence. Weighted RRF can express trust differences between retrievers, but it reintroduces some tuning fragility.',
-        'There is also a fairness tradeoff across retrievers. A noisy retriever can contribute candidates that consume reranker budget. A narrow retriever can starve the pool. The right evaluation should measure candidate recall before reranking, precision after reranking, and final answer quality or task success.',
+        'If there are m lists with L candidates each, accumulation is O(mL) time. The map stores at most mL distinct document IDs, so memory is O(u), where u is the number of unique candidates. Sorting the unique candidates costs O(u log u).',
+        'The behavior is usually cheap because L is small compared with the full corpus. Doubling the number of retrievers roughly doubles accumulation work. Doubling the per-list cutoff increases both recall and reranker cost, so cutoff is a product decision as much as an algorithm knob.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'RRF wins in hybrid search, enterprise search, legal retrieval, support assistants, code search, RAG systems, and recommendation candidate generation. It is especially useful when several first-stage retrievers are individually useful but their scores are not calibrated to one another.',
-        'A support assistant is the complete example. A user asks about canceling an annual plan after a renewal invoice. BM25 finds exact policy language. Vector search finds paraphrased refund guidance. Graph expansion finds account-owner relationships. Metadata filters remove stale documents. RRF merges the survivors so a reranker can choose the final evidence.',
-        'It is also valuable during system iteration. Teams can add or remove retrievers without redesigning a global score function every time. That does not eliminate evaluation, but it makes the candidate pipeline easier to evolve.',
+        'RRF is common in hybrid search for retrieval-augmented generation, enterprise search, support search, code search, and legal discovery. The fit is strongest when first-stage retrievers are valuable but not score-calibrated.',
+        'A support assistant is a typical case. BM25 finds the exact refund policy, vector search finds paraphrased guidance, and metadata retrieval finds recent account-specific documents. RRF keeps evidence from each path alive before a reranker spends expensive compute.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'RRF does not know whether a document is true, fresh, authorized, or sufficiently specific. It only knows where the document appeared in each ranked list. If every retriever misses the supporting passage, fusion cannot recover it. If a retriever returns unauthorized documents, RRF can accidentally promote them unless access control filters run before fusion.',
-        'Another mistake is treating k = 60 as a law. It is a strong baseline, but the right setting depends on list depths, number of retrievers, and how much you want to reward agreement versus top-rank dominance. Evaluate candidate recall, rerank precision, and answer faithfulness separately.',
-        'A subtler failure is duplicate fragmentation. The same passage may appear through several chunk IDs, document versions, or near-duplicates. If deduplication is weak, RRF may spend the top pool on redundant evidence rather than diverse support.',
+        'RRF cannot recover a document that no input retriever returned. It also cannot decide authorization, freshness, or factual correctness. Those constraints need filters, deduplication, and downstream evaluation.',
+        'A noisy retriever can waste the candidate budget, especially when its list is long. A small k makes first-place results dominate; a large k rewards broad agreement more heavily. The setting should be chosen by measuring candidate recall before reranking and task quality after reranking.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: RRF paper PDF at https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf, ACM DOI at https://dl.acm.org/doi/10.1145/1571941.1572114, Google Research page at https://research.google/pubs/reciprocal-rank-fusion-outperforms-condorcet-and-individual-rank-learning-methods/, Elasticsearch RRF docs at https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion, and Azure hybrid scoring docs at https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking.',
-        'Study Inverted Index, SPLADE Learned Sparse Retrieval, HNSW Search, Query Expansion and HyDE, Multi-Index RAG, Cross-Encoder Reranker, ColBERT Late-Interaction Retrieval, RAG Dedup MinHash Chunk Canonicalization, and LLM Evaluation Golden Sets next.',
+        'Use k = 60 and three documents. BM25 ranks A first, B second, C third. Vector search ranks B first, C second, A fifth. Graph retrieval ranks C first and A second, with B missing.',
+        'A gets 1/61 + 1/65 + 1/62 = 0.01639 + 0.01538 + 0.01613 = 0.04790. B gets 1/62 + 1/61 = 0.01613 + 0.01639 = 0.03252. C gets 1/63 + 1/62 + 1/61 = 0.01587 + 0.01613 + 0.01639 = 0.04839.',
+        'The final order is C, A, B. C never won the lexical list, but it appeared near the top everywhere. B won vector search, but missing from graph retrieval left it behind.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Cormack, Clarke, and Buettcher, Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods, SIGIR 2009, https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf. Implementation references: Elasticsearch RRF documentation and Azure AI Search hybrid ranking documentation.',
+        'Study next: inverted indexes for lexical retrieval, HNSW for vector search, cross-encoder rerankers for precision, and deduplication for chunked retrieval. Those topics explain the pieces that RRF joins.',
       ],
     },
   ],

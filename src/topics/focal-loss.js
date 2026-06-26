@@ -125,149 +125,110 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Focal Loss & Hard Examples. Easy examples drown the gradient by sheer headcount — (1âˆ’p)^γ mutes the confident and amplifies the struggling..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        {type: "callout", text: "Focal loss is difficulty-aware weighting: the label chooses the target, but model confidence chooses how much the example can steer the update."},
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/focal-loss.gif', alt: 'Animated walkthrough of the focal loss visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why it exists`,
-      paragraphs: [
-        `Focal loss exists because some training sets are not merely imbalanced by class. They are imbalanced by difficulty. Dense object detection is the clean example. A detector may evaluate tens of thousands of candidate boxes in one image. Almost all are easy background: sky, wall, road, table, blank space. A tiny fraction contain objects, and an even smaller fraction contain objects the model currently finds hard. If ordinary cross-entropy sums every candidate, the gradient can be dominated by examples the model already understands.`,
-        `The naive reaction is class weighting. If positives are rare, multiply positive loss by a larger number. That helps when the problem is mainly class frequency. It does not solve the harder pattern: easy negatives are numerous, hard negatives exist, easy positives exist, and hard positives are the ones you most need to learn. A fixed class multiplier cannot tell whether an individual example is already solved. It only knows the label.`,
-        `Focal loss changes the question from "which class is this?" to "how confidently did the model handle this example?" It keeps the cross-entropy foundation but multiplies each example by a difficulty factor. Confident correct examples become quiet. Struggling examples remain loud. The method is simple, but the shift is important: the loss function starts allocating training attention dynamically, per example, as the model improves.`,
+        'Read the tables as a gradient ledger. Each row has a per-example loss, a count, and a total contribution to the update. The key question is not which examples exist, but which examples get enough weight to steer learning.',
+        'The curve view shows the same idea continuously. Plain cross-entropy still charges easy correct examples a tiny amount, and a huge number of tiny charges can dominate. Focal loss bends the confident side of the curve down so solved examples become quiet.',
+        {type: 'callout', text: 'Focal loss is difficulty-aware weighting: the label chooses the target, but model confidence chooses how much the example can steer the update.'},
+        {type: 'image', src: './assets/gifs/focal-loss.gif', alt: 'Animated walkthrough of the focal loss visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: `The wall`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Cross-entropy for the true class is -log(p), where p is the model\'s assigned probability to the correct answer. A very wrong prediction with p = 0.1 pays about 2.30. A confident correct prediction with p = 0.99 pays about 0.010. One easy example hardly matters. The wall appears when there are 99,900 easy examples and 100 hard examples. The easy examples contribute 99,900 times 0.010, about 1,004 total loss. The hard examples contribute 100 times 2.30, about 230 total loss. The easy majority wins the gradient ledger.`,
-        `That is a strange failure. Cross-entropy is doing exactly what it was asked to do: penalize wrong predictions much more than correct predictions. But the reduction over a giant batch or image turns many tiny losses into a large force. The optimizer spends most of its step polishing background boxes from 99 percent confidence to 99.1 percent confidence while the rare object cases remain undertrained.`,
-        `Hard-example mining attacks the same wall by sorting examples by loss and training on the worst ones. That can work, but it is discrete and operationally awkward. Which k examples count? How often should the set change? Do you ignore every easy example completely? Focal loss gives a smooth answer: do not choose a hard set by hand; make every example weight itself by current confidence.`,
+        'Focal loss exists because some training problems are imbalanced by difficulty, not just by class. Dense object detectors may evaluate tens of thousands of candidate boxes per image. Most are easy background, while the valuable object boxes are rare and often harder.',
+        'Ordinary cross-entropy treats every candidate as part of the same sum. A single easy background box contributes little, but a crowd of easy boxes can dominate the total gradient. The model can spend too much learning capacity polishing cases it already gets right.',
+        'The goal is to make training attention follow current difficulty. A solved example should still be checked, but it should not speak as loudly as an example the model is failing. Focal loss gives each example that dynamic volume control.',
       ],
     },
     {
-      heading: `The core insight`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Focal loss multiplies cross-entropy by (1 - p)^gamma. When gamma is 0, the factor is 1 and the loss is ordinary cross-entropy. When gamma is positive, the factor shrinks as p approaches 1. A confident correct example with p = 0.99 and gamma = 2 receives a multiplier of 0.0001. A hard example with p = 0.1 receives a multiplier of 0.81. The hard example keeps most of its loss; the easy example is almost silenced.`,
+        'The obvious approach is class weighting. If positive boxes are rare, multiply positive examples by a larger constant and negative examples by a smaller one. That helps when the main problem is label frequency.',
+        'But class weighting is blind to difficulty inside each class. There are easy positives, hard positives, easy negatives, and hard negatives. A fixed class multiplier cannot know whether this specific example is already solved.',
+      ],
+    },
+ 
+
+
+
+
+   {
+      heading: 'The wall',
+      paragraphs: [
+        'Cross-entropy for the true class is -log(p), where p is the probability assigned to the correct label. At p = 0.99, the loss is about 0.010. At p = 0.1, the loss is about 2.30.',
+        'The wall appears when counts multiply those losses. In the animation, 99,900 easy examples at p = 0.99 contribute about 1,004 total loss, while 100 hard examples at p = 0.1 contribute about 230. The optimizer mostly hears examples that are already correct.',
+        'Hard-example mining attacks this by selecting the worst examples. That can work, but it introduces sorting, cutoffs, and all-or-nothing inclusion. Focal loss keeps all examples while smoothly reducing the weight of confident ones.',
+      ],
+  
+
+  },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Focal loss multiplies cross-entropy by (1 - p)^gamma. When gamma is 0, the factor is 1 and the loss is ordinary cross-entropy. When gamma is positive, the factor shrinks quickly as p approaches 1.',
         {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1708.02002/assets/x0.png', alt: 'Focal loss curves showing easy examples down-weighted as gamma increases', caption: 'The focal loss paper plots cross-entropy against focal loss for several gamma values, making the easy-example damping visible. Source: Lin et al., Focal Loss for Dense Object Detection, ar5iv.'},
-        `In the detector ledger, gamma = 2 changes the totals dramatically. The easy background group falls from roughly 1,004 total cross-entropy to about 0.10 focal loss. The hard group falls from roughly 230 to about 187. The share of training signal flips from easy-dominated to hard-dominated without an explicit rule that says "these examples are hard." The current model probability supplies that information every step.`,
-        `Alpha weighting is often paired with focal loss. Alpha is a class-balancing multiplier; gamma is the focusing parameter. They solve different problems. Alpha says one class should count more. Gamma says confident examples should count less. In practice, alpha can help with positive-negative imbalance while gamma handles easy-hard imbalance inside and across those classes.`,
+        'With gamma = 2, an easy correct example at p = 0.99 gets a multiplier of 0.0001. A hard example at p = 0.1 gets a multiplier of 0.81. The hard example keeps most of its training signal while the solved example nearly disappears.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'How it works',
       paragraphs: [
-        `The mechanism works because it changes gradient allocation, not just reported loss values. Easy examples still flow through the model, but their contribution to parameter updates becomes tiny. Hard examples retain a large derivative because the focal factor is near one when p is low. As training progresses, an example that used to be hard becomes confident, its focal factor shrinks, and attention moves elsewhere. The curriculum updates itself.`,
-        `This is especially useful in one-stage object detectors. Two-stage detectors first propose a smaller set of candidate regions, which reduces the easy-background flood. One-stage detectors classify dense grids of anchors directly, which is faster but creates a huge imbalance. Focal loss was the loss-function fix that let RetinaNet-style one-stage detection compete with two-stage approaches: keep dense detection, but stop easy anchors from owning the gradient.`,
+        'For each example, compute the ordinary cross-entropy for the correct class. Then compute the modulating factor from the model confidence on that same correct class. Multiply the two values and reduce over the batch or anchors as usual.',
+        'The effect updates during training. An example that starts hard has a low p and receives a large weight. Once the model learns it, p rises, the focal factor falls, and the example stops dominating future updates.',
+        'Alpha weighting is often added beside gamma. Alpha handles class balance, while gamma handles easy-hard balance. Keeping those roles separate prevents a common mistake: using focal loss to solve a problem that is really a class-prior or threshold problem.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Focal loss works because it reallocates gradient mass toward examples with low confidence on the correct class. It does not need a separate hard-example label. The model probability supplies a difficulty estimate at every step.',
+        'This is a strong fit for one-stage detectors. They keep dense anchor classification for speed, but dense anchors create a flood of easy background. Focal loss lets the detector keep the dense architecture while stopping easy anchors from owning the objective.',
         {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1708.02002/assets/x2.png', alt: 'RetinaNet architecture with feature pyramid and classification and box subnetworks', caption: 'RetinaNet applies focal loss to dense anchors across a feature pyramid, where easy background examples are abundant. Source: Lin et al., Focal Loss for Dense Object Detection, ar5iv.'},
-        `The shape is also related to margin thinking. Focal loss does not merely ask whether an example is correct; it asks whether the model is confidently correct. A borderline correct example still receives attention. A solved example fades. This is why focal loss can improve rare-event recall and detection quality even when class weights alone are insufficient.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Start by proving that the easy-example flood is real. Inspect per-example or per-anchor loss totals, not just average loss. If most of the loss comes from examples with high p for the true class, focal loss is a candidate. If the model is failing because all examples are noisy, labels are inconsistent, or the feature representation is weak, focal loss may make the wrong cases louder without solving the underlying problem.`,
-        `Gamma is the central hyperparameter. The RetinaNet paper used gamma = 2 as a strong default, but the best value depends on label quality, class frequency, model capacity, and task risk. Low gamma behaves closer to cross-entropy. High gamma aggressively suppresses easy examples and can hurt calibration or stability. If alpha is used, tune it separately from gamma; do not treat class imbalance and difficulty imbalance as the same diagnosis.`,
-        `Evaluate with metrics that reflect the reason you used focal loss. In detection, inspect average precision at relevant IoU thresholds, false positives per image, recall for small or rare objects, and class-specific performance. In binary rare-event classifiers, inspect precision-recall curves, recall at required precision, calibration, and performance on slices. A lower training loss is not enough; focal loss can reshape scores in ways that affect downstream thresholding.`,
+ 
+
+
+
+
+
+       'Focal loss adds little asymptotic cost over cross-entropy. The model already computed the logits and probabilities; focal loss adds a scalar factor and an exponentiation per example. The expensive part remains the network forward and backward pass.',
+        'The practical complexity is hyperparameter tuning. Gamma controls how aggressively easy examples are suppressed, and alpha may control class balance. Too little focusing behaves like cross-entropy; too much can shrink the effective batch to a small, noisy set of hard cases.',
+        'It also changes score behavior. Because focal loss is not optimized purely for probability calibration, predicted probabilities may need post-training calibration. Detection metrics can improve while raw probabilities become less reliable as probabilities.',
       ],
-    },
+  
+
+  },
     {
-      heading: `Real-world uses`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Focal loss is best known for dense object detection, but the pattern appears anywhere easy negatives are overwhelming. Medical image segmentation often has large background regions and small lesions. Defect detection may have many normal patches and few subtle flaws. Fraud, abuse, and moderation systems may see huge volumes of obvious benign cases and a small number of hard positives. In each case, accuracy can look healthy while the valuable rare cases receive weak training pressure.`,
+        'The original use was RetinaNet-style dense object detection. Focal loss helped one-stage detectors compete with two-stage detectors by handling the background anchor flood. The use case matched the loss perfectly: many easy negatives, few hard positives, and a need for fast dense prediction.',
         {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1708.02002/assets/x1.png', alt: 'RetinaNet speed and COCO AP comparison chart', caption: 'The focal loss paper shows RetinaNet moving the speed-accuracy frontier for one-stage detection. Source: Lin et al., Focal Loss for Dense Object Detection, ar5iv.'},
-        `It is also used in multi-label classification, instance segmentation, and variants of segmentation loss where foreground regions are small. The important match is not the domain label; it is the loss ledger. If easy examples dominate because of count, and hard examples are genuinely informative, focal loss is a reasonable tool. If the hard examples are mostly annotation errors, duplicated records, adversarial edge cases outside the product scope, or unresolvable ambiguity, the same tool can overfit the mess.`,
+        'The same pattern appears in medical segmentation, defect detection, fraud screening, abuse detection, and moderation. The domain is secondary. The real test is whether easy examples dominate the ledger while clean hard examples carry the value.',
       ],
     },
     {
-      heading: `Where it fails`,
+      heading: 'Where it fails',
       paragraphs: [
-        `The main failure mode is label noise. Focal loss asks the model to focus on examples it cannot fit. If those examples are mislabeled, ambiguous, or outside the intended distribution, increasing gamma can make the model chase errors. Before raising gamma, inspect high-loss examples manually. Many focal-loss "wins" come from clean hard examples; many losses come from treating bad labels as precious signal.`,
-        `Calibration can also suffer. Cross-entropy is closely tied to probability estimation. Focal loss changes the incentive by downweighting confident examples, so predicted probabilities may become less reliable even when ranking or detection metrics improve. If downstream decisions depend on probability thresholds, run calibration checks and consider post-training calibration.`,
-        `Another misconception is that focal loss replaces threshold selection. It does not. Focal loss changes training. Thresholds change deployment behavior. A model can be trained with focal loss and still need a different threshold for high precision, high recall, or cost-sensitive action. Precision, Recall and the Confusion Matrix remains the evaluation surface after the loss has done its work.`,
+        'Focal loss fails when the hard examples are hard for bad reasons. If the high-loss cases are mislabeled, ambiguous, duplicated, corrupted, or outside the intended distribution, a larger gamma can make the model chase noise. Inspect hard examples before treating them as precious signal.',
+        'It also fails when the deployment problem is threshold choice rather than training attention. Focal loss changes how the model learns; it does not pick the operating point. Precision, recall, cost-sensitive thresholds, and calibration still need separate evaluation.',
+        'Finally, focal loss is not always better than cross-entropy. Balanced tasks with clean labels and no easy-example flood may not benefit. In those cases, the extra focusing can slow convergence or hurt probability quality without improving the metric that matters.',
       ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study Cross-Entropy and Logistic Regression for the baseline loss, Imbalanced Data for class-frequency fixes, Precision and Recall for the metrics that reveal rare-case behavior, and Hyperparameter Search for tuning gamma and alpha without fooling yourself. Then compare focal loss with online hard-example mining, class-balanced loss, Dice loss for segmentation, and calibration diagrams. The durable lesson is to separate three problems: class imbalance, difficulty imbalance, and decision-cost imbalance. Focal loss is built for the second one.`,
-      ],
-    },
-    {
-      heading: 'The cross-entropy foundation',
-      paragraphs: [
-        `Focal loss modifies cross-entropy, so the cross-entropy formula is the prerequisite. Shannon (1948) defined information content as -log(p): a certain event (p = 1) carries zero information, a coin flip (p = 0.5) carries 1 bit, and a 1-in-100 event carries about 6.6 bits. Cross-entropy H(p, q) = -sum(p_i * log(q_i)) measures how expensive it is to encode events drawn from the true distribution p using a model distribution q. When p is a one-hot label — the standard classification case — the sum collapses to a single term: -log(q_correct), the negative log probability the model assigned to the true class.`,
-        `Binary cross-entropy handles two classes: BCE = -[y * log(q) + (1 - y) * log(1 - q)], where y is 0 or 1 and q is the predicted probability for class 1. If y = 1 and q = 0.9, BCE = -log(0.9) = 0.105. If y = 1 and q = 0.01, BCE = -log(0.01) = 4.605 — a confident wrong prediction is catastrophically expensive. Categorical cross-entropy generalizes to K classes: CE = -sum_{i=1}^{K} y_i * log(q_i). With one-hot labels, only the true class contributes, so CE = -log(q_correct) regardless of K.`,
-        `The -log(p) penalty has a specific shape that makes it right for classification. At p = 1, the loss is 0 — no penalty for perfect confidence in the right answer. At p = 0.5, the loss is 0.693 — moderate penalty for a coin-flip prediction. As p approaches 0, the loss approaches infinity — the model was confident about the wrong answer and pays unbounded cost. This asymmetry is the mechanism that forces models away from confident errors, unlike mean squared error which caps the penalty at 1 for a maximally wrong binary prediction.`,
-      ],
-    },
-    {
-      heading: 'Why MSE fails for classification and the KL divergence connection',
-      paragraphs: [
-        `MSE between a one-hot label and a softmax output has a gradient proportional to (y - q) * q * (1 - q). Near q = 0 or q = 1, the q * (1 - q) factor drives the gradient toward zero. A model that confidently predicts the wrong class (q near 0 for the true class) gets a tiny gradient — exactly when it most needs a large correction. Cross-entropy avoids this because its gradient for the true class is -1/q, which grows without bound as q approaches 0. The worse the prediction, the stronger the push.`,
-        `Cross-entropy connects to KL divergence through a clean identity: H(p, q) = H(p) + D_KL(p || q). Entropy H(p) measures the irreducible uncertainty in the true distribution. KL divergence D_KL(p || q) measures the extra cost of using q instead of p. For one-hot labels, H(p) = 0 (no uncertainty when the label is certain), so minimizing cross-entropy is identical to minimizing KL divergence. When labels are soft — as in knowledge distillation or label smoothing — H(p) > 0 and acts as a constant offset that does not affect optimization.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `Computing cross-entropy over K classes costs O(K): one log and one multiply per nonzero probability, then a sum. For focal loss, add one exponentiation per example for the (1 - p)^gamma factor. With K = 1000 (ImageNet) this is negligible. The dominant cost is always the forward pass that produces the softmax distribution, not the loss computation itself.`,
-        `Focal loss adds no memory overhead beyond standard cross-entropy. It stores the same predicted distribution and target. The only extra computation is the per-example modulating factor (1 - p_t)^gamma, which is a scalar multiply on the already-computed cross-entropy value. In detection, the number of candidate anchors (tens of thousands per image) makes the loss summation nontrivial, but focal loss does not change the asymptotic cost — it changes the weights.`,
-        `The hyperparameter gamma controls a tradeoff: higher gamma suppresses easy examples more aggressively, concentrating gradients on hard cases. At gamma = 0, focal loss equals cross-entropy. At gamma = 2 (the RetinaNet default), a 99%-confident example receives 10,000 times less weight than it would under cross-entropy. At gamma = 5, the suppression is even more extreme and training can become unstable if most examples are easy, because the effective batch size shrinks to just the hard ones.`,
-      ],
-    },
-    {
+    },    {
       heading: 'Worked example',
       paragraphs: [
-        `Three-class problem. True label: class 0 (one-hot [1, 0, 0]). Model predicts softmax output [0.7, 0.2, 0.1]. Cross-entropy: CE = -log(0.7) = 0.357. With gamma = 2, the focal factor is (1 - 0.7)^2 = 0.09. Focal loss = 0.09 * 0.357 = 0.032. The model is fairly confident and correct, so focal loss reduces the penalty by about 91%.`,
-        `Same setup, worse model. Model predicts [0.1, 0.5, 0.4]. Cross-entropy: CE = -log(0.1) = 2.303. Focal factor: (1 - 0.1)^2 = 0.81. Focal loss = 0.81 * 2.303 = 1.865. The model is wrong and uncertain, so the focal factor barely reduces the loss — this example still drives substantial gradient.`,
-        `The detector ledger. 99,900 easy examples at p = 0.99: each has CE = 0.010, focal = (0.01)^2 * 0.010 = 0.000001. Total easy focal loss = 99,900 * 0.000001 = 0.10. 100 hard examples at p = 0.1: each has CE = 2.303, focal = (0.9)^2 * 2.303 = 1.865. Total hard focal loss = 100 * 1.865 = 186.5. The gradient share flips from 81% easy / 19% hard under cross-entropy to 0.05% easy / 99.95% hard under focal loss. No manual selection of hard examples was needed — the model's own confidence did the work.`,
-      ],
-    },
-    {
-      heading: 'Label smoothing interaction',
-      paragraphs: [
-        `Label smoothing (Szegedy et al. 2016) replaces a one-hot target [1, 0, 0] with a softened version like [0.9, 0.05, 0.05]. This prevents the model from being rewarded for pushing output probabilities to extremes, which improves calibration and generalization. The cross-entropy with smoothed labels becomes -0.9 * log(q_0) - 0.05 * log(q_1) - 0.05 * log(q_2), penalizing all outputs mildly instead of only the true class.`,
-        `Combining label smoothing with focal loss requires care. Smoothed labels increase H(p), so the baseline loss is higher. Focal loss then modulates by (1 - p_t)^gamma, but p_t is now evaluated against the smoothed target rather than a hard one-hot. In practice, the interaction is usually benign: label smoothing prevents overconfidence while focal loss prevents easy-example dominance. But if gamma is high and labels are heavily smoothed, the model may receive weak gradients from both easy and hard examples, slowing convergence.`,
+        'Take one easy example with p = 0.99 for the correct class. Cross-entropy is -log(0.99), about 0.010. With gamma = 2, the focal factor is (1 - 0.99)^2 = 0.0001, so the focal loss is about 0.000001.',
+        'Now take one hard example with p = 0.1. Cross-entropy is -log(0.1), about 2.303. The focal factor is (1 - 0.1)^2 = 0.81, so the focal loss is about 1.865.',
+        'Multiply by the detector counts. 99,900 easy examples contribute about 0.10 total focal loss, while 100 hard examples contribute about 186.5. The ledger flips from easy-dominated under cross-entropy to hard-dominated under focal loss.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Lin et al. 2017, "Focal Loss for Dense Object Detection" (the RetinaNet paper), introduced the focal loss formula and demonstrated it on COCO. Shannon 1948, "A Mathematical Theory of Communication," defined information, entropy, and cross-entropy. Szegedy et al. 2016, "Rethinking the Inception Architecture," introduced label smoothing.`,
-        `Study Softmax for the function that produces the probability distribution q consumed by cross-entropy. Study Activation Functions for the nonlinearities that shape network outputs before softmax. Study Gradient Descent for how cross-entropy gradients flow backward through the network. Study Entropy and Information for the full information-theoretic foundation: Shannon entropy, KL divergence, compression floors, and perplexity.`,
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        `Prerequisites: cross-entropy (how -log(p) penalizes wrong predictions), softmax (the function that turns logits into probabilities), and gradient descent (how loss gradients update parameters). Without these, the focal modulation factor has no anchor.`,
-        `This topic unlocks: object detection architectures (RetinaNet, FCOS, DETR) that use focal loss as their training signal, imbalanced classification strategies beyond class weighting, and calibration analysis for post-training probability correction. The central transfer: any loss function can be modulated by a difficulty-aware factor, and the choice between smooth modulation (focal) and hard selection (OHEM) is a design decision about gradient stability.`,
-      ],
-    },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you compute -log(0.7) and explain why it is the cross-entropy for a correct prediction at 70% confidence?',
-            'Can you explain why (1 - 0.99)^2 = 0.0001 silences a 99%-confident easy example under focal loss with gamma = 2?',
-            'Can you state why MSE gradients vanish near 0 and 1 for classification while cross-entropy gradients grow?',
-            'Can you name a scenario where focal loss hurts — specifically, when noisy labels make the hardest examples the worst ones to amplify?',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Pick three examples: one easy (p = 0.95 for the true class), one moderate (p = 0.5), one hard (p = 0.05). Compute cross-entropy -log(p) for each. Then compute the focal factor (1 - p)^2 and the focal loss for each. Verify that the easy example loses over 99% of its weight while the hard example keeps about 90%. Run the animation to confirm your numbers match the loss curve.',
-        'Then try gamma = 0 and gamma = 5. At gamma = 0 the three examples have equal modulation (all factors = 1). At gamma = 5, the easy example is suppressed by a factor of about 10^-7. Ask yourself: at what gamma does the effective training set become so small that gradient estimates become noisy?',
+        'Start with Lin et al., "Focal Loss for Dense Object Detection," for the RetinaNet result, the formula, and the gamma experiments. Review Shannon, "A Mathematical Theory of Communication," for the information view behind -log(p). Read Szegedy et al., "Rethinking the Inception Architecture," if you want the label-smoothing contrast.',
+        'Study cross-entropy before focal loss, then precision and recall for the rare-case metrics it is meant to improve. Study imbalanced data to separate class weighting from difficulty weighting. Then compare focal loss with online hard-example mining, Dice loss, class-balanced loss, and calibration diagrams.',
       ],
     },
   ],

@@ -282,133 +282,102 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The "conservative updates" view starts with a pipeline diagram showing the update flow: an event is hashed to probe all rows, the minimum counter is read, and only counters equal to that minimum are incremented. The sketch matrix then shows concrete counter values with active cells highlighting the positions touched by a key. A side-by-side comparison shows how standard and conservative updates differ on the same event. The bias plot compares overcount error as stream skew increases.',
+        {type: 'callout', text: 'Conservative update lowers Count-Min bias by refusing to raise counters that are already above the current minimum witness.'},
+        'The "bias case study" view traces a CDN cache admission decision. A request stream feeds a conservative Count-Min sketch that controls whether a missed object should enter the cache. The admission table shows true counts versus standard and conservative estimates for hot, scan, and API URLs. Watch how collision noise in the standard sketch can falsely promote a one-time scan object over a genuinely hot resident.',
+        'At each frame, track which counters disagree, which is the minimum, and why raising an already-inflated counter would compound existing collision noise.',
         {type: 'image', src: './assets/gifs/conservative-count-min-sketch.gif', alt: 'Animated walkthrough of the conservative count min sketch visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Count-Min Sketch is useful because it gives fixed-memory frequency estimates, but its one-sided error can become too pessimistic. A few hot collisions can keep inflating rows that are already too high. Conservative Count-Min exists to reduce that positive-stream bias while keeping the same query shape.',
-        {
-          type: 'callout',
-          text: 'Conservative update lowers Count-Min bias by refusing to raise counters that are already above the current minimum witness.',
-        },
+        'Count-Min Sketch gives fixed-memory frequency estimates for a data stream, but every estimate can only be correct or too high, never too low. When keys collide in the hash table, their counters inflate each other. A few hot keys can push shared counters far above the true count for less frequent keys. Conservative Count-Min Sketch exists to reduce that upward bias while keeping the same query interface and memory layout.',
+        'The motivation is practical. In cache admission, a falsely high frequency estimate can admit a one-time scan object and evict a genuinely popular item. In network monitoring, inflated counts can trigger false alerts. Any system that makes threshold decisions based on Count-Min estimates benefits from lower bias.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious update is standard Count-Min: increment every hashed counter for the key. That preserves a clean linear merge rule and never undercounts positive streams. It also spends update budget on counters that already look polluted by other keys.',
+        'Standard Count-Min updates every hashed counter for a key by the same increment. If key x hashes to positions [1, 3, 2, 5] across four rows, all four counters increase by one. This preserves a clean algebraic property: two sketches built on different shards of the same stream can be merged by adding their matrices element-wise.',
+        'The downside is that it spends update budget on counters that are already inflated by other keys. If counter [row 1, col 3] is already at 9 because of collisions with hot keys, raising it to 10 does not help the estimate for x. It only makes future queries for other keys that also hash to that cell worse.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The minimum row is the estimate. If another touched row is already above that minimum, raising it again cannot improve the current answer; it can only preserve or worsen future overestimates. The wall is avoiding avoidable bias without making updates expensive.',
+        'The estimate for a key is the minimum of its touched counters. If some of those counters are already above the true count due to collisions, the minimum is still correct as long as at least one counter has not been polluted. Raising the polluted counters higher cannot improve the current estimate. It can only preserve or worsen future estimates for keys that share those cells.',
+        'The wall is avoidable bias. Standard Count-Min adds noise to already-noisy cells on every update. The sketch cannot remove collisions, but it can stop compounding them.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'Read the key estimate before writing. Increment only the rows whose counters equal the current minimum. Rows already above the minimum are likely carrying collision mass, so the update refuses to amplify them further.',
-      ],
-    },
-    {
-      heading: 'Reading the visualization',
-      paragraphs: [
-        'In the conservative-update view, look at the rows that disagree. The smallest touched counter is the current estimate. Counters already above that value are probably carrying collision mass, so conservative update refuses to raise them again.',
-        'In the bias case study, read the cache admission decision as the real consequence. A false frequency estimate can admit one-off scan objects and evict genuinely hot entries. Lowering overcount bias improves the decision even though the sketch remains approximate.',
+        'Read the current estimate before writing. The estimate is the minimum of the touched counters. Increment only the counters that equal that minimum. Counters already above the minimum are carrying collision mass from other keys, so the update refuses to push them higher.',
+        'This is a one-line change to the update rule. The query rule stays the same: return the minimum touched counter. The data structure stays the same: d rows of w counters. The only difference is which counters get incremented on each event.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a positive update to x, read counters h_1(x), h_2(x), ..., h_d(x). Let m be their minimum. For a unit update, increment only counters equal to m. For a larger increment, lift eligible counters toward m plus the increment. Query is unchanged: return the minimum touched counter.',
+        'For a positive update to key x with increment delta, hash x to d positions (one per row). Read the d counters. Let m be their minimum. For each counter that equals m, set it to m + delta. Leave all other counters unchanged. For a query, return the minimum of the d touched counters, exactly as in standard Count-Min.',
         {
           type: 'image',
           src: 'https://mermaid.ink/svg/pako:Lc1NCsIwEMXxfU7xLtArCPZDFOqm25BFTEcabGYgmbb09mJw_Xv833uVIyw-K8bJXO2wEys-dDo0zQWtvfuyILIKZmQ5ijNtlc5O5GeobGGhGUE2VsrFma5yb5-RY9oSqGhMXsmZvspgHxwypd-P8HoiRf6Xhzq42VEOypCdcs3iFX1xXw',
           alt: 'Conservative Count-Min update probes hash rows, reads the minimum estimate, and increments only minimum rows.',
           caption: 'Conservative update changes only the write rule: read all touched counters, find the minimum, and lift only the minimum witnesses. Source: https://mermaid.ink/svg/pako:Lc1NCsIwEMXxfU7xLtArCPZDFOqm25BFTEcabGYgmbb09mJw_Xv833uVIyw-K8bJXO2wEys-dDo0zQWtvfuyILIKZmQ5ijNtlc5O5GeobGGhGUE2VsrFma5yb5-RY9oSqGhMXsmZvspgHxwypd-P8HoiRf6Xhzq42VEOypCdcs3iFX1xXw',
         },
-        'This is still a Count-Min family structure: multiple hash rows, one counter per row, and a minimum query. The only changed step is the write rule. Standard Count-Min writes all touched counters. Conservative update writes only the counters that are still plausible witnesses for the current count.',
+        'The update is still O(d) per event and the query is still O(d) per lookup, where d is the number of hash rows. Memory is still O(d * w) counters. The extra cost is a read-before-write over the same d cells. In practice, those cells are already in cache from the hash computation, so the overhead is small.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The estimate still rises when it must: at least one minimum row is incremented. Rows above the minimum cannot be the current limiting witness, so skipping them avoids compounding visible collision noise. The method reduces bias in many workloads, but it does not remove collisions or make answers exact.',
-        'The guarantee is weaker than exact counting but stronger than wishful thinking. Positive Count-Min never underestimates because every true update raises at least the limiting evidence for that key. Conservative update preserves the intent of that evidence while avoiding needless inflation in rows that already overshot.',
+        'The estimate still rises when it must. At least one counter at the minimum is incremented, so the minimum increases by delta. The overcount guarantee is preserved: the estimate is always greater than or equal to the true count, because every true event raises at least the minimum witness.',
+        'Rows above the minimum cannot be the current limiting witness, so skipping them does not affect the current estimate. It avoids compounding visible collision noise. Over a skewed stream, the accumulated bias reduction can be substantial because hot keys collide frequently and standard updates keep inflating already-high cells.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Update remains O(d), query remains O(d), and memory remains O(d * w). The extra work is read-before-write over the same counters. The deeper cost is semantic: the update is state-dependent, so distributed merge behavior is not the same simple linear story as standard Count-Min.',
+        'Time: O(d) per update, O(d) per query, same as standard Count-Min. Space: O(d * w) counters, same as standard Count-Min. The only added work is reading d counters before writing, which is a constant-factor overhead on an already fast operation.',
+        'The deeper cost is semantic. The update depends on the current counter values, not just the increment. This means conservative update is not a linear operation. Two sketches built independently on two shards of a stream cannot be merged by simple addition and produce the same result as one sketch built on the combined stream. If distributed merge is a requirement, use standard Count-Min for the merge layer or verify the chosen implementation handles the merge contract correctly.',
       ],
     },
     {
-      heading: 'Implementation checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Use conservative update only for nonnegative streams. The method relies on the Count-Min one-sided overestimate property. If updates can subtract, the minimum row no longer has the same meaning, and a signed sketch such as Count Sketch is the better starting point.',
-        'Keep hash seeds stable and preferably keyed when inputs may be adversarial. Conservative update lowers ordinary collision bias, but it does not protect against crafted keys that intentionally collide across rows.',
-        'Track estimate error with replay samples. In a cache, periodically compare sketch estimates with exact counts from a bounded trace window. The sketch should improve admission decisions, not become an uninspected source of false popularity.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It fits positive-stream signals where overestimation hurts decisions, such as W-TinyLFU cache admission. A scan URL that collides with hot objects should not evict useful residents just because polluted rows kept getting incremented. Conservative update makes the sketch a cleaner admission signal.',
-        'It is most useful when the stream is skewed. Hot keys and scan traffic create polluted counters, and conservative update avoids repeatedly raising rows that already look contaminated. In nearly uniform traffic, the improvement may be modest.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'It is not a deletion or turnstile sketch. If counts can go down, use Count Sketch or another signed-update structure. Also verify merge requirements: adding conservatively updated shard matrices may not equal one centralized conservative-update sketch over the same event order.',
-        'It also does not defend against bad hashing. If an attacker can choose keys that collide with important counters, conservative update reduces some damage but cannot restore the missing independence assumption. Use keyed hashes when the key stream is hostile.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine the hot key touches counters [2, 9, 2, 7]. The estimate is 2. A standard update increments all four counters to [3, 10, 3, 8]. Conservative update increments only the minimum witnesses, producing [3, 9, 3, 7]. The estimate still becomes 3, but polluted rows do not get more polluted.',
-        'That difference compounds. In a cache admission sketch, one-off scan keys may collide with hot keys. Standard updates can make those scan keys look frequent enough to enter the cache. Conservative update keeps their estimates closer to reality, so the cache is less likely to replace useful resident objects with accidental collision winners.',
-      ],
-    },
-    {
-      heading: 'Rule of thumb',
-      paragraphs: [
-        'Use standard Count-Min when merge simplicity is the main requirement. Use conservative update when a local positive stream feeds threshold decisions and ordinary overcount bias is visibly hurting those decisions.',
-        'Do not let the name oversell the method. Conservative update is conservative about raising counters, not conservative in the risk-management sense. It still needs exact verification for expensive actions.',
-      ],
-    },
-    {
-      heading: 'Operational case study',
-      paragraphs: [
-        'Consider a CDN cache that admits objects only if their estimated frequency beats the resident object. Standard Count-Min may inflate scan objects when one-time URLs collide with genuinely hot URLs. Those scan objects can then enter the cache, consume memory, and lower hit rate.',
+        'Conservative Count-Min is used in W-TinyLFU cache admission, where overestimation of frequency can admit scan traffic and evict useful residents. Caffeine (Java) and other high-performance caches use this variant. Network monitoring systems use it when frequency thresholds drive alerts, because lower bias means fewer false positives.',
         {
           type: 'image',
           src: 'https://mermaid.ink/svg/pako:TcsxDoIwFAbgnVO8C8ARNFDEQV1wbDo07W9oAi22DwwR724gDs5fvkcfXqbTkenaZqVs8ZyQmBJH6EFRnh-okiL4hDhrdjNI3O4qq3YRsolb8GYhJHaDZqhM7Fa_Szs4Jg5ktOlw_GT1BuuCtNJJthh7bUARyVl4Vj_2YaVGXoDxj85ShL53yQVPPrgERXlBEXYysFTkVH0B',
           alt: 'Request stream feeds a conservative Count-Min sketch whose estimate controls cache admission decisions.',
           caption: 'For cache admission, lower collision bias matters because a false hot estimate can evict a useful resident object. Source: https://mermaid.ink/svg/pako:TcsxDoIwFAbgnVO8C8ARNFDEQV1wbDo07W9oAi22DwwR724gDs5fvkcfXqbTkenaZqVs8ZyQmBJH6EFRnh-okiL4hDhrdjNI3O4qq3YRsolb8GYhJHaDZqhM7Fa_Szs4Jg5ktOlw_GT1BuuCtNJJthh7bUARyVl4Vj_2YaVGXoDxj85ShL53yQVPPrgERXlBEXYysFTkVH0B',
         },
-        'Conservative update changes the pressure on that decision. Hot objects still raise their minimum witnesses, but rows already inflated by other traffic do not keep rising just because a colliding key appeared. The admission policy sees fewer accidental hot keys, so cache churn drops.',
-        'The team should still replay traffic before shipping. Measure hit rate, false admissions, resident churn, and p99 lookup cost under the same hash seeds and cache size. A sketch update rule is only useful if it improves the system decision it feeds.',
+        'It is most useful when the stream is skewed. Hot keys and scan traffic create polluted counters, and conservative update avoids repeatedly raising cells that are already above the true count. In nearly uniform traffic, the improvement over standard Count-Min is modest because collision bias is already low.',
       ],
     },
     {
-      heading: 'What changes from Count-Min',
+      heading: 'Where it fails',
       paragraphs: [
-        'The query contract stays the same: read the touched counters and return the minimum. That is important because conservative update can often replace standard updates without changing downstream readers.',
-        'The write contract changes. Standard Count-Min is linear and order-insensitive for positive updates: applying shard A then shard B gives the same matrix as adding their matrices. Conservative update depends on the current counter values at update time, so replay order and distributed merge strategy deserve explicit tests.',
-        'That distinction is the whole engineering tradeoff. Conservative update buys lower bias in a local stream, while standard Count-Min buys simpler algebra across shards.',
+        'Conservative update only works for nonnegative streams. It relies on the Count-Min property that estimates are always at or above the true count. If updates can subtract, the minimum row no longer has the same meaning, and a signed sketch such as Count Sketch is the right starting point.',
+        'It does not defend against adversarial hashing. If an attacker can choose keys that collide with important counters, conservative update reduces some damage but cannot restore the missing independence. Use keyed (secret-seeded) hash functions when the key stream may be hostile.',
+        'Merge semantics are the main operational risk. Standard Count-Min sketches merge by element-wise addition. Conservative update is state-dependent, so merging two independently built sketches by addition may produce different estimates than building one sketch on the combined stream. Test merge behavior before deploying across shards.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A sketch has 4 rows and 6 columns. Key "hot" hashes to columns [1, 3, 2, 5]. After processing earlier events, the counters at those positions are [2, 9, 2, 7]. The current estimate for "hot" is min(2, 9, 2, 7) = 2.',
+        'A new "hot" event arrives. Standard Count-Min increments all four counters: [3, 10, 3, 8]. The estimate becomes min(3, 10, 3, 8) = 3. Conservative update increments only the two counters that equal the minimum (2): [3, 9, 3, 7]. The estimate also becomes min(3, 9, 3, 7) = 3.',
+        'Both methods produce the same estimate for "hot" after this event. But the standard method pushed the already-inflated counters at positions 1 and 3 even higher. Those counters are shared with other keys. By leaving them unchanged, conservative update avoids worsening future estimates for any key that hashes to column 3 in row 1 or column 5 in row 3. Over thousands of events, this difference compounds into measurably lower bias across the sketch.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Graham Cormode describes conservative update in his Count-Min Sketch encyclopedia entry and attributes the update idea to Estan and Varghese: https://dimacs.rutgers.edu/~graham/pubs/papers/cmencyc.pdf. The original Count-Min paper is https://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf. For modern analysis, see "Count-Min Sketch with Conservative Updates: Worst-Case Analysis" at https://arxiv.org/abs/2405.12034. Study Count-Min Sketch first, then Count Sketch for signed turnstile updates, W-TinyLFU Cache Admission for the cache case study, and Elastic Sketch for a network telemetry design that separates heavy and light flows.',
+        'Estan and Varghese proposed conservative update for counting sketches. Cormode describes it in his Count-Min Sketch encyclopedia entry: https://dimacs.rutgers.edu/~graham/pubs/papers/cmencyc.pdf. The original Count-Min paper is Cormode and Muthukrishnan (2005): https://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf. For worst-case analysis, see "Count-Min Sketch with Conservative Updates: Worst-Case Analysis" at https://arxiv.org/abs/2405.12034.',
+        'Study Count-Min Sketch first to understand the base structure. Then study Count Sketch for signed turnstile updates, W-TinyLFU Cache Admission for the cache case study, Bloom Filter for another hash-based approximate structure, and Elastic Sketch for a network telemetry design that separates heavy and light flows.',
       ],
     },
   ],

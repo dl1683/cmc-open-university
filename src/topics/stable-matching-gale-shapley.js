@@ -347,108 +347,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        `The animation shows two columns: proposers on the left and recipients on the right. Each person carries a status label -- free or matched with a partner. Edges between columns represent proposals, tentative matches, or rejections.`,
-        {type: 'callout', text: `Stable matching is not the highest-score pairing; it is the pairing where every rejected pair has at least one side that will not leave.`},
-        `Active highlights mark the proposer currently making a proposal. Compare highlights mark the recipient evaluating that proposal against her current partner. Found highlights mark edges in the current tentative matching. When a recipient switches partners, the old edge disappears and the rejected proposer returns to the free pool.`,
-        `Watch three things at each step: which proposer is free and proposing, which recipient is comparing, and whether the comparison triggers a rejection. Every rejection pushes the proposer one slot down his preference list, and that slot is never revisited. The algorithm ends when no free proposer remains.`,
-      
-        {type: 'image', src: './assets/gifs/stable-matching-gale-shapley.gif', alt: 'Animated walkthrough of the stable matching gale shapley visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `Many allocation problems cannot be solved by optimization alone because participants have preferences. A hospital wants the best residents, but residents also rank hospitals. A school district assigns students to schools, but families have ranked choices. An organ exchange matches donors to recipients across incompatible pairs. In each case, the goal is not a maximum or minimum -- it is a matching that no pair of participants would jointly abandon.`,
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Graph_K3-3.svg/250px-Graph_K3-3.svg.png', alt: 'Complete bipartite graph K3,3 with three vertices on each side and every cross-side edge drawn', caption: 'A two-sided matching market starts as a bipartite candidate graph; preferences and stability decide which edges survive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Graph_K3-3.svg.'},
-        `David Gale and Lloyd Shapley formalized this in 1962: given two groups of equal size with strict preference rankings, find a matching where no unmatched pair mutually prefer each other to their assigned partners. They proved such a stable matching always exists and gave an O(n^2) algorithm to find one. Shapley received the Nobel Prize in Economics in 2012 for this work and related contributions to cooperative game theory.`,
-        `The National Resident Matching Program (NRMP) has used a variant of the algorithm since 1952 to match medical residents to hospitals in the United States -- predating the formal publication by a decade. The algorithm was independently discovered in practice before it was proven in theory.`,
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `Enumerate all possible matchings between n proposers and n recipients. There are n! such matchings. For each one, check whether any unmatched pair would both prefer each other -- a blocking pair. If no blocking pair exists, the matching is stable.`,
-        `Checking one matching for stability requires examining all O(n^2) unmatched pairs. The total work is O(n! * n^2). For 10 people per side, n! is 3,628,800. For 20, it is over 2 * 10^18. The approach is correct but computationally impossible at any practical scale.`,
-        `A greedy alternative -- pair off mutually top-ranked couples first, then handle the rest -- also fails. Removing a pair changes the preference landscape for everyone else, and the greedy order can create blocking pairs downstream. Stability is a global property that local greedy moves cannot guarantee.`,
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `Stability is a constraint on every unmatched pair simultaneously. A matching with n pairs has n(n-1)/2 potential blocking pairs to rule out. Enumerating all n! matchings and checking each one is exponential. Greedy pairing is fast but produces unstable results.`,
-        `The core difficulty is that preferences interact. Matching Alex to Dana might force Blake to Eden, which makes Chris and Eden a blocking pair. Every assignment choice constrains every other. The search space is factorial, and stability is a global invariant that cannot be checked locally during construction -- unless the construction process is designed to prevent blocking pairs from forming in the first place.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `Build stability into the process instead of checking it after the fact. Let one side propose in order of preference, and let the other side hold the best offer seen so far. A proposer who is rejected drops to the next name on his list and never returns. A recipient who receives a better offer upgrades and releases her current partner.`,
-        `This propose-reject mechanism has a key monotonic property: proposers move down their lists, recipients move up. No proposer ever revisits a recipient who rejected him. No recipient ever downgrades to a worse partner. These one-directional movements guarantee termination and, crucially, prevent blocking pairs from surviving to the final matching.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `Input: two groups of n people. Each person holds a strict ranking of all n people on the other side. One group is designated as proposers, the other as recipients.`,
-        `Initialize all people as free. While any proposer is free: the free proposer proposes to the highest-ranked recipient he has not yet proposed to. If she is free, she tentatively accepts. If she is matched but prefers this proposer to her current partner, she drops her current partner (who becomes free) and tentatively accepts the new proposer. If she prefers her current partner, she rejects the new proposer (who stays free and will propose to his next choice in the next round).`,
-        `Each proposer proposes to at most n recipients. There are n proposers. The total number of proposals is at most n^2. Each proposal involves a constant-time comparison (using the recipient's ranking array for O(1) lookup). The algorithm terminates in at most n^2 steps.`,
-        `Implementation detail: store each proposer's next-to-propose index and each recipient's ranking as an inverse array (rank[m] = position of m in her list) so that comparisons are O(1) rather than O(n) scans.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Termination: each proposal either matches a free proposer or moves one proposer down his list. A proposer can propose to each recipient at most once, so the total proposals are bounded by n^2. The process must end.`,
-        `Perfect matching: every recipient who receives a proposal stays matched from that point on (she may upgrade but never becomes free again). With n proposers and n recipients of equal size, every proposer will eventually find a recipient who accepts -- no proposer can exhaust all n recipients without being accepted, because that would require all n recipients to prefer their current partners, but only n-1 other proposers exist.`,
-        `Stability (proof by contradiction): suppose man m and woman w are not matched to each other, but both prefer each other to their current partners. Then m must have proposed to w before proposing to his current (less preferred) partner. When m proposed to w, she either accepted him or rejected him for someone she preferred more. If she accepted, she could only have dropped him later for someone even better -- her final partner is at least as good as m. Either way, w does not prefer m to her final partner. Contradiction.`,
-        `The matching is proposer-optimal: each proposer gets the best partner he could receive in any stable matching. It is simultaneously recipient-pessimal: each recipient gets the worst partner she could receive in any stable matching. Swapping which side proposes reverses this asymmetry.`,
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        `Time: O(n^2) worst case. Each of n proposers proposes to at most n recipients, and each proposal is O(1) with precomputed inverse rankings. Doubling n quadruples the worst-case work. With 100 people per side, at most 10,000 proposals. With 1,000, at most 1,000,000.`,
-        `Space: O(n^2) for storing all preference lists (n people each with a list of length n). The algorithm's working state -- free list, current matches, next-proposal pointers -- is O(n).`,
-        `In practice the algorithm terminates much faster than n^2 proposals because early rounds often match many pairs. Empirical studies on random preferences show roughly O(n log n) proposals on average.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `The National Resident Matching Program (NRMP) matches approximately 40,000 medical residents to hospital programs in the United States each year. The algorithm was adopted in 1952 and formalized by Roth in 1984 as equivalent to Gale-Shapley. Residents submit preference lists over programs, programs rank applicants, and the algorithm produces a resident-optimal stable matching.`,
-        `School choice systems in Boston, New York City, and other districts use deferred acceptance (the mechanism design name for Gale-Shapley) to assign students to public schools. Students rank schools; schools have priorities based on sibling enrollment, distance, and lottery numbers. The result is a stable assignment that respects both student preferences and school priorities.`,
-        `Kidney exchange programs pair incompatible donor-recipient pairs into swap cycles. While the full problem involves combinatorial optimization over cycles, the pairwise stability concept from Gale-Shapley informs the design of exchange mechanisms that prevent any pair from preferring a private swap over the centralized allocation.`,
-        `College admissions in several countries use extensions of the algorithm. The original Gale-Shapley paper was titled "College Admissions and the Stability of Marriage," treating many-to-one matching where each college admits multiple students but each student attends one college.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `Proposer-side bias. The algorithm is optimal for the proposing side and pessimal for the receiving side. In the NRMP, residents propose, so the result favors residents. Swapping roles would favor hospitals. The asymmetry is structural, not a bug, but it means the choice of who proposes is a policy decision with distributional consequences.`,
-        `Strict complete preferences required. Every participant must rank every member of the other side with no ties. In practice, applicants do not rank all hospitals, and ties are common. Extensions exist (Gale-Shapley with ties is NP-hard to optimize, random tie-breaking is polynomial but loses optimality guarantees) but the basic algorithm assumes a complete strict order.`,
-        `Strategic manipulation. Recipients can sometimes gain by misreporting preferences -- rejecting a truly acceptable proposer to hold out for a better one. Roth (1982) proved that no stable matching mechanism is strategy-proof for both sides. The proposing side cannot gain by lying (truthful reporting is a dominant strategy for proposers), but the receiving side can.`,
-        `Many-to-many and larger markets. The basic algorithm handles one-to-one matching. Residency matching needs many-to-one (hospitals accept multiple residents). Couples matching (two residents who must be placed together) can break the existence guarantee: stable matchings may not exist with couples. Extensions like the Roth-Peranson algorithm handle this with heuristic search.`,
-        `No notion of cardinal utility. The algorithm uses only ordinal rankings. If a participant is nearly indifferent between two options but strongly prefers them to a third, that intensity is invisible. Mechanism designers sometimes layer additional objectives (welfare maximization, fairness constraints) on top of stability.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Three men (m1, m2, m3) and three women (w1, w2, w3). Men's preferences: m1: w1 > w2 > w3; m2: w1 > w3 > w2; m3: w2 > w1 > w3. Women's preferences: w1: m2 > m3 > m1; w2: m1 > m3 > m2; w3: m1 > m2 > m3.`,
-        `Round 1: m1 proposes to w1, m2 proposes to w1, m3 proposes to w2. w1 receives m1 and m2. She ranks m2 first, holds m2, rejects m1. w2 receives m3 and holds him. State: m2-w1, m3-w2. m1 is free.`,
-        `Round 2: m1 proposes to w2 (his 2nd choice). w2 holds m3 but ranks m1 first. She drops m3, holds m1. State: m1-w2, m2-w1. m3 is free.`,
-        `Round 3: m3 proposes to w1 (his 2nd choice). w1 holds m2 and ranks m2 first. She rejects m3. m3 is still free.`,
-        `Round 4: m3 proposes to w3 (his 3rd choice). w3 is free and accepts. Final matching: m1-w2, m2-w1, m3-w3. Total proposals: 6 (out of a maximum 9). Check: m1 prefers w1 over w2, but w1 prefers m2 (her match) over m1 -- not a blocking pair. All other unmatched pairs similarly fail the mutual-preference test. The matching is stable.`,
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        `Primary source: Gale and Shapley, "College Admissions and the Stability of Marriage" (American Mathematical Monthly, 1962). Roth, "The Evolution of the Labor Market for Medical Interns and Residents: A Case Study in Game Theory" (Journal of Political Economy, 1984) established the NRMP connection. Roth and Sotomayor, "Two-Sided Matching: A Study in Game-Theoretic Modeling and Analysis" (Cambridge, 1990) is the definitive reference.`,
-        `Prerequisite: study Hopcroft-Karp bipartite matching for the maximum-cardinality version without preferences. Extension: study the Hungarian algorithm for weighted bipartite assignment where edges carry costs, and the Roth-Peranson algorithm for many-to-one matching with couples. Contrast: study auction mechanisms (Vickrey, ascending) for settings where cardinal valuations replace ordinal rankings, and Nash bargaining for two-party negotiation with transferable utility.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Active proposers move down preference lists, compare markers show recipients evaluating offers, and found edges are tentative matches. A rejection is permanent for that proposer-recipient pair.', {type: 'callout', text: 'Stable matching is not the highest-score pairing; it is the pairing where every rejected pair has at least one side that will not leave.'}, {type: 'image', src: './assets/gifs/stable-matching-gale-shapley.gif', alt: 'Animated walkthrough of the stable matching gale shapley visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: ['Some allocation problems have two sides with preferences, such as residents and hospitals. A stable matching has no unmatched pair who both prefer each other to their assigned partners.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Graph_K3-3.svg/250px-Graph_K3-3.svg.png', alt: 'Complete bipartite graph K3,3 with three vertices on each side and every cross-side edge drawn', caption: 'A two-sided matching market starts as a bipartite candidate graph; preferences and stability decide which edges survive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Graph_K3-3.svg.'}], },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach enumerates every complete matching and checks each for blocking pairs. It is correct, but n people per side create n factorial matchings.'], },
+    { heading: 'The wall', paragraphs: ['Stability is global because any unmatched pair can block the result. Greedy top-choice pairing can create later blocking pairs even when early matches look reasonable.'], },
+    { heading: 'The core insight', paragraphs: ['Build stability through rejection instead of testing it afterward. Proposers only move down their lists, while recipients only keep the same partner or upgrade.'], },
+    { heading: 'How it works', paragraphs: ['A free proposer proposes to the highest-ranked recipient not yet tried. The recipient holds the better offer and rejects the other, and the rejected proposer continues later.'], },
+    { heading: 'Why it works', paragraphs: ['Termination holds because each proposer can propose to each recipient at most once. Stability holds because any proposer who prefers a recipient over the final match must have been rejected by that recipient for someone at least as preferred.'], },
+    { heading: 'Cost and complexity', paragraphs: ['The worst-case time is O(n squared) proposals. Preference storage is O(n squared), while current matches and next-proposal pointers are O(n).'], },
+    { heading: 'Real-world uses', paragraphs: ['Deferred acceptance underlies residency and school-choice systems, usually with policy-specific extensions. The clean one-to-one algorithm is the core around capacities, priorities, ties, and incomplete lists.'], },
+    { heading: 'Where it fails', paragraphs: ['The result favors the proposing side, assumes strict complete rankings, and ignores preference intensity. Couples, ties, quotas, and many-to-many markets need extensions that may lose the simple guarantee.'], },
+    { heading: 'Worked example', paragraphs: ['Let m1 prefer w1 then w2, m2 prefer w1, and m3 prefer w2 then w1 then w3. If w1 holds m2 over m1 and w2 later switches from m3 to m1, m3 eventually proposes to w3, producing m1-w2, m2-w1, m3-w3 after six proposals.'], },
+    { heading: 'Sources and study next', paragraphs: ['Study Gale and Shapley on college admissions, Roth on resident matching, and Roth and Sotomayor on two-sided matching. Then compare Bipartite Matching, Hungarian Algorithm, Stable Roommates, and deferred acceptance with capacities.'], },
   ],
 };

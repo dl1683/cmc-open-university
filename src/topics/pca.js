@@ -166,116 +166,99 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The first view computes PCA live on twelve correlated 2-D points. Faded points are the original data. The covariance matrix step shows the second-order summary: variances on the diagonal, co-movement off it. The arrow labeled PC1 is the direction of maximum variance; PC2 is the perpendicular remainder. Arrow length scales with the square root of the eigenvalue, so a long arrow means a loud direction. Projected points (highlighted) show the 2-D-to-1-D compression: each original point drops perpendicularly onto the PC1 line and becomes a single coordinate.',
+        'Read the scatter plot as points in feature space. The long arrow is PC1, the first principal component, which means the straight direction where the centered data varies the most.',
         { type: 'callout', text: 'PCA is the best linear shadow of centered data: rotate to the loud axes, then keep the coordinates that carry variance.' },
-        'The second view shows PCA on a ring -- the honest failure case. The shadow row below the ring is the PC1 projection. When opposite points on the ring land on the same shadow position, you are watching a collision caused by PCA\'s linearity assumption. The comparison table and pipeline step spell out how PCA and t-SNE/UMAP divide labor in practice.',
-      
+        'Projected points show the compression step. Each point drops perpendicularly onto PC1, and the coordinate along that line replaces the original two coordinates for a one-dimensional summary.',
         {type: 'image', src: './assets/gifs/pca.gif', alt: 'Animated walkthrough of the pca visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'High-dimensional data often contains fewer real degrees of freedom than its column count suggests. Two features may rise and fall together. Hundreds of embedding dimensions may encode a handful of dominant variation patterns. Sensor channels may repeat the same signal buried in noise. Working with all the raw dimensions wastes storage, slows models, amplifies noise, and makes visualization impossible -- humans cannot see past three dimensions.',
+        'Principal Component Analysis, or PCA, exists because many datasets have more columns than independent information. Features can move together, repeat the same signal, or contain directions that are mostly noise.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/GaussianScatterPCA.svg',
           alt: 'Point cloud with principal component eigenvectors drawn from the mean',
           caption: 'The long eigenvector shows the direction of maximum variance; the short one shows the quiet orthogonal remainder. Source: Wikimedia Commons, Nicoguaro, CC BY 4.0.',
         },
-        'Karl Pearson posed the core question in 1901: given a cloud of points, what is the line (or plane) of closest fit? Harold Hotelling formalized the answer in 1933 as Principal Component Analysis -- find the orthogonal directions along which the centered data varies the most, rank them by how much variance each captures, and keep the top few. The quiet directions, where the data barely moves, are discarded. What remains is the best low-dimensional linear summary of the original data, in a precise least-squares sense.',
+        'PCA finds straight axes that summarize that variation. Keeping the loud axes can reduce storage, remove noise, speed later models, and make high-dimensional data visible enough to inspect.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'A dataset has 1,000 features per sample. The first instinct is to pick features by hand: drop columns that look redundant, keep columns that seem important. This works when the domain expert knows which measurements matter, but it scales poorly. With 1,000 columns, manual selection is slow, error-prone, and fragile -- correlated features hide information in their relationship, not in either column alone.',
-        'A second instinct is to keep every feature and let the model sort it out. That works until the curse of dimensionality bites: distances become less meaningful in high dimensions, models overfit to noise, and training slows down. The learner needs a way to compress without expert feature selection and without throwing away the patterns that matter.',
+        'The obvious approach is manual feature selection. Drop columns that seem redundant, keep columns that seem important, and let domain knowledge choose the reduced dataset.',
+        'Another obvious approach is to keep every feature and let the downstream model decide. This avoids throwing away information by hand, but it keeps noise, slows training, and makes distance calculations less meaningful in high dimensions.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Manual feature selection breaks because the important signal often lives in combinations of features, not in any single column. Height and weight individually are noisy predictors of body frame, but their correlated pattern -- taller people tend to weigh more -- captures a dominant axis of variation that neither feature alone represents.',
-        'The second wall is scale. PCA reads variance. If one feature is measured in dollars (range 0--100,000) and another in fractions (range 0--1), the dollar feature will dominate every component regardless of meaning. Standardization (subtract mean, divide by standard deviation) is usually required unless the original units are commensurate and their relative scales carry intentional meaning.',
-        'The third wall is curvature. PCA can only find straight directions. Data arranged on a ring, a Swiss roll, or a curved manifold has low-dimensional structure that no straight projection can unfold. PCA will project opposite sides of a ring onto the same point. The animation shows this failure directly.',
+        'Manual selection misses signal that lives in combinations of columns. Two measurements may be weak alone but strong together because their co-movement defines the real axis of variation.',
+        'Keeping all features hits the curse of dimensionality and the cost of unnecessary coordinates. If 768 embedding dimensions mostly vary along 50 directions, storing and comparing all 768 wastes memory and computation.',
+        'Raw scale can also dominate the result. A feature measured from 0 to 100000 can overwhelm a feature measured from 0 to 1 unless the scales are intentionally meaningful or the data is standardized first.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The covariance matrix of centered data is a compact summary of all pairwise linear relationships among features. Its eigenvectors are the directions the matrix merely stretches without rotating -- the data\'s natural axes. Its eigenvalues are the variance captured along each of those axes. Sorting eigenvectors by descending eigenvalue ranks directions from loudest to quietest.',
-        'Keeping the top k eigenvectors and projecting every data point onto them gives the best rank-k linear approximation to the data in the least-squares sense. This is not a heuristic; it is the solution to a precise optimization problem: minimize the total squared reconstruction error over all possible k-dimensional linear subspaces. That optimality, plus the fact that the solution has a closed form (no iterations, no randomness), is why PCA has survived 125 years of competition.',
+        'Center the data, then study the covariance matrix. Covariance measures how features vary together; its eigenvectors are directions the matrix stretches without rotating, and its eigenvalues are the variances along those directions.',
+        'PCA ranks those eigenvectors from largest eigenvalue to smallest. Keeping the top k directions gives the best k-dimensional linear approximation to the centered data by squared reconstruction error.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Step 1: Center the data. Subtract the mean of each feature so the cloud sits at the origin. Without centering, PCA confuses position with variation -- a cloud shifted far from zero would have a first component pointing at the offset, not at the spread.',
-        'Step 2: Build the covariance matrix. For d features, this is a d-by-d symmetric matrix. Entry (i, j) is the average product of centered feature i and centered feature j. The diagonal holds each feature\'s variance; the off-diagonal holds co-movement. A large positive entry means two features rise and fall together. A large negative entry means one falls when the other rises.',
-        'Step 3: Eigendecompose. For a symmetric matrix, the eigenvectors are orthogonal and the eigenvalues are real. Each eigenvector is a principal component direction; each eigenvalue is the variance the data has along that direction. For a 2-by-2 covariance matrix, the eigenvalues solve a quadratic and the eigenvector angle has a closed-form arctangent -- the visualization computes this exactly.',
-        'Step 4: Project and compress. Multiply each centered data point by the matrix of top-k eigenvectors to get k coordinates. The explained variance ratio for each component is its eigenvalue divided by the sum of all eigenvalues. The scree plot -- eigenvalues sorted in a bar chart -- shows where variance drops off. Cut where the bars go quiet.',
+        'First subtract the mean of each feature, so the cloud is centered around zero. Without centering, PCA can confuse where the cloud sits with how the cloud varies.',
+        'Second build the covariance matrix. The diagonal entries are feature variances, and off-diagonal entries are co-movements between pairs of features.',
+        'Third compute eigenvectors and eigenvalues, then project each centered point onto the top eigenvectors. The explained variance ratio for a component is its eigenvalue divided by the sum of all eigenvalues.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Among all unit vectors u, the one that maximizes the variance of the data projected onto it is the eigenvector with the largest eigenvalue. This can be shown by writing the projected variance as u-transpose times the covariance matrix times u, subject to the constraint that u has unit length. The Lagrange multiplier condition reduces to the eigenvector equation. The maximum variance equals the eigenvalue.',
-        'Once PC1 is fixed, PC2 maximizes variance in the orthogonal complement -- the subspace perpendicular to PC1. By induction, each successive component captures the most remaining variance among all directions orthogonal to those already chosen. Components never duplicate information because eigenvectors of a symmetric matrix are orthogonal.',
-        'The connection to SVD makes PCA practical at scale. If the centered data matrix is X (n-by-d), then the covariance matrix is proportional to X-transpose X. The right singular vectors of X are the eigenvectors of X-transpose X, and the squared singular values are proportional to the eigenvalues. Truncated SVD finds the top k components without forming the full covariance matrix, making PCA feasible even when d is in the thousands.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Five 2-D points: (1, 2), (3, 6), (5, 8), (7, 12), (9, 14). These roughly follow the pattern y = 1.5x + noise.',
-        'Step 1 -- Center. Mean = (5, 8.4). Subtract: (-4, -6.4), (-2, -2.4), (0, -0.4), (2, 3.6), (4, 5.6).',
-        'Step 2 -- Covariance matrix. Var(x) = (16+4+0+4+16)/5 = 8. Var(y) = (40.96+5.76+0.16+12.96+31.36)/5 = 18.24. Cov(x,y) = (25.6+4.8+0+7.2+22.4)/5 = 12. The covariance matrix is [[8, 12], [12, 18.24]]. The large positive off-diagonal confirms x and y move together.',
-        'Step 3 -- Eigendecompose. Trace = 26.24, determinant = 8*18.24 - 144 = 1.92. Eigenvalues: 26.24/2 +/- sqrt(26.24^2/4 - 1.92) = 13.12 +/- 13.05. So lambda_1 = 26.17, lambda_2 = 0.07. PC1 captures 26.17/26.24 = 99.7% of total variance. The eigenvector for lambda_1 points along the cloud\'s spine (roughly 56 degrees from horizontal). PC2, perpendicular, gets the crumbs.',
-        'Step 4 -- Project onto PC1. Each centered point drops perpendicularly onto the PC1 line, becoming a single coordinate. Five 2-D points become five 1-D numbers. We discarded half the storage and kept 99.7% of the linear information. Reconstruction from 1-D back to 2-D (by multiplying the coordinate by the PC1 direction vector and adding the mean) recovers points within a tiny perpendicular offset -- the 0.3% that was noise.',
-        'Scree plot for choosing k: plot the eigenvalues as bars in descending order. Here, bar 1 is 26.17 and bar 2 is 0.07 -- a sharp elbow after the first component. The elbow says one component is enough. In practice, MNIST digits in 784-D show an elbow around 50 components (capturing roughly 95% of variance), suggesting 50-D compression with minimal loss.',
+        'For any unit direction u, the variance after projecting the data onto u is u transpose times the covariance matrix times u. Maximizing that quantity under the unit-length constraint gives the eigenvector equation.',
+        'The largest eigenvalue gives the direction with maximum projected variance. Each later component solves the same problem in the space orthogonal to the earlier components, so the components do not duplicate one another.',
+        'The Singular Value Decomposition view makes the same argument practical. The right singular vectors of the centered data matrix are the PCA directions, and truncated SVD can find the top directions without forming a huge covariance matrix.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'For n samples and d features, forming the full covariance matrix costs O(n * d^2) operations and the dense eigendecomposition costs O(d^3). When d is large and only k components are needed, truncated or randomized SVD reduces the cost to approximately O(n * d * k). scikit-learn\'s PCA uses this by default when k is much smaller than d.',
-        'After fitting, transforming a new sample costs O(d * k): subtract the stored mean, multiply by the k-by-d component matrix. Storage drops from d numbers per sample to k numbers per sample. Reconstruction (inverse transform) costs O(d * k) to expand back, plus adding the mean. The reconstruction error is controlled entirely by the discarded eigenvalues -- their sum is the total squared error.',
-        'Doubling the number of samples doubles the covariance-building cost but does not change eigendecomposition cost (which depends on d, not n). Doubling the number of features quadruples the covariance cost and cubes the eigendecomposition cost -- this is why truncated SVD matters for high-dimensional data. PCA is deterministic: same data, same preprocessing, same components. No random seeds, no hyperparameter sensitivity, no convergence worries.',
+        'For n samples and d features, forming a dense covariance matrix costs O(n d^2), and full eigendecomposition costs O(d^3). When only k components are needed, truncated or randomized SVD can reduce the practical cost toward O(n d k).',
+        'Transforming a new sample costs O(d k): subtract the learned mean and multiply by the component matrix. Storage per sample drops from d numbers to k numbers, and reconstruction error equals the variance left in the discarded components.',
+        'When samples double, the covariance-building work roughly doubles. When features double, covariance work grows about fourfold and full eigendecomposition about eightfold, so feature count is the expensive axis.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Noise reduction: small eigenvalues correspond to noise directions. Projecting onto the top components and reconstructing filters out high-frequency noise. Image denoising, signal processing, and sensor fusion all use this. Eigenfaces (Turk and Pentland, 1991) projected face images onto the top principal components to build a compact representation for recognition -- the first practical face recognition system.',
-        'Compression and preprocessing: PCA reduces 768-D transformer embeddings to 50-D before feeding them to t-SNE, UMAP, or a downstream classifier. The compression is lossless for the dominant linear structure and removes noise dimensions that would otherwise slow or confuse later steps. scikit-learn\'s t-SNE implementation recommends PCA preprocessing for exactly this reason.',
-        'Whitening: after PCA, dividing each component by the square root of its eigenvalue decorrelates the features and equalizes their variance. Many classical models (logistic regression, SVMs, k-nearest neighbors) benefit from whitened inputs because distance metrics become meaningful across all directions.',
-        'Anomaly detection: fit PCA on normal data, then measure reconstruction error on new samples. A sample that does not project well onto the learned components -- high reconstruction error -- is likely anomalous. This works because anomalies tend to have energy in directions the normal data does not use.',
+        'PCA is used for compression and preprocessing. Embeddings, images, sensor streams, and tabular features can be reduced before clustering, visualization, nearest-neighbor search, or classical machine-learning models.',
+        'It is also used for denoising. Small eigenvalues often correspond to directions where the data barely varies, so reconstructing from top components can suppress noise while preserving dominant structure.',
+        'Anomaly detection uses reconstruction error. Fit PCA on normal data, project and reconstruct a new sample, and treat a large leftover error as evidence that the sample does not live in the learned normal subspace.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Nonlinear structure: PCA cannot unroll a Swiss roll, separate concentric rings, or flatten a curved manifold. The animation demonstrates this with a ring -- antipodal points collapse onto the same shadow. Use kernel PCA, t-SNE, UMAP, or autoencoders when the structure is curved.',
-        'Scale sensitivity: a feature measured in kilometers will dominate one measured in meters, regardless of which is more informative. Always standardize (z-score) before PCA unless the raw scales carry intentional physical meaning.',
-        'Task-critical quiet directions: PCA ranks directions by variance, not by predictive importance. A fraud indicator with tiny variance but strong class separation will be dropped. Supervised methods (LDA, partial least squares) use labels to find directions that matter for the task, not just directions with high variance.',
-        'Data leakage: fitting PCA on the entire dataset (train + test) before splitting lets test-set statistics influence the components. Always fit on training data only, then apply the learned mean and eigenvectors to validation and test sets. This is a common mistake in machine learning pipelines.',
-        'Overinterpretation: each component is a loading vector over original features, and it is tempting to name them ("size factor," "contrast factor"). Interpretations must be earned from the loadings and domain knowledge. A component that mixes 20 features with similar weights has no clean single-word name.',
+        'PCA fails on curved low-dimensional structure. A ring is one-dimensional by angle, but no straight line can represent it without collisions, so opposite points can project to the same coordinate.',
+        'It also fails when low-variance directions are task-critical. A rare fraud signal or small medical feature may have little variance but high predictive value, and PCA can discard it because PCA ignores labels.',
+        'Data leakage is a common pipeline failure. PCA must be fit on training data only, then applied to validation and test data with the learned mean and components.',
       ],
     },
     {
-      heading: 'PCA vs t-SNE vs UMAP',
+      heading: 'Worked example',
       paragraphs: [
-        'PCA is a linear, global, deterministic transformation. It preserves large-scale variance structure, produces interpretable axes (loadings), runs in closed form, and has an inverse map -- you can reconstruct the original from the components with quantifiable error. It is fast (seconds on millions of samples) and has no hyperparameters beyond the number of components to keep.',
-        't-SNE is a nonlinear, local, stochastic method. It converts pairwise distances to probabilities, then minimizes KL divergence between high-dimensional and low-dimensional probability distributions. It excels at preserving local neighborhood structure for 2-D visualization but distorts global distances, has no inverse map, depends on perplexity and learning rate, and runs slowly on large datasets. Cluster separations and sizes in a t-SNE plot are not meaningful.',
-        'UMAP is also nonlinear and local but faster than t-SNE, better at preserving some global structure, and based on topological arguments rather than probability divergence. Like t-SNE, it has hyperparameters (n_neighbors, min_dist) that change the output, no stable inverse, and axes that carry no interpretable meaning.',
-        'The practical pipeline uses them together: PCA first to crush noise dimensions cheaply (768-D to 50-D), then t-SNE or UMAP on the survivors for the human-readable 2-D map. PCA answers "what varies enough to keep" -- a question with an exact linear answer. The manifold methods answer "how to draw it" -- a question that requires bending space.',
+        'Use five points: (1, 2), (3, 6), (5, 8), (7, 12), and (9, 14). Their mean is (5, 8.4), so centered points include (-4, -6.4), (-2, -2.4), (0, -0.4), (2, 3.6), and (4, 5.6).',
+        'The covariance entries are Var(x) = 8, Var(y) = 18.24, and Cov(x,y) = 12. The covariance matrix is [[8, 12], [12, 18.24]], so x and y move strongly together.',
+        'The eigenvalues are about 26.17 and 0.07. PC1 therefore captures 26.17 / 26.24 = 99.7 percent of the variance, so one coordinate along PC1 keeps nearly all of the linear information while discarding the tiny perpendicular wobble.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Pearson 1901, "On Lines and Planes of Closest Fit to Systems of Points in Space." Hotelling 1933, "Analysis of a Complex of Statistical Variables into Principal Components." Turk and Pentland 1991, "Eigenfaces for Recognition." Jolliffe 2002, Principal Component Analysis (2nd ed). Halko, Martinsson, and Tropp 2011, "Finding Structure with Randomness: Probabilistic Algorithms for Constructing Approximate Matrix Decompositions" (the paper behind randomized SVD in scikit-learn).',
-        'Prerequisite: Eigenvalues & Eigenvectors -- the algebraic skeleton PCA is built on. Extension: SVD & Low-Rank Approximation -- PCA is SVD of centered data; understanding SVD reveals why truncated decomposition works and connects to matrix completion and recommender systems. Nonlinear alternatives: t-SNE and UMAP for curved manifold visualization. Downstream: K-Means Clustering, which is often applied after PCA-compressed data to find groups in the reduced space.',
+        'Primary sources include Pearson 1901, On Lines and Planes of Closest Fit to Systems of Points in Space, Hotelling 1933 on principal components, Turk and Pentland 1991 on eigenfaces, Jolliffe on PCA, and Halko, Martinsson, and Tropp 2011 on randomized matrix decompositions.',
+        'Study Eigenvalues and Eigenvectors first, then Singular Value Decomposition and Low-Rank Approximation. After PCA, study t-SNE and UMAP for nonlinear visualization, and K-Means Clustering for a common downstream use of PCA-compressed data.',
       ],
     },
   ],

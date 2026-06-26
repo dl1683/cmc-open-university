@@ -132,18 +132,18 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The grid is a V-by-V distance matrix. Row i, column j holds the shortest known cost from vertex i to vertex j. Cells showing ∞ mean no path has been discovered yet. Cells showing 0 on the diagonal mean "the cost from a vertex to itself is zero."',
-        'Each round introduces one intermediate vertex k. The algorithm highlights row k and column k because those are the two legs of any detour through k: the cost to reach k (column k) and the cost to leave k (row k). For every other cell (i,j), the algorithm checks whether dist[i][k] + dist[k][j] is cheaper than the current dist[i][j].',
+        'The grid is a V-by-V distance matrix. Row i, column j holds the shortest known cost from vertex i to vertex j. Cells showing ∞ mean no path has been discovered yet. Cells showing 0 on the diagonal mean the cost from a vertex to itself is zero.',
+        'Each round introduces one intermediate vertex k. The algorithm highlights row k and column k -- those are the two legs of any detour through k: the cost to reach k (column k) and the cost to leave k (row k). For every other cell (i,j), the algorithm checks whether dist[i][k] + dist[k][j] is cheaper than the current dist[i][j].',
         {type: 'callout', text: 'Floyd-Warshall turns one allowed intermediate vertex into a global matrix update: every cell asks whether routing through k makes its current path cheaper.'},
-        'Green cells are improvements: a cheaper path was found by routing through k. After all V rounds, every vertex has been tried as an intermediate, and no cell can improve further. The diagonal stays zero unless the graph contains a negative-weight cycle, in which case the affected diagonal entry drops below zero.',
-      
-        {type: 'image', src: './assets/gifs/floyd-warshall.gif', alt: 'Animated walkthrough of the floyd warshall visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Green cells mark improvements: a cheaper path was found by routing through k. After all V rounds, every vertex has been tried as an intermediate and no cell can improve further. The diagonal stays zero unless the graph contains a negative-weight cycle, in which case the affected diagonal entry drops below zero.',
+        {type: 'image', src: './assets/gifs/floyd-warshall.gif', alt: 'Animated walkthrough of the floyd warshall visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Some problems need the shortest path between every pair of vertices, not just from a single source. Routing tables in small networks need to answer any source-destination query instantly. Transitive closure asks whether vertex i can reach vertex j, for all i and j. Graph diameter is the largest finite entry in the all-pairs distance matrix. Each of these requires computing V² distances.',
-        'Robert Floyd published "Algorithm 97: Shortest Path" in Communications of the ACM in 1962. Stephen Warshall published "A Theorem on Boolean Matrices" in JACM the same year, solving transitive closure with the identical three-loop structure but using OR/AND instead of min/add. Bernard Roy discovered the same recurrence independently in 1959. The result is a single algorithm that solves all-pairs shortest paths, transitive closure, and negative-cycle detection with three nested loops over a distance matrix.',
+        'Some problems need the shortest path between every pair of vertices, not just from a single source. Routing tables in small networks must answer any source-destination query instantly. Transitive closure -- whether vertex i can reach vertex j, for all i and j -- requires the same V² computation. Graph diameter is the largest finite entry in the all-pairs distance matrix.',
+        'Robert Floyd published "Algorithm 97: Shortest Path" in Communications of the ACM in 1962. Stephen Warshall published "A Theorem on Boolean Matrices" in JACM the same year, solving transitive closure with the identical three-loop structure but using OR/AND instead of min/add. Bernard Roy discovered the same recurrence independently in 1959. The result is one algorithm that solves all-pairs shortest paths, transitive closure, and negative-cycle detection with three nested loops over a distance matrix.',
       ],
     },
     {
@@ -151,7 +151,7 @@ export const article = {
       paragraphs: [
         'You already know single-source shortest paths. The natural way to get all-pairs distances is to run Dijkstra from every vertex and collect the V result vectors into a V-by-V table.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'All-pairs shortest paths begin with a directed graph, but Floyd-Warshall moves the work into a matrix of every source-target pair. Source: Wikimedia Commons, David W., public domain.'},
-        'Cost: O(V(V + E) log V) with a binary heap. For sparse graphs this is reasonable. For dense graphs where E approaches V², the total becomes O(V³ log V), and the log V factor starts to matter. The approach also requires building and maintaining a priority queue V separate times, which adds implementation weight.',
+        'Cost: O(V(V + E) log V) with a binary heap. For sparse graphs this is reasonable. For dense graphs where E approaches V², the total becomes O(V³ log V), and the log V factor starts to matter. The approach also requires building and maintaining a priority queue V separate times, adding implementation weight.',
       ],
     },
     {
@@ -159,7 +159,7 @@ export const article = {
       paragraphs: [
         'Dijkstra cannot handle negative edge weights. Its greedy invariant -- "the smallest tentative distance is safe to finalize" -- breaks when a negative edge could retroactively reduce a settled distance. So the repeated-Dijkstra plan fails on any graph with negative edges.',
         'Bellman-Ford handles negative weights from a single source in O(VE), but running it from every vertex costs O(V²E), which is O(V⁴) on dense graphs.',
-        'Repeated single-source algorithms also waste structural opportunity. The intermediate vertex k is useful for every pair (i,j) simultaneously, but single-source algorithms process one source at a time and cannot share that work. A different formulation is needed -- one that operates on the entire matrix at once.',
+        'Repeated single-source algorithms also waste structural opportunity. The intermediate vertex k is useful for every pair (i,j) simultaneously, but single-source algorithms process one source at a time and cannot share that work. A formulation that operates on the entire matrix at once would exploit this shared structure.',
       ],
     },
     {
@@ -168,7 +168,7 @@ export const article = {
         'Floyd-Warshall is dynamic programming over the set of allowed intermediate vertices. Define dp[i][j][k] as the shortest path from i to j using only vertices 0 through k as intermediates. The recurrence is:',
         'dp[i][j][k] = min(dp[i][j][k-1], dp[i][k][k-1] + dp[k][j][k-1]).',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Floyd-Warshall_example.svg/960px-Floyd-Warshall_example.svg.png', alt: 'Floyd-Warshall example showing path composition through intermediate vertices', caption: 'The red and blue boxes show how a shortest path is assembled from subpaths through an intermediate vertex. Source: Wikimedia Commons, Floyd-Warshall example.'},
-        'The first term: the shortest path that avoids vertex k. The second term: a path that goes from i to k, then from k to j, with both legs restricted to intermediates 0 through k-1. The better of the two wins.',
+        'The first term is the shortest path that avoids vertex k entirely. The second term is a path that goes i to k then k to j, with both legs restricted to intermediates 0 through k-1. The cheaper option wins.',
         'Base case: dp[i][j][-1] is the direct edge weight from i to j (or ∞ if no edge exists, 0 on the diagonal). After V rounds, dp[i][j][V-1] is the true shortest path with all vertices available as intermediates.',
         'The three-dimensional table collapses to a two-dimensional matrix updated in place. During round k, the values dist[i][k] and dist[k][j] do not change -- any path from i to k that re-uses k as an intermediate would contain a cycle through k, which cannot help in a graph without negative cycles. So reading the "old" row-k and column-k values from the current matrix is safe.',
       ],
@@ -185,7 +185,7 @@ export const article = {
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness follows by induction on k. Base case: with no intermediates allowed, the shortest path from i to j is the direct edge weight -- which is exactly what the initial matrix stores.',
+        'Correctness follows by induction on k. Base case: with no intermediates allowed, the shortest path from i to j is the direct edge weight, which is exactly what the initial matrix stores.',
         'Inductive step: assume the matrix is correct for intermediates {0, ..., k-1}. The shortest path from i to j through {0, ..., k} either skips vertex k (so it equals dp[i][j][k-1], already correct) or passes through k, splitting into i-to-k and k-to-j, each using only {0, ..., k-1} as intermediates. Both subpath costs are correct by hypothesis, so the min of the two terms gives the correct answer for dp[i][j][k].',
         'The in-place update is safe because dist[i][k] and dist[k][j] are never modified during round k. A path from i to k cannot benefit from using k as an intermediate (that would create a cycle through k), so dist[i][k] after round k equals dist[i][k] before round k.',
         'Negative-cycle detection works because dist[i][i] starts at 0. If routing through intermediates produces dist[i][i] < 0, a round-trip from i back to i with negative total weight exists.',
@@ -194,18 +194,18 @@ export const article = {
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Time: O(V³). Three nested loops, each running V iterations, with O(1) work in the innermost body (one addition, one comparison, one possible assignment). The cost depends only on V, not on E. When V doubles, the runtime grows by a factor of 8.',
+        'Time: O(V³). Three nested loops, each running V iterations, with O(1) work in the innermost body (one addition, one comparison, one possible assignment). The cost depends only on V, not on E. When V doubles, runtime grows by a factor of 8.',
         'Space: O(V²) for the distance matrix, updated in place. Add a second V² matrix if you need path reconstruction.',
         'The constant factor is small: the inner loop is one addition and one branch. No priority queue, no adjacency-list pointer chasing, no heap operations. On dense graphs (E near V²), Floyd-Warshall matches or beats V runs of Dijkstra because V³ has a smaller constant than V × (V + E) log V. On sparse graphs with non-negative weights, Johnson\'s algorithm achieves O(V² log V + VE), which can be much less than V³.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Small dense graphs where you need all-pairs distances. The implementation is five lines of pseudocode and the constant is tiny. Routing tables in networks with a few hundred nodes compute all-pairs distances once and answer queries by table lookup.',
+        'Small dense graphs where you need all-pairs distances are the sweet spot. The implementation is five lines of pseudocode and the constant is tiny. Routing tables in networks with a few hundred nodes compute all-pairs distances once and answer queries by table lookup.',
         'Transitive closure: swap min with OR and addition with AND. The same three-loop structure answers "can i reach j?" for every pair. This is Warshall\'s 1962 formulation -- same algorithm, different semiring.',
         'Graph diameter and closeness centrality both read directly from the final matrix. Diameter is the largest finite entry. Closeness centrality for vertex i is the inverse of the sum of row i.',
-        'Negative-cycle detection in financial models: represent currency exchange rates as log-weights on edges. A negative cycle means a profitable round-trip arbitrage. Floyd-Warshall flags it via negative diagonal entries without needing a separate detection pass.',
+        'Negative-cycle detection in financial models: represent currency exchange rates as log-weights on edges. A negative cycle means a profitable round-trip arbitrage opportunity. Floyd-Warshall flags it via negative diagonal entries without needing a separate detection pass.',
       ],
     },
     {
@@ -214,8 +214,7 @@ export const article = {
         'V³ is impractical for large graphs. A 10,000-vertex graph requires 10¹² operations. Road networks, social graphs, and the web have millions of vertices -- Floyd-Warshall cannot touch them.',
         'V² space is equally prohibitive at scale. A million-vertex graph would need a trillion-entry matrix. At 4 bytes per entry, that is 4 TB.',
         'When only a few source-destination pairs matter, computing all V² distances wastes almost all the work. Dijkstra from a single source, or A* for a single pair, is the right tool for sparse queries.',
-        'Floyd-Warshall provides no useful partial results. The matrix is not correct until all V rounds finish. You cannot stop early for one pair the way Dijkstra halts when the target is settled.',
-        'Path reconstruction requires a second V² matrix. Without it, you get distances but not actual paths.',
+        'Floyd-Warshall provides no useful partial results. The matrix is not correct until all V rounds finish. You cannot stop early for one pair the way Dijkstra halts when the target is settled. Path reconstruction also requires a second V² matrix; without it, you get distances but not actual routes.',
       ],
     },
     {
@@ -236,12 +235,12 @@ export const article = {
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Floyd, R.W. (1962). "Algorithm 97: Shortest Path." Communications of the ACM, 5(6), 345. The three-loop matrix algorithm for all-pairs shortest distances. Warshall, S. (1962). "A Theorem on Boolean Matrices." Journal of the ACM, 9(1), 11-12. Transitive closure via the same structure with OR/AND instead of min/add. Roy (1959) independently discovered the same recurrence.',
+        'Floyd, R.W. (1962). "Algorithm 97: Shortest Path." Communications of the ACM, 5(6), 345. Warshall, S. (1962). "A Theorem on Boolean Matrices." Journal of the ACM, 9(1), 11-12. Roy, B. (1959). "Transitivité et connexité." Comptes Rendus, 249, 216-218.',
         'Prerequisites: adjacency matrix representation and dynamic programming. Floyd-Warshall operates on a V-by-V matrix, and the "allowed intermediate vertices" set is the DP dimension.',
         'Bellman-Ford: single-source shortest paths with negative weights in O(VE). The right choice when you need distances from one vertex in a graph with negative edges, not all pairs.',
         'Dijkstra: single-source shortest paths with non-negative weights in O((V+E) log V). Faster than Floyd-Warshall when you only need one source and edges are non-negative.',
         'Johnson\'s algorithm: reweights edges with one Bellman-Ford run to eliminate negatives, then runs Dijkstra from every vertex. Cost: O(V² log V + VE). Beats Floyd-Warshall on sparse graphs; comparable on dense graphs.',
-        'Transitive closure: the boolean version of Floyd-Warshall. Same structure, different semiring.',
+        'Transitive closure: the boolean version of Floyd-Warshall. Same three-loop structure, different semiring (OR/AND instead of min/add).',
       ],
     },
   ],

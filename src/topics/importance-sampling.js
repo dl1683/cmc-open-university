@@ -1,4 +1,4 @@
-﻿// Importance sampling: answer "how would the NEW policy do?" using only
+// Importance sampling: answer "how would the NEW policy do?" using only
 // data logged by the OLD one. Reweight each sample by p/q, and a question
 // about an untested system becomes arithmetic on the logs you already have.
 
@@ -193,139 +193,59 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation runs two views. "Reweighting the logs" walks through a ledger of 500 episodes drawn from a logging policy q, each repriced with a weight p(a)/q(a) to estimate the value of a candidate policy p. Tables show the weights, exact answer, IS estimate, variance, and effective sample size. The convergence plot tracks how the running estimate approaches the true value over samples drawn.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The animation reads a log collected by one policy q and estimates the value of another policy p. A policy is a probability rule for choosing actions; a log entry records action, reward, and the probability q assigned to that action. Active rows are being reweighted, and compared rows show the exact answer versus the estimate.',
         {type: 'callout', text: 'Importance sampling changes the question by changing weights: samples from q can answer for p only where q actually gathered evidence.'},
-        '"When the weights explode" shows the failure mode: a bad logger that avoids the actions p favors. Tables dissect the weight distribution, ESS collapse, and the practical toolbox (self-normalization, clipping, defensive logging, doubly robust). The final table maps the IS identity to five real domains.',
-        'Active cells mark the current focus. Found cells mark quantities that match the exact answer. Compare cells highlight the gap between truth and estimate. Removed cells flag pathological values like collapsed ESS. Watch for the gap between "unbiased" and "reliable" -- it is the central lesson.',
+        'The safe inference rule is that a logged action can speak for p only if q gave that action nonzero probability. Watch the effective sample size, because it shows how much data survives after weights are applied.',
       
         {type: 'image', src: './assets/gifs/importance-sampling.gif', alt: 'Animated walkthrough of the importance sampling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A hospital wants to know whether a new treatment protocol would improve outcomes before assigning patients to it. An ads platform wants to score a candidate bidding rule on yesterday\'s auctions without running it live. An RL lab wants to grade a new robot controller without risking a crash. In each case, deploying the new policy to collect fresh data is expensive, slow, or dangerous. The only available evidence is a log of decisions made by the old policy.',
+    { heading: 'Why this exists', paragraphs: [
+        'Sometimes the policy you want to evaluate is not the policy that collected the data. A hospital has old treatment logs, an ads system has yesterday bidding logs, and a robotics team has rollouts from a safer controller. Running the new policy live may be expensive or risky.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/MonteCarloIntegrationCircle.svg/500px-MonteCarloIntegrationCircle.svg.png', alt: 'Monte Carlo integration points inside and outside a quarter circle', caption: 'Monte Carlo estimators answer questions with samples. Importance sampling changes where samples come from, then corrects the accounting with weights. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:MonteCarloIntegrationCircle.svg'},
-        'Importance sampling, formalized by Kahn and Harris in 1951 for Monte Carlo neutron transport at Los Alamos, answers this class of problem. It converts samples drawn from one distribution into an estimate of an expectation under a different distribution, using only arithmetic on the existing data. No new experiment is needed. The cost is paid in variance, not in deployment risk.',
-        {
-          type: 'diagram',
-          label: 'Proposal distribution q vs. target distribution p',
-          text: [
-            '  Reward:     1      2      3      5      8',
-            '',
-            '  q (logger): |=====  |=====  |====   |==    |==',
-            '              0.30   0.30   0.20   0.10  0.10',
-            '',
-            '  p (target): |=      |==     |===    |=====  |=======',
-            '              0.05   0.10   0.15   0.30  0.40',
-            '',
-            '  weight p/q: 0.17   0.33   0.75   3.00  4.00',
-            '',
-            '  Where p cares most, q samples least.',
-            '  The weight corrects the mismatch -- but at a variance cost.',
-          ].join('\n'),
-        },
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The first instinct is to average the rewards in the old logs directly. The logger q chose actions and observed rewards; averaging those rewards gives an unbiased estimate of q\'s value. If p and q are similar, this average is a rough proxy for p\'s value too.',
-        'A slightly better attempt is to deploy p on a small slice of traffic -- an A/B test. This gives an unbiased estimate of p\'s value under the true environment, but it requires live exposure. In medicine, A/B testing is a clinical trial. In ads, it means revenue risk. In robotics, it means potential hardware damage. The cost is not computational; it is operational and sometimes ethical.',
-        'Both approaches fail to answer the specific question importance sampling addresses: what would p\'s value be, using only data that already exists from q, without deploying p at all?',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The raw average of logged rewards estimates E_q[R], not E_p[R]. When p and q disagree about which actions matter, the average answers the wrong question. If q rarely chose the actions p favors, the raw average is almost entirely about q\'s preferences and says nearly nothing about p.',
-        'A/B testing avoids this problem but hits a different wall: you cannot test every candidate policy live. A recommendation team might want to evaluate fifty ranker variants before choosing one to deploy. Running fifty parallel A/B tests requires splitting traffic fifty ways, diluting statistical power and exposing users to many untested systems. The cost scales linearly with the number of candidates.',
-        'The structural issue is that the data-generating process (q) shaped which actions appear in the log. Any estimator that ignores this shaping is biased toward q. The wall is distributional mismatch: the samples you have are not from the distribution you need.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The importance sampling identity rewrites an expectation under p as an expectation under q. For any function f(a):',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'E_p[f(a)] = sum_a p(a) * f(a)\n           = sum_a q(a) * [p(a)/q(a)] * f(a)\n           = E_q[ w(a) * f(a) ]    where w(a) = p(a) / q(a)',
-        },
-        'Each logged sample gets a weight w = p(a)/q(a). An action that p would choose 4x more often than q counts 4x. An action p would choose less often shrinks. The weighted average of rewards estimates the value of p. The animation traces this with five discrete actions, rewards [1, 2, 3, 5, 8], and two policies that disagree sharply about which actions matter.',
+        'Importance sampling estimates an expectation under a target distribution p using samples from a proposal distribution q. The trade is clear: you avoid a new experiment, but you pay variance when p and q disagree.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to average the logged rewards directly. That gives the value of q, the policy that produced the log. If p and q are nearly identical, it may be a decent rough proxy.',
+        'Another approach is to deploy p in an A/B test. That gives clean evidence for p, but it spends real users, money, patients, or hardware risk. It also scales poorly when many candidate policies need screening.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'The raw log average answers the wrong expectation. If q chose safe action A 90% of the time and p would choose high-reward action B 90% of the time, q logs contain little evidence about p. The data distribution shaped what you observed.',
+        'A/B tests hit an operational wall. Evaluating 50 candidates live either splits traffic into weak samples or exposes users to many unproven policies. Offline evaluation needs a way to correct for the policy that generated the log.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Rewrite the target expectation by multiplying and dividing by q. For an action a, p(a) * reward(a) equals q(a) * [p(a) / q(a)] * reward(a), as long as q(a) is not zero. The ratio p/q is the importance weight.',
+        'Actions that p favors more than q receive weight above 1. Actions that p favors less receive weight below 1. If q never sampled an action that p might take, the estimate has no evidence for that part of p and becomes biased.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'For each logged sample, read action a, reward r, target probability p(a), and logging probability q(a). Compute w = p(a) / q(a). Add w * r to the numerator, then divide by the number of samples for ordinary importance sampling.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions with different parameters', caption: 'The estimator is healthy when proposal and target densities overlap enough that weights stay controlled. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Normal_Distribution_PDF.svg'},
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Importance-weighted estimator with likelihood ratio\nfunction importanceSamplingEstimate(loggedData, pPolicy, qPolicy) {\n  let sumWeightedReward = 0;\n  let sumWeight = 0;\n  let sumWeightSq = 0;\n\n  for (const { action, reward } of loggedData) {\n    const w = pPolicy(action) / qPolicy(action);  // likelihood ratio\n    sumWeightedReward += w * reward;\n    sumWeight += w;\n    sumWeightSq += w * w;\n  }\n\n  const n = loggedData.length;\n  const ordinary = sumWeightedReward / n;          // unbiased IS\n  const selfNormalized = sumWeightedReward / sumWeight;  // SNIS: biased, lower variance\n  const ess = (sumWeight * sumWeight) / sumWeightSq;     // effective sample size\n\n  return { ordinary, selfNormalized, ess };\n}',
-        },
-        'The ordinary estimator divides by n and is unbiased. The self-normalized estimator (SNIS) divides by the sum of weights instead. SNIS is slightly biased but far more stable, because it automatically adjusts for scale differences between p and q. In practice, SNIS is the default in most off-policy evaluation systems.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The proof is a change of measure. For any action a, the expected contribution to the weighted average is q(a) * [p(a)/q(a)] * R(a) = p(a) * R(a). The q in the sampling cancels with the q in the denominator of the weight. Summed over all actions, the result is exactly E_p[R]. The estimator is unbiased whenever q(a) > 0 for every a where p(a) > 0 -- the support condition.',
-        'The variance of the estimator is Var_q[w * R] / n. Since w = p/q can be large where p and q disagree, the variance scales with E_q[w^2], which is the second moment of the weight distribution. This is why mismatch between p and q is not just inconvenient -- it is the direct driver of statistical cost. ESS = (sum w)^2 / sum(w^2) measures how many equivalent on-policy samples the weighted data provides.',
-        'The support condition is absolute. If q(a) = 0 for some action a where p(a) > 0, the weight is undefined and the log contains zero evidence about that action. The estimator becomes silently biased, not just noisy. No amount of data can repair a coverage gap. This is why production logging policies mix in uniform exploration: they pay a small cost today to guarantee that any future policy can be evaluated.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Computation is trivial: one pass over the log, O(n) time, O(1) extra space. For each logged sample, read action, reward, and propensity q(a), compute w = p(a)/q(a), accumulate w*R. The bottleneck is never compute.',
-        {
-          type: 'table',
-          headers: ['Method', 'Bias', 'Variance', 'Data needed', 'Compute'],
-          rows: [
-            ['Uniform (Monte Carlo)', 'None', 'High for rare events', 'Drawn from target p', 'O(n)'],
-            ['Importance sampling', 'None (with support)', 'Depends on p/q mismatch', 'Drawn from proposal q', 'O(n)'],
-            ['Stratified sampling', 'None', 'Lower than uniform', 'Strata defined over p', 'O(n) + stratification'],
-            ['Self-normalized IS', 'O(1/n) bias', 'Much lower than raw IS', 'Drawn from proposal q', 'O(n)'],
-          ],
-        },
-        'The real cost is statistical. ESS measures how much of the data survives reweighting. If 500 logged episodes yield ESS of 120, the estimate has the precision of 120 on-policy samples -- 76% of the data\'s power is burned as reweighting overhead. When p and q diverge sharply, ESS can collapse to single digits, making the estimate nominally unbiased but practically useless.',
+        'Self-normalized importance sampling divides by sum(w) instead of n. That adds small finite-sample bias but often reduces variance. Effective sample size, ESS = (sum w)^2 / sum(w^2), estimates how many on-policy samples the weighted log is worth.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'The correctness argument is cancellation. The expected weighted contribution under q is q(a) * [p(a) / q(a)] * r(a), which simplifies to p(a) * r(a). Summing over actions gives the target expectation under p.',
+        'The support condition is mandatory: whenever p(a) > 0, q(a) must also be > 0. Without support, the denominator is zero and no logged sample can represent that action. More data from the same q cannot fix a missing action.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Compute cost is O(n) time and O(1) extra memory for a log of n samples. The estimator is just one pass of ratios and accumulators. The real cost is statistical, not computational.',
+        'Variance grows with large weights. If one action has p(a) = 0.4 and q(a) = 0.01, its weight is 40, so a few samples can dominate the estimate. When 500 logged episodes have ESS = 50, the estimate behaves like only 50 useful on-policy samples.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/en/thumb/7/72/Relative_error_of_a_Monte_Carlo_integration_to_calculate_pi.svg/500px-Relative_error_of_a_Monte_Carlo_integration_to_calculate_pi.svg.png', alt: 'Relative error plot for Monte Carlo integration estimating pi', caption: 'Monte Carlo error can fall slowly even for a simple target; importance weights can make the effective sample count much smaller than the log size. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Relative_error_of_a_Monte_Carlo_integration_to_calculate_pi.svg'},
-        'Effective sample size: ESS = (sum w)^2 / sum(w^2). This is the diagnostic that matters. Report it alongside every IS estimate. If ESS / n < 0.1, the estimate is fragile. If ESS / n < 0.01, it is noise.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Off-policy evaluation in ads, recommendations, and contextual bandits. Platforms log every decision with its propensity, then evaluate dozens of candidate policies offline before committing to an A/B test. The inverse propensity score (IPS) estimator is importance sampling applied to logged bandit data.',
-        'Reinforcement learning reuses rollouts across policy updates. PPO\'s clipped surrogate objective is built on the importance weight pi_new(a|s) / pi_old(a|s). The clip at [1-epsilon, 1+epsilon] is a weight-explosion guard. A few epochs of reuse keep weights near 1 where the variance tax is small.',
-        'Rare-event simulation inverts the logic: instead of suffering weight variance as a cost, engineers choose a proposal distribution where failures are common (e.g., stress a bridge at 10x load), simulate under that distribution, then weight results back to the real failure rate. This turns a billion-sample problem (estimate a 10^-9 probability) into a thousand-sample one.',
-        'Path tracing in rendering samples light paths from distributions shaped like the integrand. Multiple importance sampling (MIS) combines proposals from different light-sampling strategies. The API names in production renderers literally say "importance sampling."',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Weight degeneracy is the central failure mode. When p and q disagree strongly, a few samples carry enormous weight while most contribute nothing. The estimate becomes a punctuated equilibrium: long stretches of drift interrupted by violent jumps when a rare, heavily-weighted sample lands. Unbiased does not mean useful -- a confidence interval wide enough to include every plausible answer is technically correct and practically worthless.',
-        'Bad propensities are an engineering failure that masquerades as a statistics problem. If the logged q(a) is rounded, missing, computed after filtering, or attached to the wrong action set, every weight is wrong. Off-policy evaluation requires a data contract: available actions, chosen action, logged propensity, reward definition, delay window, and any filters that affected exposure. Without this contract, the math is fiction.',
-        {
-          type: 'note',
-          text: 'The self-normalized estimator (SNIS) trades O(1/n) bias for dramatically lower variance. Weight clipping caps each w at a threshold c, bounding variance but biasing toward q. Defensive logging mixes uniform exploration into q so no action has zero probability, guaranteeing future evaluability. Doubly robust estimators combine a reward model with IS correction -- unbiased if either the model or the propensities are correct. Nobody runs raw IS at scale; everyone runs a variance-managed cousin.',
-        },
-        'High-dimensional action spaces make importance sampling nearly impossible. If actions are sentences, images, or continuous vectors, the probability of any specific action under both p and q is vanishingly small, and weight ratios become astronomically large or degenerate. In these settings, model-based or doubly robust approaches are necessary.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Kahn and Harris, "Estimation of Particle Transmission by Random Sampling," National Bureau of Standards Applied Mathematics Series 12 (1951). The original Monte Carlo importance sampling paper from Los Alamos.',
-            'Owen, "Monte Carlo Theory, Methods and Examples," Chapter 9: Importance Sampling (2013). The clearest modern treatment of variance analysis, ESS, and self-normalization.',
-            'Dudik, Langford, and Li, "Doubly Robust Policy Evaluation and Learning," ICML 2011. Introduces the DR estimator that combines model prediction with IS correction.',
-          ],
-        },
-        'Study Multi-Armed Bandits for the exploration/exploitation tradeoff that drives logging policy design. Study Policy Gradients: REINFORCE to PPO to see importance weights used during learning, not just evaluation. Study Particle Filter Resampling Localization to see ESS used as a resampling trigger in streaming inference.',
-        'Study Confidence Intervals and the Bootstrap for uncertainty quantification around finite estimates. Study Doubly Robust Estimation for the model-assisted extension. Study Reservoir Sampling for a different answer to finite-data pressure when the log is too large to hold in memory.',
-      ],
-    },
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Ads and recommendation systems use inverse propensity scoring to evaluate candidate rankers from logged traffic. The logging policy records the probability of the shown action, and offline evaluation reweights outcomes for a new policy before live testing.',
+        'Reinforcement learning uses importance ratios when reusing trajectories from an older policy. PPO clips those ratios to control variance. Rare-event simulation uses the same identity in reverse by sampling failures more often and weighting them back to the real distribution.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'Weight degeneracy is the main failure. A few huge weights can make an unbiased estimate too noisy to use. Clipping weights, self-normalization, defensive exploration, and doubly robust estimators are common variance controls.',
+        'Bad logging breaks the math. Missing propensities, rounded probabilities, filtered action sets, delayed rewards, or changed reward definitions make p/q wrong. High-dimensional actions such as generated text can also make useful overlap between p and q nearly vanish.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Rewards are [1, 2, 3, 5, 8]. The logging policy q is [0.30, 0.30, 0.20, 0.10, 0.10], and target policy p is [0.05, 0.10, 0.15, 0.30, 0.40]. The exact value under p is 0.05*1 + 0.10*2 + 0.15*3 + 0.30*5 + 0.40*8 = 5.40.',
+        'The weights p/q are [0.17, 0.33, 0.75, 3.00, 4.00]. If a 5-sample log drawn from q contains actions with rewards [1, 2, 2, 3, 8], the weighted reward sum is 0.17*1 + 0.33*2 + 0.33*2 + 0.75*3 + 4*8 = 35.74. Ordinary IS gives 35.74 / 5 = 7.15, high because one rare high-weight sample dominated the small log.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources include Kahn and Harris, Estimation of Particle Transmission by Random Sampling, 1951, and Owen, Monte Carlo Theory, Methods and Examples. Dudik, Langford, and Li explain doubly robust policy evaluation.',
+        'Study probability expectations, Monte Carlo estimation, and multi-armed bandits before using importance sampling. Study policy gradients, PPO, particle filters, confidence intervals, and doubly robust estimation next.',
+      ], },
   ],
 };

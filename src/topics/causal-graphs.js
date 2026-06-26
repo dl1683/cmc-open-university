@@ -199,8 +199,8 @@ export const article = {
         {type: 'callout', text: 'Causal graphs make adjustment a path operation: block confounders, leave mediators alone, and never open colliders.'},
         '"Reading the DAG" walks the three primitive junctions (chain, fork, collider), then manufactures collider bias on a deterministic grid. Compare markers contrast fork versus collider conditioning - the same operation that fixes one creates the other. The final frames state the backdoor criterion and explain why randomization is the nuclear option.',
         'At each frame, read the invariant line. It states the one fact that must hold before the next step is legal. If you can explain that invariant to someone else, you understood the frame.',
-      
-        {type: 'image', src: './assets/gifs/causal-graphs.gif', alt: 'Animated walkthrough of the causal graphs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/causal-graphs.gif', alt: 'Animated walkthrough of the causal graphs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -229,6 +229,14 @@ export const article = {
         'Adjustment is not generic cleanup. Conditioning on a confounder removes bias (the fork in view one). Conditioning on a mediator erases part of the real effect (blocking the chain smoking -> tar -> cancer hides the pathway you wanted to measure). Conditioning on a collider creates a relationship that did not exist (the casting-door experiment manufactures a negative correlation from independence).',
         'The same correlation table can come from a fork, a chain, or a collider. No statistical test distinguishes them - the distinction lives in the arrows, which come from domain knowledge. "Control for everything" opens every collider in the graph, manufacturing as many spurious associations as it removes real confounders. The wall is that you need the graph before you can estimate, and the graph is an assumption about the world, not a computation from the data.',
         'Pearl formalized this in a structural causal model (SCM): a set of equations X_i = f_i(parents_i, U_i) where each variable is determined by its direct causes plus an independent noise term. The DAG is the picture of those equations. Without it, you are navigating a maze in the dark.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The breakthrough is that causation reduces to graph surgery. Instead of reasoning about counterfactual worlds in prose, Pearl gave it a precise operation: to compute the effect of doing X, take the DAG, delete every arrow pointing into X, and compute the resulting distribution. That single move - cutting incoming edges - separates what you chose to set from everything that used to influence it. The mutilated graph represents the world after intervention.',
+        'This makes "what if" questions mechanical. The do-operator P(Y | do(X = x)) is not a philosophical stance; it is a defined transformation on a graph. Once defined, you can ask: does the observational distribution P(Y | X, Z) equal the interventional distribution P(Y | do(X)) for some conditioning set Z? If yes, the causal effect is identifiable from data alone. If no, you need an experiment or a different graph structure (front-door, instrumental variable).',
+        'The power is in what this rules out. Before the graph, researchers debated endlessly about which variables to "control for." The graph turns that debate into a checkable algorithm. D-separation reads paths, the backdoor criterion checks them, and the answer is yes or no - not a matter of taste. Disagreements move from "should we adjust?" to "is this arrow real?" which is a question about the world, not about statistics.',
       ],
     },
     {
@@ -280,7 +288,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Epidemiology: smoking and lung cancer could not be studied via RCT (you cannot randomize people to smoke). The causal graph smoking -> tar -> cancer, with unmeasured genetic confounders, guided decades of observational research. The front-door criterion through tar deposits was the theoretical basis for identifying the effect despite unmeasured confounders.',
         'ML fairness: if hiring-decision <- race <- socioeconomic-background, naively "controlling for race" conditions on a collider and opens a bias path. The DAG tells you to adjust for socioeconomic background instead. Without the graph, fairness interventions can make discrimination worse.',
@@ -295,6 +303,17 @@ export const article = {
         '"Control for everything" is the most common failure mode. Researchers add every measured variable to a regression, hoping to remove all bias. This opens every collider in the graph, manufacturing spurious associations. The casting-door experiment in view two demonstrates: talent and looks are independent by construction, but selecting on their sum (conditioning on admission, a collider) produces r = -0.50. Precise, confident, and pure artifact.',
         'Unmeasured confounders are invisible in the graph. If a common cause of treatment and outcome exists but is not drawn, no backdoor adjustment can fix the bias. Sensitivity analysis (how large would an unmeasured confounder need to be to explain away the result?) is the standard defense, but it gives bounds, not answers.',
         'Positivity violations: if certain treatment-confounder combinations never appear in the data, the adjustment formula divides by zero or near-zero. Propensity-score trimming and doubly robust methods help, but they trade bias for variance. The fundamental issue is that the data cannot tell you about populations it never observed.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'The 1986 Charig study compared two kidney-stone treatments. Here are the real numbers. Small stones: treatment A cured 81 of 87 (93%), treatment B cured 234 of 270 (87%). Large stones: treatment A cured 192 of 263 (73%), treatment B cured 55 of 80 (69%). Treatment A wins in both subgroups. But the aggregate tells a different story.',
+        'Aggregate: treatment A cured 273 of 350 (78%), treatment B cured 289 of 350 (83%). Treatment B wins overall. This is Simpson\'s paradox. The numbers are not wrong - the arithmetic checks out. The aggregate reverses because severity confounds the comparison: doctors gave treatment A (open surgery, more invasive) to the harder cases.',
+        'Draw the DAG. Severity causes both treatment choice and outcome. That is a fork: Severity -> Treatment and Severity -> Outcome. The backdoor path Treatment <- Severity -> Outcome is open. The aggregate comparison P(Outcome | Treatment) includes this backdoor flow, mixing the causal effect with the confounding bias from severity.',
+        'Apply the backdoor criterion. The set Z = {Severity} blocks the only backdoor path. The adjustment formula is: P(Outcome | do(Treatment = t)) = sum over s of P(Outcome | Treatment = t, Severity = s) * P(Severity = s). We need one more number: the overall prevalence of small stones is (87 + 270) / (87 + 270 + 263 + 80) = 357/700 = 51%, so large stones is 49%.',
+        'For treatment A: P(cure | do(A)) = 0.93 * 0.51 + 0.73 * 0.49 = 0.4743 + 0.3577 = 0.832, or 83.2%. For treatment B: P(cure | do(B)) = 0.87 * 0.51 + 0.69 * 0.49 = 0.4437 + 0.3381 = 0.782, or 78.2%. After adjustment, treatment A beats B by 5 percentage points. The paradox is gone. The causal effect matches what the subgroup analysis already showed: A is better.',
+        'The key step was identifying Severity as the confounder and applying the correct reweighting. The unadjusted aggregate used the wrong weights because doctors assigned treatments based on severity. The backdoor formula replaced those biased weights (how many severe patients got each treatment) with the population prevalence of severity (how common severe cases are overall). That single substitution repaired the reversal.',
       ],
     },
     {

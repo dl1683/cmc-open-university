@@ -71,9 +71,9 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The array is divided by a moving boundary. Everything left of the boundary is sorted and final. Everything to the right is unsorted.',
-        'Each round, a scan sweeps the unsorted zone from left to right. The highlighted element is the current minimum candidate. When the scan finds something smaller, the candidate marker jumps. After the scan finishes, one swap moves the winner to the boundary, and the boundary advances one position.',
-        'Watch three things: the scan always visits every unsorted element (no early exit), each round produces at most one swap, and no element left of the boundary ever moves again.',
+        'The array is split by a boundary. Everything left of the boundary is sorted, final, and never moves again; everything at or to the right is still unsorted work.',
+        'In each round, the scan walks the unsorted suffix and keeps one minimum candidate. When a smaller value appears, the candidate marker moves; when the scan ends, one swap puts that candidate at the boundary.',
+        'Read active state as the current comparison, found state as the current minimum, and the boundary as the proof line. The safe inference is: after a full scan of the suffix, no unseen smaller value exists, so the chosen value belongs in the next final slot.',
         {type: 'callout', text: 'Selection sort trades adaptability for a hard write bound: every round proves one final slot with one scan and at most one swap.'},
       
         {type: 'image', src: './assets/gifs/selection-sort.gif', alt: 'Animated walkthrough of the selection sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
@@ -81,84 +81,87 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Sorting can be framed as repeated selection: which value belongs in position 0? Find it, place it, move on to position 1. Selection sort is the simplest algorithm built on that idea.',
+        'Selection sort is the plainest form of sorting by repeated choice. Sorting means arranging values by order; selection means finding the next value that belongs in the next position.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/94/Selection-Sort-Animation.gif', alt: 'Animated selection sort moving the smallest remaining value into the sorted prefix', caption: 'Selection sort makes the sorted prefix grow one confirmed value at a time. Source: Wikimedia Commons, Joestape89, CC BY-SA 3.0 and GFDL.'},
-        'Its distinguishing property is write efficiency. Each round performs at most one swap, so an n-element array is sorted with at most n-1 swaps. That is the minimum number of swaps any sort can guarantee. When writes are expensive -- flash memory, EEPROM, large records on slow storage -- that matters.',
-        'Selection sort also serves as the clearest teaching example for loop invariants. The sorted prefix is not just locally ordered; it contains the globally correct values in their final positions. That strong invariant makes correctness easy to prove and easy to see in the animation.',
+        'The algorithm is useful to study because its invariant is visible. After each round, the prefix contains exactly the smallest values seen so far, in final order.',
+        'It also shows a real engineering tradeoff. Selection sort spends many comparisons, but it performs at most one swap per round, so it can be attractive when writes are more expensive than reads.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Scan the entire array for the smallest value. Swap it into position 0. Now scan positions 1 through n-1 for the next smallest. Swap it into position 1. Repeat for each position up to n-2. The last remaining element is automatically the largest.',
-        'This is not a simplification of selection sort; it is selection sort. The algorithm is its own obvious approach. The interesting question is not how to improve the approach but what it costs and whether that cost is acceptable.',
+        'A reasonable first idea is to find the smallest item, put it first, then repeat on the rest. For input [29, 10, 14, 37, 13], the first scan finds 10 and swaps it into index 0.',
+        'This idea is not a shortcut around selection sort. It is selection sort. The algorithm asks one simple question per position: which remaining value belongs here?',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The minimum of an unsorted collection could be anywhere. Without auxiliary structure, the only proof that a value is the minimum is checking every other value. That forces the inner loop to run to completion every round.',
-        'Round 1 does n-1 comparisons. Round 2 does n-2. The total is n(n-1)/2 comparisons regardless of input order. Already sorted? Same cost. Reverse sorted? Same cost. Nearly sorted with one element out of place? Same cost. Selection sort cannot adapt because it has no mechanism to learn anything about the suffix except by exhaustive scan.',
+        'The smallest value in an unsorted suffix can be anywhere. Unless another structure already knows the order, the only proof that a candidate is smallest is checking every other remaining value.',
+        'That makes the scan unavoidable in each round. An already sorted array, a reverse sorted array, and a nearly sorted array all take the same comparison count because selection sort cannot exploit existing order.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Selection sort keeps one strong invariant: the prefix is final. It does not try to improve the suffix, remember local inversions, or stop early when the data looks ordered.',
+        'That narrow promise explains both the simplicity and the cost. The algorithm proves one slot at a time, then forgets everything except the new boundary.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For each position i from 0 to n-2: set minIndex = i. Scan positions i+1 through n-1, updating minIndex whenever a smaller value appears. After the scan, if minIndex differs from i, swap values[i] and values[minIndex]. Position i is now final.',
-        'The inner loop always runs to completion. There is no condition that allows early termination, because the minimum could be the very last element checked. This is the structural reason the comparison count is fixed.',
-        'The suffix may become messier after each swap. That is fine. Selection sort does not maintain any order in the suffix. It rebuilds the needed knowledge (which value is smallest) from scratch every round.',
+        'For each index i from 0 to n - 2, set minIndex to i. Scan indices i + 1 through n - 1; if values[j] is smaller than values[minIndex], update minIndex.',
+        'After the scan, swap values[i] with values[minIndex] unless they are already the same slot. Then move i one step right and repeat.',
+        'The suffix is allowed to be messy after the swap. Selection sort only promises that the prefix is correct, so it rebuilds the minimum proof from scratch in the next round.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Loop invariant: after round i completes, positions 0 through i contain the i+1 smallest elements of the original array, in sorted order, in their final positions.',
-        'Base case: before round 0, the prefix is empty, and the invariant holds vacuously. Inductive step: assume positions 0 through i-1 are correct. Round i scans every element outside that prefix and finds the smallest. That value must be the (i+1)th smallest overall, because all smaller values are already placed. Swapping it into position i extends the correct prefix by one.',
-        'The swap touches only position i and one suffix position, so it cannot disturb the prefix. After n-1 rounds, n-1 positions are finalized. The lone remaining element is the largest, so the full array is sorted.',
+        'Use the invariant: after round i finishes, indices 0 through i contain the i + 1 smallest original values in sorted order. Before any round, the empty prefix satisfies the invariant.',
+        'Assume the prefix before index i is already correct. The full suffix scan finds the smallest value not yet placed, so that value must be the next smallest overall and belongs at index i.',
+        'The swap cannot disturb earlier positions because it only touches index i and one suffix index. After n - 1 rounds, every position except the last is final, and the last remaining value must be the largest.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Comparisons: always n(n-1)/2, which is O(n^2). For 1,000 elements: 499,500 comparisons. For 10,000: 49,995,000. Doubling the input quadruples the work. Best, average, and worst cases are identical.',
-        'Swaps: at most n-1 (one per round), which is O(n). This is the minimum number of swaps any sorting algorithm can guarantee. Some rounds need zero swaps if the minimum is already in position.',
-        'Space: O(1). Only a few index variables and one temporary for swapping.',
-        'Stability: selection sort is NOT stable. A swap can jump an element over other elements with equal keys. Example: sort [(A,2), (B,2), (C,1)] by the number. The scan finds C,1 as the minimum and swaps it with A,2, producing [(C,1), (B,2), (A,2)]. Now A and B -- originally in order A then B -- appear as B then A. The long-distance swap destroyed their relative order. Making selection sort stable requires shifting instead of swapping, which costs O(n) writes per round and defeats the low-write advantage.',
+        'Selection sort always makes n(n - 1) / 2 comparisons. For 1,000 values, that is 499,500 comparisons; for 10,000 values, it is 49,995,000. Doubling n roughly quadruples comparison work.',
+        'The write cost is small: at most n - 1 swaps, and some rounds swap nothing. Space is O(1) because the algorithm stores only indices and one temporary value.',
+        'The standard swap-based version is not stable. Sorting [(A,2), (B,2), (C,1)] by the number can move C before A and B by swapping with A, which changes the relative order of equal keys A and B.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'When writes are expensive and the array is small. Flash memory and EEPROM have limited write cycles, so minimizing swaps directly extends hardware lifetime. Selection sort guarantees at most n-1 writes to the array.',
-        'As a teaching tool. The invariant is exact, visible, and easy to prove. Students can connect the loop structure to the correctness argument without any hidden cleverness.',
-        'For partial selection. If you only need the k smallest elements, run k rounds and stop. Each round is O(n), so extracting a fixed k costs O(kn). For small k this beats a full sort, though a heap or quickselect is better as k grows.',
+        'Selection sort can be reasonable for tiny arrays where simple code matters more than asymptotic speed. It also appears inside teaching material because the invariant is easy to see and prove.',
+        'Its practical niche is low-write sorting. On storage where writes wear hardware or move large records, the at-most-one-swap-per-round behavior can matter more than saving comparisons.',
+        'Partial selection is another use. If you only need the k smallest values, run k rounds and stop; this costs O(kn), which is acceptable for small k but loses to heaps or quickselect as k grows.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'On any array larger than a few dozen elements, the fixed O(n^2) comparison count dominates. Insertion sort is better on nearly-sorted data because it can finish in O(n). Merge sort, quicksort, and heap sort escape to O(n log n) for general data.',
-        'Selection sort is not adaptive. An already-sorted array gets the same n(n-1)/2 comparisons as a shuffled one. Insertion sort, timsort, and natural merge sort all exploit existing order.',
-        'It is not stable. If you need to sort records by one key while preserving the original order of ties, standard selection sort breaks that guarantee. Insertion sort and merge sort are stable without modification.',
-        'If minimizing writes is the true goal, cycle sort achieves the theoretical minimum of writes (each element is written at most once to its final position), though it is harder to implement.',
+        'Selection sort fails on ordinary large arrays because O(n^2) comparisons dominate. Merge sort, heap sort, quicksort, and timsort reach O(n log n) behavior for general sorting workloads.',
+        'It also fails on nearly sorted data. Insertion sort can finish close to O(n) when most values are already in order, while selection sort still rescans every suffix.',
+        'It is the wrong default when stability matters. Stable selection sort is possible by shifting instead of swapping, but that increases writes and loses the algorithm\'s main practical advantage.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Input: [29, 10, 14, 37, 13]. Five elements, so four rounds.',
-        'Round 1: scan positions 0-4. Start with 29 as candidate. 10 < 29, new min. 14 > 10, skip. 37 > 10, skip. 13 > 10, skip. Minimum is 10 at index 1. Swap positions 0 and 1. Array: [10, 29, 14, 37, 13]. Comparisons: 4.',
-        'Round 2: scan positions 1-4. Start with 29. 14 < 29, new min. 37 > 14, skip. 13 < 14, new min. Minimum is 13 at index 4. Swap positions 1 and 4. Array: [10, 13, 14, 37, 29]. Comparisons: 3.',
-        'Round 3: scan positions 2-4. Start with 14. 37 > 14, skip. 29 > 14, skip. Minimum is 14 at index 2 -- already in place, no swap. Array: [10, 13, 14, 37, 29]. Comparisons: 2.',
-        'Round 4: scan positions 3-4. Start with 37. 29 < 37, new min. Minimum is 29 at index 4. Swap positions 3 and 4. Array: [10, 13, 14, 29, 37]. Comparisons: 1.',
-        'Total: 10 comparisons (always 5*4/2 = 10), 3 swaps. On the same array already sorted, the comparison count is still 10 but swaps drop to 0.',
+        'Input: [29, 10, 14, 37, 13]. There are five values, so selection sort runs four rounds and always makes 4 + 3 + 2 + 1 = 10 comparisons.',
+        'Round 1 scans all five positions. The minimum is 10 at index 1, so swapping indices 0 and 1 gives [10, 29, 14, 37, 13].',
+        'Round 2 scans indices 1 through 4. The minimum is 13 at index 4, so swapping gives [10, 13, 14, 37, 29]. Round 3 finds 14 already at index 2, so no swap occurs.',
+        'Round 4 compares 37 and 29, then swaps them to get [10, 13, 14, 29, 37]. The total is 10 comparisons and 3 swaps; a sorted five-element input would still use 10 comparisons but 0 swaps.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Knuth, The Art of Computer Programming, Vol. 3: Sorting and Searching (1998), Section 5.2.3.',
-        'Insertion sort: the adaptive O(n^2) alternative that runs near O(n) on nearly-sorted input. Bubble sort: the swap-heavy neighbor-comparison sort, useful for comparison. Heap sort: selection sort backed by a heap, bringing repeated extraction down to O(log n) per round and O(n log n) overall. Quicksort: the divide-and-conquer sort that dominates in practice. Cycle sort: the write-minimizing specialist.',
+        'A standard reference is Knuth, The Art of Computer Programming, Volume 3: Sorting and Searching, Section 5.2.3. The algorithm is also covered in most introductory algorithms texts because its invariant is compact.',
+        'Study insertion sort next to see an adaptive O(n^2) sort. Then compare heap sort, which keeps the repeated-selection idea but uses a heap so each extraction costs O(log n), and cycle sort, which pushes write minimization further.',
       ],
     },
   ],

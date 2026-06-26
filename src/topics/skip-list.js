@@ -130,9 +130,9 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Balanced binary search trees (AVL, red-black) deliver O(log n) search, insert, and delete. The cost is implementation complexity. AVL trees have four rotation cases. Red-black trees track node colors and enforce uncle-grandparent constraints. Deletion in either structure is notoriously error-prone. Making either thread-safe is harder still, because a single rotation can touch a grandparent, parent, and child simultaneously.',
+        'A sorted linked list is easy to update but slow to search. A balanced tree searches quickly but pays for that speed with rotations, color rules, or height rules after mutation.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by next pointers', caption: 'A skip list starts from this simple pointer chain, then adds sparse upper lanes so search can skip long stretches. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
-        'William Pugh introduced the skip list in 1990 as a probabilistic alternative. The goal: O(log n) expected time for search, insert, and delete, with no rotations, no color rules, and no global restructuring. The mechanism: stack express lanes of decreasing density on top of a sorted linked list, and let coin flips decide which values appear on which lanes.',
+        'William Pugh introduced the skip list in 1990 as a probabilistic alternative. It keeps the bottom linked list complete, adds sparse express lanes above it, and uses random promotion so updates stay local.',
       ],
     },
     {

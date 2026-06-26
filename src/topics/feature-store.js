@@ -203,33 +203,41 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization runs two views. The training-serving skew view lays out a table of features, comparing how each one is computed during training versus serving, and flags the risk when they disagree. The point-in-time joins view walks through the timeline of raw events, showing which feature values a correct join would select for a given prediction timestamp. Watch for the moment a naive latest-value join grabs a future event that a point-in-time join correctly excludes.',
         {type: 'image', src: './assets/gifs/feature-store.gif', alt: 'Animated walkthrough of the feature store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Each frame highlights one operation. The slider lets you scrub back to any step. Pay attention to timestamps on events and feature rows — the core lesson lives in which values land in training rows and why.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A model is only as good as the values it sees at prediction time. Training wants large historical scans, backfills, and joins over labels. Serving wants a few fresh values in milliseconds. Without a shared system, those two paths drift apart: the offline feature is computed one way, the online feature another, and the model learns a world it will never actually see.`,
+        'A machine learning model consumes input values called features — numbers or categories that describe an entity (a user, a transaction, a product) at a moment in time. During training, you build a dataset of historical features joined to known outcomes. During serving, you look up the freshest feature values for a live entity and feed them to the model for a prediction. The problem is that these two paths — historical scan and live lookup — are built with different tools, run at different speeds, and can silently disagree about what a feature means.',
         {
           type: `callout`,
           text: `A feature store is the contract layer between historical training rows and low-latency serving values, with time as the invariant that keeps them aligned.`,
         },
-        `A feature store exists to make reusable ML features obey one contract across training and serving. It is not just a database for ML. It is a system for definitions, timestamps, materialization, lineage, ownership, freshness, and point-in-time correctness.`,
+        'A feature store is a system that enforces a single definition for each feature and materializes it into both an offline store (for training) and an online store (for serving). It is not a database with ML columns. It is a registry of definitions, each specifying an entity key, a time semantics, a computation, an owner, and a freshness contract.',
       ],
     },
     {
-      heading: 'The tempting wrong answer',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is to let each model team write its own training SQL and serving code. That feels fast. It also creates two implementations for the same idea. A Spark job may count events using closed daily partitions while a serving path counts streaming events up to the request time. Both are called rider_rides_7d, but they are not the same feature.`,
-        `Another weak answer is to publish shared tables without contracts. A table full of columns is not a feature store if no one knows the entity key, event time, aggregation window, freshness target, owner, or intended serving behavior. Reuse without discipline spreads skew and leakage across more models.`,
+        'The first instinct is to let each team write its own SQL for training and its own code for serving. A data scientist writes a Spark job that counts a rider\'s trips over closed daily partitions. A backend engineer writes a streaming counter that increments on each trip event. Both columns are named rider_trips_7d, but they compute different things: one uses calendar-day boundaries, the other uses a sliding 168-hour window from the request timestamp.',
+        'A second instinct is to share a warehouse table of precomputed columns without formal contracts. Anyone can read the table, but nobody documents which column is the entity key, what the event-time semantics are, what the aggregation window means, who owns it, or what happens when the source schema changes. Reuse without discipline spreads bugs across every model that touches the table.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The wall',
       paragraphs: [
-        `A feature definition describes how to compute a value for an entity at a time. Examples include rider_rides_7d, merchant_chargebacks_1h, item_click_rate_30d, or device_age_days. The definition should name the entity key, timestamp semantics, source data, window logic, default value, freshness expectation, owner, and tests.`,
-        `The feature store materializes that definition in two places. The offline store keeps historical values for training and backtesting. The online store serves current values by key during prediction. The storage engines can be different. The semantics must be the same.`,
+        'These approaches break when models go online. A batch model retrained weekly on warehouse data can tolerate loose feature definitions because the same pipeline produces both training data and batch predictions. But the moment you serve predictions in real time — fraud scoring at checkout, ETA estimates on ride request, ad ranking on page load — the training pipeline and the serving pipeline diverge. They run on different infrastructure, at different latencies, with different data freshness.',
+        'The result is training-serving skew: the model trained on features computed one way, but at prediction time it receives features computed another way. The model\'s accuracy in offline evaluation does not transfer to production. Worse, the failure is silent. No error is thrown. The model simply makes slightly worse predictions, and the degradation is invisible until someone builds a monitoring system to detect it.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The fix is to define each feature exactly once and materialize it into two stores from that single definition. The definition specifies: the entity key (e.g., rider_id), the source data (e.g., trip_events stream), the computation (e.g., COUNT where event_time is within 7 days of the anchor timestamp), the default value (e.g., 0 for new riders), and the freshness target (e.g., online value must be no more than 5 minutes stale).',
+        'The offline store holds historical feature values keyed by (entity, timestamp). It supports point-in-time joins for training dataset construction. The online store holds the latest feature value keyed by entity alone. It supports low-latency lookups for serving. The storage engines can be completely different — Parquet files in S3 for offline, Redis or DynamoDB for online — but both are populated from the same definition, so the semantics are guaranteed to match.',
         {
           type: `image`,
           src: `https://docs.feast.dev/~gitbook/image?dpr=3&quality=100&sign=cfd7770a&sv=2&url=https%3A%2F%2F3574186616-files.gitbook.io%2F~%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Fspaces%252FvCDTUDp5EGcTxNy4CVdG%252Fuploads%252Fgit-blob-9f7df7c01969608f5a8b1d48b21f20ddeaed5590%252Ffeast_marchitecture.png%3Falt%3Dmedia&width=768`,
@@ -239,67 +247,59 @@ export const article = {
       ],
     },
     {
-      heading: 'Offline and online paths',
+      heading: 'How it works',
       paragraphs: [
-        `The offline path is optimized for history. It reads event logs, warehouse tables, lakehouse files, or backfilled corrections. It builds training rows, evaluates historical behavior, and supports reproducible experiments. Because it can scan large data, it is usually batch-oriented and slower than serving.`,
-        `The online path is optimized for latency. It stores the latest feature values in a key-value store, cache, or low-latency database. A prediction request supplies entity ids, the serving system looks up feature values, and the model runs. This path needs freshness monitoring, fallbacks, and predictable tail latency.`,
+        'A feature store operates on three planes. The registry plane stores feature definitions — name, entity key, type, computation logic, owner, freshness SLO. The materialization plane runs pipelines that read source data and write computed values into both offline and online stores. The serving plane exposes an API: given an entity key, return the current feature vector for prediction.',
+        'The offline materialization path typically runs as a batch job. It reads event logs or warehouse tables, applies the feature computation at every historical timestamp, and writes (entity, timestamp, value) tuples into columnar storage. The online materialization path runs as a streaming job or a scheduled micro-batch. It reads the same source events, applies the same computation, and upserts the latest value into a key-value store.',
+        'Point-in-time joins are the critical offline operation. When constructing a training row for entity E at prediction time T, the join selects the feature value with the largest timestamp that is still less than or equal to T. This ensures the training row sees only information that was available before the prediction moment. The join rule is: same entity, feature_time <= prediction_time, newest qualifying row wins.',
       ],
     },
     {
-      heading: 'Point-in-time joins',
+      heading: 'Why it works',
       paragraphs: [
-        `Training data construction is where many feature stores prove their value. For each labeled example at prediction time t, the training set must join features that were known at or before t. The basic operation is: same entity, feature_time <= prediction_time, newest qualifying value wins. That small inequality blocks a large class of leakage bugs.`,
-        `A latest-value join is wrong for training. If a fraud example from 10:05 joins to a chargeback count computed at 10:50, the model is training on the future. Offline validation may look excellent because the feature contains information unavailable in production. A point-in-time join makes the offline row match what serving could have known.`,
+        'The correctness argument is simple. If training and serving both derive feature values from the same definition, and the offline join respects temporal ordering, then the features a model trains on match the features it will see in production. There is no skew because there is no second implementation to disagree with the first.',
+        'The point-in-time join eliminates data leakage by construction. A fraud label at 10:05 AM can only join to feature values computed before 10:05 AM. If a chargeback event arrived at 10:50 AM and updated the feature, that update is invisible to the 10:05 training row. This means offline evaluation metrics reflect what the model would actually achieve in production, not an artificially inflated score from peeking at the future.',
+        'Timestamp discipline converts feature engineering into a temporal database problem. Every event has an event time (when it happened), an ingestion time (when the system recorded it), and sometimes a processing time (when the pipeline computed it). A correct feature store tracks event time and uses it consistently across both stores.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The skew visual proves that a shared name is not a shared feature. Training and serving can disagree because of window boundaries, delayed availability, future data, stale online state, or separate implementations. The risk column names the bug that the feature store is supposed to make visible.`,
-        `The pipeline visual proves the central architecture: one definition, two materializations. Raw events feed the definition. The same contract writes historical rows into the offline store and fresh rows into the online store. Training asks what was known then. Serving asks what is known now.`,
+        'The primary cost is operational overhead. Each feature definition requires a computation pipeline, storage in two systems, freshness monitoring, backfill support, and an owner. For a team with one batch model and no real-time serving, this overhead outweighs the benefit. The break-even point is roughly when you have multiple models reusing the same features or when you serve predictions online.',
+        'Storage cost scales with the number of features times the number of entities times the historical depth. A feature store with 500 features, 10 million entities, and 90 days of daily snapshots holds 450 billion (entity, feature, timestamp) tuples offline. Online storage is cheaper because it only holds the latest value per entity: 500 features times 10 million entities is 5 billion key-value pairs, which fits in a Redis cluster or a DynamoDB table.',
+        'Latency cost depends on the online store. A Redis lookup returns in under 1 ms. DynamoDB single-digit milliseconds. The serving API adds serialization and network overhead, so typical end-to-end feature retrieval for a single entity runs 2-10 ms. Batch retrieval for multiple entities can be parallelized.',
       ],
     },
     {
-      heading: 'Why timestamp discipline works',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Timestamp discipline turns feature engineering into a temporal database problem. Every event has an event time, an ingestion time, and sometimes a processing time. Every feature value has a time at which it became valid. Every label row has a prediction time. Correct training data respects those boundaries.`,
-        `This is why feature stores connect directly to Data Leakage & Contamination and Cross-Validation & Honest Evaluation. A perfect model split cannot rescue a dataset whose features already leaked future information before the split. The point-in-time join is the guardrail that keeps history honest.`,
+        'Fraud detection at payment companies is a canonical use case. A transaction arrives, the serving layer looks up the merchant\'s chargeback rate over the past 30 days, the user\'s average transaction amount, the device\'s age, and the IP\'s country. All of these are features maintained in the online store. The fraud model scores the transaction in under 50 ms. The same features, joined point-in-time to historical fraud labels, form the training set.',
+        'Ride-hailing ETA prediction uses features like driver_trips_completed, surge_multiplier_zone, traffic_speed_segment, and rider_cancellation_rate. Uber\'s Michelangelo platform and its successor Palette manage thousands of such features across dozens of models. The feature store is part of a larger ML platform that handles training, serving, monitoring, and experimentation as a unified system.',
+        'Recommendation systems at e-commerce and content platforms rely on user-item interaction features (click_rate_30d, purchase_count_7d, time_since_last_visit) that must be fresh for serving and historically accurate for training. A shared feature store prevents every recommendation team from building its own feature pipeline.',
       ],
     },
     {
-      heading: 'Operations and monitoring',
+      heading: 'Where it fails',
       paragraphs: [
-        `A production feature store is watched like any other serving dependency. Online features need freshness SLOs, latency budgets, error rates, fallback behavior, and alerting. Offline features need backfill status, data quality checks, schema-change detection, and reproducible snapshots. Both paths need lineage so teams can see which models depend on a feature before changing it, and dashboards should show whether serving values still match the latest valid offline computation.`,
-        `Replay tests are especially valuable. Run historical events through the online computation path, compare the resulting values with offline feature rows, and inspect differences. This catches timestamp mismatches, late-event handling bugs, duplicate messages, out-of-order updates, and window-definition drift.`,
+        'A feature store centralizes definitions, but centralization does not guarantee quality. A reusable feature can encode a proxy for a protected attribute (zip code as a proxy for race), leak the label (joining to post-outcome data), collapse under distribution shift (a feature trained on pre-COVID behavior applied post-COVID), or go stale after a product change (a feature counting app opens after the app is redesigned). The store makes reuse easy; it does not make reuse safe without tests and review.',
+        'The serving path inherits distributed-systems failure modes. Message queues can lag, duplicate, or reorder events. Online stores can miss writes during failover. Schema changes can silently null a column, causing the model to receive default values instead of real ones. A stale feature is as dangerous as a stale cache — the model trusts it with high confidence and nobody notices the degradation until metrics are reviewed.',
+        'Rollback hazards also apply. If you revert model code to a previous version but the feature store now materializes features under a newer definition, the old model reads features it was never trained on. Feature versioning and model-feature compatibility checks are necessary but often missing.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Worked example',
       paragraphs: [
-        `Feature stores win when many models reuse the same signals and when training-serving consistency matters. Recommenders, fraud detection, ETA prediction, ads ranking, credit risk, marketplace matching, and personalization all depend on fresh, reusable, entity-keyed features. A shared store prevents every team from rediscovering the same skew and leakage failures.`,
-        `Uber Michelangelo and Palette are useful case studies because they show feature management as part of a larger ML platform. The feature store is not isolated from training, serving, monitoring, governance, or experimentation. It is the contract layer that keeps those systems aligned around the values the model actually consumes.`,
+        'Suppose you run a food delivery app and want to predict delivery time. You define a feature restaurant_avg_prep_minutes_7d: entity key is restaurant_id, source is order_completed events, computation is AVG(prep_time) over events in the 7-day window before the anchor timestamp, default is 15.0 for new restaurants.',
+        'Your offline store has these rows for restaurant_id=42: (June 1, 12.3), (June 2, 13.1), (June 3, 11.8), (June 4, 14.0), (June 5, 12.5). A training example labeled at June 3 18:00 needs a point-in-time join. The join selects the row with the largest timestamp <= June 3 18:00, which is (June 3, 11.8). It does not use June 4\'s value of 14.0, even though that row exists in the table, because it was computed after the prediction moment.',
+        'Your online store holds the latest value for restaurant_id=42: 12.5 (from June 5). When a customer opens the app on June 5 and the model predicts delivery time, it retrieves 12.5 from the online store in 3 ms. The training row and the serving lookup use the same AVG(prep_time) computation. The only difference is the time anchor: historical for training, now for serving.',
+        'If instead you had used a naive latest-value join for training, the June 3 training row would have joined to 12.5 (the latest value in the table at query time), not 11.8 (the value known at June 3). The model would have trained on future information, and its offline accuracy would overestimate its real-world performance.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Feature stores add platform cost. Teams must define features formally, operate pipelines, maintain online storage, manage backfills, document ownership, and keep offline and online paths in sync. For a small project with one batch model, that overhead may be unnecessary.`,
-        `The tradeoff becomes favorable when the same feature is reused, when predictions happen online, or when leakage risk is high. Centralization also creates governance pressure. A feature that is wrong, biased, stale, or poorly documented can harm many models at once. The store makes reuse easier, so it also has to make review and deprecation explicit.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `A feature store can centralize bad definitions just as easily as good ones. Reusable does not mean causal, fair, stable, or safe. A feature can encode a proxy for a protected attribute, leak the label, collapse under distribution shift, or become stale after a product change. Owners still need tests, monitoring, model-impact review, and deprecation policy.`,
-        `The serving path inherits distributed-systems bugs. Message queues can lag, duplicate, replay, or reorder events. Online stores can miss updates. Schema changes can silently default a column. A stale feature can be as damaging as a stale cache because the model may rely on it with high confidence. Rollbacks also need care: reverting model code without reverting feature definitions can leave the old model reading a new feature contract.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Sources: Uber Michelangelo at https://www.uber.com/us/en/blog/michelangelo-machine-learning-platform/ and Uber Palette at https://www.uber.com/us/en/blog/palette-meta-store-journey/. For implementation patterns, compare Feast at https://feast.dev/ and the feature-store materialization model it documents.`,
-        `Study AI Engineering Stack: Five Parts Primer, Point-in-Time Feature Join Index, Leakage-Safe Target Encoding Case Study, Feature Freshness SLO Monitor, Training-Serving Skew Replay Diff, Data Leakage & Contamination, Cross-Validation & Honest Evaluation, Message Queues, Cache Invalidation & Versioning, Distributed Tracing, and LSM Trees (How Cassandra Writes) next.`,
-        `A useful design review asks four questions for every feature: what event time defines it, what entity key owns it, what freshness window is acceptable online, and what historical join proves it did not see the future. If those answers are vague, the feature is not ready to be reused across models.`,
+        'Uber Michelangelo: https://www.uber.com/us/en/blog/michelangelo-machine-learning-platform/. Uber Palette: https://www.uber.com/us/en/blog/palette-meta-store-journey/. Feast open-source feature store: https://feast.dev/ and its architecture documentation at https://docs.feast.dev/.',
+        'Study Data Leakage & Contamination and Cross-Validation & Honest Evaluation next — the point-in-time join is the mechanism that prevents the leakage those topics describe. Then explore Message Queues, Cache Invalidation & Versioning, and Distributed Tracing for the infrastructure that online feature serving depends on. LSM Trees (How Cassandra Writes) explains the storage engine behind many online feature stores.',
       ],
     },
   ],

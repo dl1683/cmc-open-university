@@ -226,95 +226,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/neural-cellular-automata.gif', alt: 'Animated walkthrough of the neural cellular automata visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Neural cellular automata ask a sharper version of the cellular automata question: if local rules can create global patterns, can we learn the local rule instead of hand-writing it? The goal is not merely to generate an image. The goal is to learn a distributed process that grows, maintains, and sometimes repairs a target pattern through repeated local interaction.',
-        'This matters because many real systems do not have a central artist drawing the final form. Biological development, tissue repair, swarm behavior, material growth, and distributed control all depend on many local units coordinating through nearby signals. NCA is a small, differentiable laboratory for studying that design shape.',
-        'The topic is also a useful antidote to one-shot thinking in generative AI. A decoder can emit a final image directly, but it usually has no reason to keep the image stable after damage. NCA treats the image as a state of an ongoing dynamical system. The finished pattern is something the system keeps producing, not a file it wrote once.',
-        {type: 'callout', text: 'Neural cellular automata learn one local update rule, then ask repeated local interaction to create and repair the global form.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to train a normal neural network from a seed or latent vector to a complete output. That can work for generation, but it misses the point. A one-shot generator has a global view, a fixed output time, and no built-in obligation to repair itself after part of the output is removed.',
-        'Another shortcut is to hand-design a rule like Conway Life and tune it until the pattern looks interesting. That teaches cellular automata, but it does not solve the inverse problem: given a desired behavior, find the local rule that produces it. Neural cellular automata make the rule trainable, so the designer specifies the target and the optimization process searches the space of local update rules.',
-        'The design constraint is severe. Each cell can only sense local channels, run the same small network as every other cell, and update its own state. No cell receives the full target image. No cell knows the global coordinates of the final object unless that information is encoded locally. The intelligence, if any, is in the repeated interaction.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is to separate visible state from hidden state. Visible channels produce the image or material the outside world sees. Hidden channels carry local memory, orientation, boundary signals, and repair cues. A cell can therefore act differently at an edge, inside a body, near a wound, or near a growth front without needing a global controller.',
-        'The learned update rule is shared. The same tiny neural network is applied to every cell at every step, usually after a local perception operation such as a small convolution or Sobel-like neighborhood filter. The network predicts a delta to the cell state. Repeating that local rule over the grid creates the global behavior.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The shared update rule is a small neural network reused at every cell and every step; weight sharing is what makes the local rule portable. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
-        'Training unrolls the automaton for many steps and backpropagates through the whole sequence. The loss is usually measured on visible channels after some number of updates, and the gradient teaches the local rule how earlier local decisions contributed to later global error. That is the hard part: the rule is local, but the training signal is global and delayed.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A typical NCA starts with a grid of state vectors. One cell or a small seed region is alive. Each update step computes local perception features from nearby cells, passes each cell through the shared neural network, and adds the predicted update to its state. Some implementations update cells stochastically so the rule cannot depend on a perfectly synchronized clock.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/CA-Moore.svg/250px-CA-Moore.svg.png', alt: 'Moore neighborhood diagram with the center cell and its eight neighbors', caption: 'A Moore neighborhood shows the local sensing window: each cell sees nearby state, not the whole target image. Source: Wikimedia Commons, Life of Riley, public domain.'},
-        'Cells often carry an alpha or alive channel. Dead cells stay inactive unless neighboring live cells create the conditions for growth. That simple device prevents the entire grid from becoming active at once and gives the automaton a moving boundary. Hidden channels then let the boundary remember enough about local shape to grow the right structure.',
-        'Training often uses a pool of partially grown samples instead of always starting from the same seed. The pool exposes the rule to many intermediate states, including damaged states. Damage training deliberately removes part of the pattern and asks the automaton to recover. Without that curriculum, a model may learn to grow once but fail to maintain or repair.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The learned-local-rule view shows the mechanical loop: sense local neighborhood, run the shared network, emit a delta, repeat over the grid. That is the whole architecture. There is no separate module that draws the final shape. The same local rule must be good enough for early growth, late stabilization, and response to perturbation.',
-        'The growth-and-repair view shows the evaluation standard. A strong NCA should grow from a seed, reach the target, avoid drifting after many extra steps, and recover after local damage. The repair step is the important evidence. It suggests the target has become an attractor of the dynamics rather than a fragile one-time endpoint.',
-        'The loss curve in the visual should be read as a behavior test, not just an optimization plot. Growth loss falling means the system can construct the target. Error spiking after damage and then falling again means nearby cells retained enough local information to rebuild. If the error stays low only at one chosen step count, the rule may be overfit to timing.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works when the target can be decomposed into local coordination problems. Edges can decide how to expand, interior cells can preserve state, and damaged regions can be filled by neighboring context. Hidden channels give the system more expressive memory than visible pixels alone, while weight sharing forces the learned rule to be reusable.',
-        'The attractor idea is central. A good rule does not merely march through a script from seed to image. It creates dynamics that pull nearby states back toward the target. That is why repair is such a meaningful test: it asks whether the target basin has thickness around it, or whether the system only knows one exact trajectory.',
-        'This is also why NCAs are educationally important. They make the bridge between machine learning and dynamical systems concrete. Gradient descent trains the rule, but after training the behavior is an iterated local system. Understanding the result requires both neural-network thinking and systems thinking.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'One update costs O(cells) for a fixed neighborhood and fixed-size network. Running the automaton for T steps costs O(T * cells). Training is much more expensive than inference because the computation is unrolled through time and gradients must flow through the sequence. Longer horizons increase memory pressure and make optimization less stable.',
-        'The main tradeoff is expressiveness versus reliability. More hidden channels and a larger network can learn richer behavior, but they also create more ways to overfit to the target, timing, seed, or damage pattern. Stochastic updates, randomized damage, variable step counts, and pool-based training are used to make the rule robust rather than merely pretty.',
-        'Another tradeoff is interpretability. The local update rule is small enough to inspect in principle, but hidden channels often develop internal signals that are not obvious. You can visualize channels, perturb cells, and run ablations, yet the learned rule is still less transparent than a hand-written cellular automaton.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'NCA is a strong research model for morphogenesis, self-repair, texture synthesis, differentiable simulation, artificial life, and local-control systems. It is especially valuable when the desired behavior should persist over time rather than appear once.',
-        'It is also a good teaching bridge. Cellular automata teach local rules. Convolutions teach local perception. Backpropagation through time teaches delayed credit assignment. NCA puts those ideas in one small system where students can see global behavior emerge from learned local mechanics.',
-        'Practically, the idea is most useful when local communication is a feature rather than a handicap. Examples include distributed materials, swarm robotics, procedural assets, simulation surrogates, and robustness experiments where a system should degrade and recover locally instead of depending on a central repair routine.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'A learned local rule is not automatically general intelligence. Many NCAs are trained for one target and fail outside the training distribution. A model that repairs one kind of cut may fail under a different wound, seed, grid size, update schedule, or noise pattern.',
-        'The method also struggles when the target requires long-range coordination that cannot be propagated through local channels within the available step budget. If one side of the grid must instantly know a faraway decision, a purely local rule has to carry that information step by step. That can be elegant, but it can also be too slow or too brittle.',
-        'Do not accept a final frame as proof. Test variable step counts, repeated damage, larger canvases, different seeds, asynchronous updates, and hidden-channel perturbations. The claim is not "it once looked right." The claim is "the learned dynamics reliably pull relevant states toward the desired behavior."',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Growing Neural Cellular Automata at https://distill.pub/2020/growing-ca/, arXiv version at https://arxiv.org/abs/2005.06700, Self-Organising Textures at https://distill.pub/selforg/2021/textures/, and Sebastian Risi on self-organizing AI at https://sebastianrisi.com/self_assembling_ai/.',
-        'Study Cellular Automata first if the local-rule idea is still fuzzy. Then study Convolution for local perception, Gradient Flow for training dynamics, Backpropagation for delayed credit assignment, Quality Diversity: MAP-Elites for searching behavior spaces, Hebbian Plasticity for local learning, and Evolutionary Search for non-gradient alternatives.',
-        'A useful exercise is to train or simulate a tiny NCA under three evaluation regimes: grow only, grow plus long stabilization, and grow plus random damage. The gap between those regimes teaches why repair is not a decorative feature. It is the test that distinguishes a learned growth script from a learned dynamical system.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['The first view shows the local update loop. Each cell senses nearby state, passes local features through the same tiny neural network, receives a delta, and repeats that rule across the grid. The growth-and-repair view tests whether the learned dynamics are stable after damage, not merely whether one final frame looks right.', {type: 'image', src: './assets/gifs/neural-cellular-automata.gif', alt: 'Animated walkthrough of the neural cellular automata visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    { heading: 'Why this exists', paragraphs: ['A cellular automaton is a grid of cells updated by a local rule. Neural cellular automata learn that rule instead of hand-writing it. This matters because biological tissue, swarms, and distributed materials coordinate through local signals rather than a central controller.', {type: 'callout', text: 'Neural cellular automata learn one local update rule, then ask repeated local interaction to create and repair the global form.'}]},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a normal generator that maps a seed vector to a whole image. That can produce an output, but it does not explain how local parts maintain or repair the pattern after damage. Hand-coding a cellular automaton rule has the opposite problem: it gives local mechanics but does not learn the rule from a target behavior.']},
+    { heading: 'The wall', paragraphs: ['The wall is delayed global credit from local action. A cell sees only nearby channels, yet the loss may be measured on the whole final image many steps later. No cell receives a map of the final object, so information must propagate through repeated neighbor interactions.']},
+    { heading: 'The core insight', paragraphs: ['The core insight is to give each cell hidden state and reuse one learned rule everywhere. Visible channels produce the image, while hidden channels carry local memory, boundary cues, and repair information. Because weights are shared, the global form must emerge from iterating a local program.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The shared update rule is a small neural network reused at every cell and every step; weight sharing is what makes the local rule portable. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'}]},
+    { heading: 'How it works', paragraphs: ['A typical NCA starts from one live seed cell. At each step, each live or near-live cell reads a neighborhood, often a Moore neighborhood of eight neighbors plus itself, and computes perception features. The shared network predicts a state update, and training backpropagates through many unrolled steps.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/CA-Moore.svg/250px-CA-Moore.svg.png', alt: 'Moore neighborhood diagram with the center cell and its eight neighbors', caption: 'A Moore neighborhood shows the local sensing window: each cell sees nearby state, not the whole target image. Source: Wikimedia Commons, Life of Riley, public domain.'}]},
+    { heading: 'Why it works', paragraphs: ['It works when the target can be represented as stable local dynamics. Edge cells learn how to expand, interior cells learn how to preserve state, and surviving cells near damage learn how to regrow missing neighbors. The behavioral correctness test is whether the target is an attractor: nearby or damaged states should return toward it instead of drifting away.']},
+    { heading: 'Cost and complexity', paragraphs: ['One update step costs O(number of cells) for fixed neighborhood size and fixed network width. T update steps cost O(T * cells), and training costs more because activations across the unrolled steps are needed for gradients. Doubling grid width and height roughly quadruples the cell work.']},
+    { heading: 'Real-world uses', paragraphs: ['NCA is useful for studying morphogenesis, self-repair, local control, artificial life, texture synthesis, and differentiable simulation. It is strongest when the process should keep running after the first output is produced. It also teaches cellular automata, convolution, recurrent computation, and dynamical systems in one small model.']},
+    { heading: 'Where it fails', paragraphs: ['NCA fails when the task needs long-range coordination faster than local messages can travel. It also fails under distribution shift: a rule trained on one grid size, seed, damage type, or update schedule may fail on another. A final frame is not enough evidence; test variable step counts, repeated damage, larger canvases, and hidden-channel perturbations.']},
+    { heading: 'Worked example', paragraphs: ['Use a 5 by 5 grid with one live seed at the center. If each cell has 16 channels and the rule runs for 40 steps, inference updates 25 * 40 = 1,000 cell states. If damage removes 3 cells and repair runs 30 more steps, that adds 25 * 30 = 750 local updates.']},
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: Growing Neural Cellular Automata from Distill, Self-Organising Textures, and related work on differentiable self-organization. Study cellular automata, convolution, recurrent networks, backpropagation through time, attractors, and quality-diversity search next.']},
   ],
 };

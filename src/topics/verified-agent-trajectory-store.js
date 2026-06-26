@@ -1,4 +1,4 @@
-﻿// Verified agent trajectory stores: how coding-agent data pipelines keep
+// Verified agent trajectory stores: how coding-agent data pipelines keep
 // observations, actions, environments, oracle results, and provenance together.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -200,7 +200,7 @@ function* verifierFactory() {
   yield {
     state: factoryGraph('Oracle checks decide whether the trace is real signal'),
     highlight: { active: ['rollout', 'oracle', 'refresh', 'e-rollout-oracle', 'e-oracle-refresh'], found: ['release'], compare: ['dedupe'] },
-    explanation: `The ${oracleNode} should prove the bug existed before the patch and is resolved after the patch. The verification path (${verifyStages.join(' → ')}) uses isolated containers, failing-to-passing tests, hidden tests, and strict patch application; otherwise the store only knows that a patch looked plausible.`,
+    explanation: `The ${oracleNode} should prove the bug existed before the patch and is resolved after the patch. The verification path (${verifyStages.join(' ? ')}) uses isolated containers, failing-to-passing tests, hidden tests, and strict patch application; otherwise the store only knows that a patch looked plausible.`,
     invariant: `A fluent patch with no ${oracleNode} proof is unlabeled text, not verified trajectory data.`,
   };
 
@@ -273,157 +273,94 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The trace schema view shows the lifecycle of a single agent trajectory from task intake to curated training set. Active highlights mark the current pipeline stage. Found highlights mark data that has been verified by the oracle. Compare highlights mark the final training set, which is always smaller than the raw rollout count.',
+        'The trace-schema view follows one agent run from task intake to training-set inclusion. Active stages are currently being checked, found stages have passed an oracle, and compared stages show the shrinking gap between raw rollouts and verified examples.',
         {
           type: 'callout',
           text: 'A verified trajectory store treats an agent run as evidence only when the task, environment, actions, patch, and oracle can be replayed together.',
         },
-        'The verifier factory view zooms out to the production pipeline: snapshotting repos, building environments, running agents, checking oracles, deduplicating results, and releasing datasets. Watch how the pipeline narrows at each stage. The plot shows the gap between raw rollouts and usable, novel examples after verification and dedupe.',
-        'In both views, pay attention to what gets dropped and why. The interesting story is not that good trajectories enter the store. It is that bad, flaky, duplicate, and leaked trajectories are caught before they corrupt a training run or an evaluation claim.',
+        'A trajectory is the ordered record of observations, tool calls, edits, test runs, and decisions made by an agent. The safe inference is that a run is evidence only if the environment and oracle can reproduce the claim the label makes.',
+        'The verifier-factory view shows the production boundary. Raw logs enter wide, then schema checks, environment pinning, oracle results, dedupe keys, and split rules narrow them into examples that can safely train or evaluate a model.',
       
         {type: 'image', src: './assets/gifs/verified-agent-trajectory-store.gif', alt: 'Animated walkthrough of the verified agent trajectory store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'An AI agent does not produce a single answer. It produces a sequence of observations, decisions, tool calls, and corrections that unfold over minutes or hours inside a live environment. When that sequence ends with a working patch, the temptation is to save the patch and throw the rest away. But the patch alone cannot answer whether the fix was real, whether the environment was reproducible, whether the agent copied a leaked solution, or whether the same fix already exists five times in the training set.',
-        'The problem sharpens when trajectories become training data. A model trained on unverified transcripts learns to imitate plausible-looking sequences, including ones that only worked because of a stale cache, a permissive test harness, or a dependency that has since changed. Evaluation suffers too: if related tasks leak across the train/eval split because the store has no way to group them, benchmark numbers measure memorization rather than capability.',
-        {
-          type: 'quote',
-          text: 'If a trajectory cannot be replayed, it should not be trusted as training data.',
-          attribution: 'Core invariant of verified trajectory stores',
-        },
-        'A verified agent trajectory store exists to keep agent work replayable, auditable, and splittable. It records the task, environment, every observation and action, the candidate patch, the oracle checks, dedupe keys, and a proof record that links them into an inclusion decision. The goal is not tidy storage. The goal is knowing exactly what claim each trajectory supports and being able to defend that claim later.',
+        'An agent run is not just a final answer. For coding agents, the evidence includes the repository snapshot, the commands run, the files read, the patch produced, and the tests that decided whether the patch worked.',
+        'A verified store exists because training and evaluation claims collapse when those pieces are separated. A transcript that cannot be replayed may teach a model to imitate lucky behavior, leaked solutions, or test artifacts rather than genuine problem solving.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to save successful transcripts. Keep the prompt, the model messages, maybe the tool calls, the final patch, and a pass/fail flag from the test suite. For a demo or a one-off experiment, this works. A person can skim the run, see that the agent made progress, and move on.',
-        {
-          type: 'bullets',
-          items: [
-            'Log files store raw stdout and stderr. They help debug one run, but they do not preserve enough structure for replay, dedupe, or audit.',
-            'Structured traces store typed events with IDs and timestamps. They support analytics and search, but replay is partial if the environment and oracle are missing.',
-            'A verified store keeps events, environment, oracle, proof, and provenance together. It scales to training, evaluation, and audit because every inclusion decision has evidence.',
-          ],
-        },
-        'Log files are the cheapest option and the first thing teams build. Structured traces add schema and searchability. But neither answers the questions that matter for data quality: Was the bug real? Did the environment match? Is this a duplicate? Can the result be reproduced? A verified store is the layer that makes those answers first-class records rather than after-the-fact guesses.',
-        'The naive approach also collapses distinct identities into one transcript ID. Was it the same task? The same container? The same candidate patch? The same oracle? A single ID cannot answer those questions, so when one part goes stale -- the container image drifts, a test becomes flaky, a dependency updates -- the entire trajectory becomes suspect with no way to repair just the broken piece.',
+        'The obvious approach is to save the prompt, chat transcript, final patch, and pass/fail flag. That is enough for a demo where a human can remember the setup and inspect the result.',
+        'A slightly better approach is structured logging with timestamps and tool-call records. It improves search and debugging, but it still does not prove that the environment was pinned or that the oracle actually tested the claimed behavior.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall hits when a training run or benchmark claim depends on data quality that the store cannot prove. A team trains a coding agent on 10,000 successful trajectories. Three months later, a reviewer asks: how many of those passed because the test was flaky? How many duplicated the same fix pattern? How many relied on an environment that no longer builds? The team cannot answer because the store only kept pass/fail flags and final patches.',
-        'Here is the concrete failure sequence. An agent fixes a bug at commit abc123. The test passes. The trajectory enters the training set. Two weeks later, a dependency update means the same test now passes without any patch at all. The trajectory is no longer evidence of a real fix -- it is evidence that the test was fragile. But the store has no environment digest, no pre-patch failure proof, and no way to detect the problem. The label says "verified pass" when the ground truth is "accidental pass."',
-        'The invariant that must hold: every trajectory in the store must link to a pinned environment, a pre-patch failure proof, a post-patch pass proof, and a provenance chain that can be rerun or invalidated. Without that link, the store is a transcript archive with a "verified" label bolted on top, and the label is a lie the moment any dependency moves.',
+        'The wall appears when the data becomes a training corpus or benchmark. A reviewer can ask how many examples passed because of flaky tests, duplicated patches, stale dependencies, or train/eval leakage, and a simple log archive cannot answer.',
+        'The concrete failure is an accidental pass. If a dependency update makes a test pass without the patch, then a stored pass flag no longer proves the agent fixed anything unless the store also kept a pre-patch failure proof and environment digest.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is provenance as a first-class data model. The store links task identity, repo snapshot, environment digest, event log, candidate artifact, oracle result, dedupe key, and split family into one proof record.',
+        'That proof record is narrower than truth. It does not say the patch is perfect; it says exactly which environment and oracle accepted it, and what evidence would need to be rerun if a dependency, test, or split rule changes.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        {
-          type: 'diagram',
-          label: 'Trajectory capture, verification, and replay pipeline',
-          text: [
-            '  task + repo snapshot',
-            '        |',
-            '        v',
-            '  +--------------+     +--------------+',
-            '  | Build pinned | --> | Run agent in |',
-            '  | environment  |     | pinned world |',
-            '  | (image hash) |     | (append log) |',
-            '  +--------------+     +--------------+',
-            '                             |',
-            '                    every observation,',
-            '                    action, tool call',
-            '                             |',
-            '                             v',
-            '                    +-----------------+',
-            '                    | Candidate patch |',
-            '                    | (diff + hash)   |',
-            '                    +-----------------+',
-            '                             |',
-            '                             v',
-            '                    +-----------------+     +------------------+',
-            '                    | Oracle: pre-fail| --> | Proof record:    |',
-            '                    | + post-pass +   |     | task + env +     |',
-            '                    | hidden tests    |     | turns + oracle   |',
-            '                    +-----------------+     | + dedupe key     |',
-            '                                            +------------------+',
-            '                                                     |',
-            '                                            label, split, store',
-            '                                                     |',
-            '                                                     v',
-            '                                              [replay anytime]',
-          ].join('\n'),
-        },
+        'Ingestion starts by pinning the world. The repository commit, container image digest, dependency lockfiles, test command, resource limits, and network policy are recorded before the agent runs.',
+        'The agent event stream is append-only. Each observation, tool call, edit, command result, and model message receives an operation id and parent id so retries and branches can be reconstructed.',
         {type: 'image', src: 'https://langsmith.langchain.ac.cn/assets/images/swebench_evaluation-4086f0af70875bc21fa5e2b9ce7044e0.png', alt: 'SWE-bench evaluation flow from candidate patch to validation tests', caption: 'SWE-bench style evaluation makes the oracle boundary concrete: candidate patch, runnable environment, and validation tests decide whether a trace is evidence. Source: LangSmith docs, SWE-bench evaluation guide.'},
-        'The pipeline starts by pinning the world. A repository is snapshotted at a specific commit. An environment is built into a container image with a stable digest that records every dependency version, test command, resource limit, and network policy. The task -- an issue, a synthetic mutation, a benchmark item -- is recorded with its source and split family. Before the agent runs, the oracle proves the target test fails in the unpatched environment. This pre-patch failure is the baseline that makes later success meaningful.',
-        'The agent then runs against the pinned world, and every step is appended to a structured event log. Each turn records an operation ID, parent ID, tool call, raw payload, observation, stdout, stderr, exit code, elapsed time, files read, files written, and redaction state. The parent ID matters because agent work is not a flat transcript -- the agent may branch into retries, fallback strategies, or diagnostic detours. The event log captures the full tree.',
-        'When the agent produces a candidate patch, the oracle checks it. A strong oracle proves that the target test failed before the patch and passes after. It may also run hidden tests, lint, type checks, or human review, but each check is named separately. The store does not say "verified" when it only knows one visible test passed. The proof record then links task, environment, event log, candidate, and oracle result into a single inclusion decision with a provenance chain that can be rerun, invalidated, or audited.',
+        'The oracle then checks the candidate. A strong coding oracle proves that the target fails before the patch and passes after it, then records any hidden tests, lint, type checks, or human review as separate named claims.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is replayability. If the environment digest reconstructs the runnable world, the event IDs reconstruct the action sequence, the diff hash names the candidate, and the oracle ID names the checks, then the proof record can be inspected or rerun at any point in the future. Each key is independently addressable: a stale environment can be rebuilt and re-verified without discarding the event log, and a flaky oracle can be rerun without re-executing the agent.',
-        'Replayability does not require bit-identical reproduction. Real systems have nondeterminism, flaky tests, and dependency drift. The point is that the store can identify what changed. If a dependency update breaks a former pass, the team marks the environment stale, rebuilds it, reruns the oracle, and writes a new proof record. The old proof record stays in the ledger as history, not as a silent corruption.',
-        'The store also protects evaluation integrity. Held-out performance is meaningful only when related examples cannot leak across the split boundary. Splits may need to be assigned by repository, issue family, synthetic mutation source, patch fingerprint, or tool grammar. A verified store has enough separate keys to enforce those boundaries mechanically, rather than hoping that prompt text alone is sufficient to prevent contamination.',
+        'The correctness argument is replayability with scoped claims. If the environment digest rebuilds the world, the event ids reconstruct the action sequence, and the oracle id names the check, the stored label can be audited or invalidated later.',
+        'The store also protects evaluation splits. Because tasks, repositories, patches, issue families, and dedupe fingerprints are separate keys, related examples can be kept out of held-out sets mechanically instead of by hope.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Storage cost comes from raw event logs, which can be 10-100x larger than final patches. Mitigation: tier hot proofs, warm events, and cold artifacts.',
-            'Compute cost comes from building pinned environments and running oracles before and after patches. Mitigation: cache container layers and batch oracle runs.',
-            'Ingestion latency comes from schema checks and proof links on every event. Mitigation: append quickly and compute derived labels later.',
-            'Schema rigidity appears when the store assumes one shell, editor, or patch format. Mitigation: record concrete tool use plus an abstract operation layer.',
-            'Compliance cost comes from source code, credentials, and proprietary data inside traces. Mitigation: redact, control access, and set retention policy.',
-          ],
-        },
-        'The overhead is substantial. Containers and test artifacts are expensive to store. Ingestion is slower because every event needs a typed schema and every proof needs a verifiable link. Redaction, access control, and retention policy are mandatory because trajectories may capture credentials, proprietary code, or user content that cannot legally be retained.',
-        'The schema can also become a trap. If the store only understands one shell, one editor, or one patch format, models trained on it overfit to that interface. A good store records concrete tool calls for replay fidelity while also extracting abstract operations -- read file, search text, edit hunk, run test, inspect failure -- for portability analysis. The concrete trace answers "what happened." The abstract trace answers "would this work with a different tool?"',
-        'The tradeoff is worthwhile when examples are expensive or claims depend on them. A cheap store is faster until a benchmark result is questioned, a model learns a leaked pattern, an environment cannot be rebuilt, or a training run overweights duplicates. Then the missing evidence becomes the most expensive part of the system.',
+        'The cost is large because raw trajectories are much bigger than final answers. A 20 KB patch may come from a 5 MB event log plus a multi-GB container layer and cached test artifacts.',
+        'Compute cost also grows. Pre-patch checks, post-patch checks, hidden tests, dedupe, schema validation, redaction, and replay all add latency, but they buy evidence that a plain transcript cannot recover later.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Coding-agent training is the primary use case. A team training on verified trajectories can answer concrete questions at any point: Did the bug fail before the patch? Did it pass after? Was the environment pinned? Is this sample duplicated? Which split family owns this task? Those answers let the team curate training data rather than hope it is clean.',
-        'Regression testing for agents is a second major win. When a model checkpoint changes, the team can replay stored trajectories against the new model and compare behavior step by step. Trajectory-based debugging surfaces exactly where the new model diverges from the old one -- which observation it interpreted differently, which tool call it chose instead, which repair loop it skipped. This is more informative than aggregate pass rates.',
-        'Research reproducibility improves because the store separates gains from execution grounding, retry budget, oracle strength, repository familiarity, language distribution, and tool-interface overfitting. Those become measurable columns in the dataset rather than speculation in a paper. Enterprise audit trails benefit from the same structure: if an agent made a harmful edit, the team can inspect what it observed, which permissions were active, which tests it trusted, and why the run was accepted.',
+        'The main use is coding-agent training. A model can learn from successful repair trajectories only when the store can distinguish real fixes from flaky passes and duplicated examples.',
+        'The same structure supports benchmark audits, regression testing across model versions, enterprise incident review, and dataset release. It lets teams answer what the agent saw, what it changed, which checks passed, and which claim the run actually supports.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The pattern is overkill for disposable demos, simple chat transcripts, or exploratory tasks where no training, evaluation, or audit claim will be made. It is also impossible when the organization cannot legally store enough detail to replay the work. Faking verification in that case is worse than storing a narrower claim with explicit limitations.',
-        'The store fails when the oracle is weak. A perfect ledger around a bad verifier still produces bad labels. If the tests do not cover the bug, the proof record should say that only the named checks passed, not that the fix is verified. If the oracle is flaky, quarantine or repeated-run policy belongs in the record. Verification is a claim about evidence, not a feeling about plausibility.',
-        {
-          type: 'note',
-          text: 'The most dangerous failure mode is overwriting raw events with derived labels. Summaries and reward scores are useful for browsing and training, but they are not a substitute for the original observations, actions, tool outputs, and oracle results. Once the raw evidence is gone, later audits can only debate summaries. An append-only storage discipline -- where derived artifacts reference raw events but never replace them -- prevents this.',
-        },
-        'Finally, deterministic replay has limits. Some agent actions depend on network responses, wall-clock time, or random seeds that were not captured. The store should record enough to detect when replay diverges, but promising bit-identical reproduction is a stronger claim than most systems can support. Honest replay means identifying what changed, not pretending nothing can.',
+        'The pattern is overkill for disposable demos and private experiments that will not train a model or support a claim. If the organization cannot legally store enough detail for replay, it should state a narrower claim rather than fake verification.',
+        'The store also fails when the oracle is weak. A perfect ledger around a bad test suite only proves that the bad suite passed, so oracle scope must be explicit in the proof record.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose 10,000 raw coding-agent rollouts are collected for a Python bug benchmark. Schema validation drops 800 malformed traces, environment rebuild drops 700, pre-patch failure checks drop 900, post-patch tests drop 3,500, and dedupe drops 1,100.',
+        'The final verified set has 3,000 trajectories, or 30 percent of the raw rollouts. If storage averages 4 MB per raw trace and 1.5 GB per reusable environment family across 40 families, the event logs cost about 40 GB and environment artifacts cost about 60 GB before compression.',
+        'The numbers explain the behavior. A cheap transcript store would keep all 10,000 and call them successes; the verified store spends compute and storage to avoid training on 7,000 examples whose evidence was incomplete, stale, duplicate, or false.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'The SWE-bench paper (Jimenez et al., 2024) defines the task format and oracle discipline that motivated verified trajectory stores: real GitHub issues, pinned repositories, execution-grounded evaluation with fail-to-pass test evidence. The OpenAI and Anthropic agent evaluation papers extend this to multi-step tool use with structured traces.',
-        'For systems foundations, study distributed tracing (OpenTelemetry), write-ahead logs (database recovery), content-addressed storage (Git internals), and software supply-chain provenance (SLSA, in-toto). A verified trajectory store borrows from all of them: stable identity from content hashing, append-only evidence from WAL discipline, replayable execution from container pinning, and explicit proof boundaries from supply-chain attestation.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: agent trajectory dedupe and provenance hashing -- verification alone does not prevent duplicate families from leaking across splits.',
-            'Extension: process reward models and verifier-guided search -- the trajectory store provides the labeled data these methods consume.',
-            'Case study: abstract agent operation graphs -- extracting portable action sequences from concrete tool-specific traces.',
-          ],
-        },
+        'Study SWE-bench for the benchmark pattern of candidate patch plus runnable environment plus validation tests, LangSmith and OpenTelemetry for trace schemas, W3C PROV for provenance vocabulary, and content-addressed storage systems for artifact identity. These sources cover the verification boundary, trace shape, and immutable artifact link.',
+        'Next study dataset deduplication, benchmark leakage, reproducible builds, container image digests, append-only logs, Merkle DAGs, and model evaluation design. The key distinction is that a trajectory store is not a chat archive; it is evidence infrastructure.',
       ],
     },
   ],

@@ -184,110 +184,59 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The register-updates view shows eight buckets numbered 0 through 7, each storing one integer: the longest leading-zero run seen so far for that bucket. Each incoming item is hashed. The first few hash bits pick the bucket; the remaining bits are scanned for leading zeros, and the count plus one becomes the rank. When the rank exceeds the bucket\'s stored value, the cell lights up and the value rises. When it does not, nothing changes -- the max is already higher.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The animation shows registers, which are small counters stored in buckets. Each incoming item is hashed; the first hash bits choose a bucket, and the remaining bits produce a rank from the number of leading zeros. Active cells are candidate updates, and unchanged cells show duplicates or weaker evidence.',
         {type: 'callout', text: 'HyperLogLog keeps the most surprising hash event per bucket, then turns many noisy bucket guesses into one stable cardinality estimate.'},
-        'Watch for "u17" and "u42" appearing twice. Duplicates hash identically, so they always land in the same bucket with the same rank. The max never moves. This is how HyperLogLog ignores duplicates without storing them.',
-        'The title line tracks the running cardinality estimate -- the harmonic-mean formula applied to the current register state -- next to the exact distinct count. The gap between the two is the estimation error. With only 8 registers the error is large; with 16,384 registers it drops below 1%.',
-        'The merge view splits the stream across two shards. Merging takes the register-wise max: for each bucket, keep whichever shard saw the longer zero-run. The merged sketch is identical to a single sketch over the combined stream. That visual identity is the entire distributed-counting trick.',
+        'Read the estimate line as a noisy measurement, not a true count. The safe inference rule is that duplicate items hash to the same bucket and rank, so they do not change the max register. The merge view shows the distributed rule: take the register-wise maximum.',
       
         {type: 'image', src: './assets/gifs/hyperloglog.gif', alt: 'Animated walkthrough of the hyperloglog visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        '"How many distinct elements passed through this stream?" is one of the most common analytics questions: unique visitors, distinct search queries, unique source IPs, different error fingerprints. The exact answer requires storing every distinct element -- memory proportional to the number of unique items. For 100 million distinct 64-bit IDs, that is 800 MB per counter.',
-        'HyperLogLog answers the same question approximately, using fixed memory that never grows with the stream. With 16,384 registers (12 KB total), it estimates cardinalities from zero to billions with a standard error of about 0.81%. Flajolet, Fusy, Gandouet, and Meunier introduced it in 2007, building on Flajolet and Martin\'s 1985 probabilistic counting and the 2003 LogLog algorithm. The key advance: replacing the geometric mean with a harmonic mean, cutting the standard error from 1.30/sqrt(m) to 1.04/sqrt(m) without using more memory.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Insert every element into a hash set. The set\'s size is the exact distinct count at any moment. For a website with 10 million unique visitors stored as 4-byte IDs, the set costs roughly 40 MB. One counter is manageable.',
+    { heading: 'Why this exists', paragraphs: [
+        'Cardinality means the number of distinct items in a stream. Unique visitors, distinct queries, source IPs, and error fingerprints all ask this question. Exact counting stores every distinct identity, so memory grows with the answer.',
+        'For 100 million distinct 64-bit IDs, an exact set needs at least 800 MB before hash-table overhead. HyperLogLog estimates the same number with fixed memory, often kilobytes. It is useful when bounded relative error is cheaper than storing raw identities.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is a hash set. Insert each item, ignore duplicates, and return set.size. It is exact, easy to explain, and correct for one counter that fits in memory.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Hash_table_3_1_1_0_1_0_0_SP.svg/500px-Hash_table_3_1_1_0_1_0_0_SP.svg.png', alt: 'Hash table with keys distributed into bucket slots', caption: 'The exact approach keeps identities in hash buckets, so memory follows the number of distinct keys. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Hash_table_3_1_1_0_1_0_0_SP.svg'},
-        'Scale breaks it. Run 1,000 such counters -- one per page, per hour, per region -- and the cost is 40 GB. In a distributed system, merging two hash sets means transmitting and deduplicating all raw identities across the network. Sampling helps with memory but biases the count: infrequent visitors vanish from a 1% sample, so distinct counts systematically undercount.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Every exact method ties memory to cardinality. A billion-event stream with 100 million distinct 64-bit IDs requires 800 MB per counter just for the set. Bitmaps indexed by hash (set bit h(x) mod B for each item) help for a while, but once most bits are set, accuracy collapses. Linear counting hits the same saturation ceiling.',
-        'The fundamental barrier: memory that grows with distinct elements, or accuracy that degrades as cardinality rises. What is needed is fixed-size memory, bounded relative error, and a merge operation that never touches raw identities.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'A good hash function makes each output bit look like an independent fair coin flip. The probability of seeing k leading zeros in a row is exactly 1/2^k -- the same odds as flipping k heads consecutively. If the longest leading-zero run you have ever observed is k, roughly 2^k distinct items have passed through. One integer tracking the maximum leading-zero run is already a cardinality estimator. It is wildly noisy, but it uses almost no memory.',
+        'The approach breaks when you need thousands of counters or distributed merging. One million counters cannot each keep a growing set. Merging exact sets across shards also means moving raw identities over the network.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'Every exact method pays memory proportional to distinct elements. A billion-event stream with 100 million distinct IDs still needs space for those 100 million IDs. Sampling reduces memory but biases distinct counts because rare items vanish first.',
+        'Bitmaps delay the wall but do not remove it. Once most bits are set, new distinct items stop changing the bitmap often enough to preserve accuracy. The needed object is fixed-size state with a merge rule that never touches raw IDs.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'A uniform hash behaves like coin flips. The chance of seeing k leading zeros is 1 / 2^k, so a long zero run is evidence that many distinct hashes have been tried. One maximum leading-zero run estimates cardinality, but it is very noisy.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png', alt: 'Bloom filter diagram showing hash functions setting bits in a compact array', caption: 'Bloom filters and HyperLogLog both trade raw identities for compact hash-derived state; the difference is the query, membership for Bloom filters and cardinality for HyperLogLog. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg'},
-        'To tame the noise, split items into m = 2^p buckets using the first p hash bits. Keep one max-leading-zeros register per bucket. Each register independently estimates the cardinality of its slice. Combine them through the harmonic mean of 2^(register value) across all buckets. The harmonic mean dampens the outliers that make any single register unreliable. Result: standard error of 1.04/sqrt(m), using m registers of about 6 bits each. Flajolet called this technique stochastic averaging.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Hash each incoming element to a fixed-width binary string. The first p bits select one of m = 2^p registers. From the remaining bits, compute the rank: count the leading zeros and add one. Update the register: register[j] = max(register[j], rank). That is the entire insert -- one hash, one comparison, one possible write.',
-        'To estimate cardinality, compute E = alpha_m * m^2 / sum(2^(-register[j])), where the sum runs over all m registers. The constant alpha_m corrects a multiplicative bias; it equals approximately 0.7213 / (1 + 1.079/m) for large m. This formula is the harmonic mean of 2^(register value), scaled by m^2.',
-        'Two corrections handle edge cases. At small cardinalities where many registers are still zero, the raw estimate overshoots. Linear counting replaces it: E = m * ln(m / V), where V is the number of zero registers. At very large cardinalities near 2^32, a large-range correction prevents hash collisions from saturating the estimate. Google\'s HLL++ (Heule et al. 2013) adds an empirical bias-correction table for the medium range and a sparse representation for the early phase when most registers are empty.',
-        'The harmonic mean is critical. An arithmetic mean of 2^(register value) would let one outlier register with rank 30 swamp all the others. The harmonic mean naturally discounts extremes -- exactly the right behavior when individual registers have high variance but the collection is statistically stable.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Each register tracks the most extreme coin-flip run in its bucket. The maximum of n independent geometric random variables concentrates around log2(n). With m registers each seeing roughly n/m items, each register independently estimates the cardinality of its slice. The harmonic mean across registers cancels the wild swings of any single one. This variance reduction is what makes the structure practical: one register is a toy; thousands of registers are a precision instrument.',
-        'Merge works because max is associative and commutative. Two sketches built with the same hash function and register count merge by taking the register-wise maximum. The result is identical to a single sketch built over the union of both streams. No raw identities cross the wire. This composability is why HyperLogLog appears in every distributed analytics system.',
-        'Correctness depends entirely on the hash function producing outputs indistinguishable from uniform random bits. A biased or adversarial hash breaks the leading-zero statistics. The hash function is part of the estimator, not an implementation detail.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Insert: O(1) -- one hash, one comparison, one possible register write. Query: O(m) -- scan all registers and compute the harmonic-mean sum. Merge: O(m) -- register-wise max. Memory: m registers of ceil(log2(log2(N_max))) bits each. In practice, 6-bit registers handle cardinalities up to 2^63, so total memory is m * 6 bits.',
-        'Concrete sizing: m = 64 (p=6) gives ~13% standard error in 48 bytes. m = 1,024 (p=10) gives ~3.25% in 768 bytes. m = 16,384 (p=14) gives ~0.81% in 12 KB. Redis uses p=14. Doubling m halves the standard error and doubles the memory -- a clean linear tradeoff. The memory never grows with the stream. Twelve kilobytes handles cardinalities from zero to billions with the same accuracy.',
+        'HyperLogLog splits the stream into many buckets and keeps one maximum rank per bucket. Each bucket gives a noisy estimate for its slice. The harmonic mean combines them while damping extreme outliers.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Choose m = 2^p registers. Hash each item to a bit string; the first p bits choose register j. Count leading zeros in the remaining bits, add one, and set register[j] = max(register[j], rank).',
+        'To estimate, compute alpha_m * m^2 / sum(2^-register[j]). The alpha_m constant corrects bias. When many registers are zero, linear counting m * ln(m / V) is used, where V is the number of zero registers.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'Each register tracks the most surprising hash event in its bucket. The maximum of many geometric events concentrates around log2(number of distinct items in that bucket). Many registers reduce variance by averaging independent bucket estimates.',
+        'Merge correctness comes from max. If two sketches use the same hash and m, taking max per register gives the same state as processing the union stream in one sketch. This is why shards can count locally and merge later without raw IDs.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Insert is O(1): one hash, one bucket, one max comparison. Query is O(m) because the estimator scans all registers. Merge is O(m) because it takes register-wise maxima.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png', alt: 'Chart of Bloom filter false positive probability as bit array density changes', caption: 'Probabilistic summaries make error a tunable engineering parameter. This Bloom filter curve is not HyperLogLog math, but it shows the same design habit: choose memory to bound acceptable error. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Bloom_filter_fp_probability.svg'},
-        'Pick m from your error budget. 5% error needs m >= 433 (round up to 512, 384 bytes). 1% error needs m >= 10,816 (round to 16,384, 12 KB). 0.5% error needs m >= 43,264 (round to 65,536, 48 KB). All of these are tiny compared to exact sets at any interesting cardinality.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Redis exposes HyperLogLog as a first-class type. PFADD inserts items, PFCOUNT returns the approximate distinct count, PFMERGE unions multiple sketches. Each key uses 12 KB. A single Redis instance can maintain millions of independent cardinality counters at negligible memory cost because the memory per counter is fixed regardless of how many items flow through.',
-        'Analytics databases use it to avoid the full-shuffle join that exact COUNT DISTINCT requires across distributed storage. BigQuery\'s APPROX_COUNT_DISTINCT, Presto, ClickHouse, and Druid all push HyperLogLog sketches down to individual partitions and merge register-wise at the coordinator. The query runs in partition-local time instead of global-deduplication time.',
-        'Network monitoring and observability systems count unique visitors per page, distinct queries per hour, unique devices per campaign, and distinct error fingerprints per deploy. Each shard counts locally. Sketches merge by register-wise max without transmitting raw identifiers -- no coordination, no deduplication pass, no raw-ID transfer.',
-        'Streaming engines like Apache Flink and Spark use HyperLogLog for distinct counts over unbounded event streams, where an exact set would eventually exhaust memory no matter how much is available.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'No membership test. A Bloom filter can answer "was user X seen?" -- HyperLogLog cannot. It cannot enumerate elements, cannot report which items were distinct, and cannot delete items. Each register stores only the maximum rank, not which item produced it, so there is no way to undo an insert.',
-        'No intersection. Union is free (register-wise max), but intersection requires the inclusion-exclusion formula |A intersect B| = |A| + |B| - |A union B|, and the relative error explodes when the intersection is small compared to the union. For set intersection, use a different structure.',
-        'Bias at small cardinalities. When most registers are still zero, the raw harmonic-mean estimate overshoots. Linear counting handles this range, but the transition between corrections can introduce a bump in accuracy. HLL++ adds an empirical bias table to smooth this region.',
-        'Incompatible sketches fail silently. Different p values, hash functions, seeds, or identity normalization rules make register-wise max meaningless. Two sketches that look structurally identical produce garbage when merged if they were built with different configurations. Version the sketch format the same way you would version any persisted data structure.',
-        'Do not use it for billing, permissions, or legal reporting where exact counts matter. Expose estimates as "roughly N" or "N +/- X%" in user-facing surfaces, and keep an exact fallback for auditable windows.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Set p = 2, so m = 4 registers, all starting at zero. Five elements arrive. Each hash is split: the first 2 bits pick the register, the remaining bits determine the rank (leading zeros + 1).',
-        'Element A: hash 00|10110. Register 0. Remaining bits 10110: first bit is 1, so zero leading zeros, rank = 0 + 1 = 1. Register[0] = max(0, 1) = 1.',
-        'Element B: hash 01|00101. Register 1. Remaining bits 00101: two leading zeros before the first 1, rank = 2 + 1 = 3. Register[1] = max(0, 3) = 3.',
-        'Element C: hash 10|01100. Register 2. Remaining bits 01100: one leading zero, rank = 1 + 1 = 2. Register[2] = max(0, 2) = 2.',
-        'Element D: hash 11|00001. Register 3. Remaining bits 00001: four leading zeros, rank = 4 + 1 = 5. Register[3] = max(0, 5) = 5.',
-        'Element A again: hash 00|10110. Same register, same rank. Register[0] = max(1, 1) = 1. No change. The duplicate is absorbed for free.',
-        'Final registers: [1, 3, 2, 5]. Harmonic-mean denominator: 2^(-1) + 2^(-3) + 2^(-2) + 2^(-5) = 0.5 + 0.125 + 0.25 + 0.03125 = 0.90625. With alpha_4 approximately 0.532, the raw estimate is 0.532 * 16 / 0.90625 = 9.39. True distinct count: 4. The large overshoot is expected with only 4 registers -- variance is enormous at this scale. No zero registers remain (V = 0), so the linear-counting correction does not apply. With m = 16,384 the same stream would estimate within 1% of truth.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Flajolet, Fusy, Gandouet, and Meunier, "HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm" (2007) -- the foundational paper deriving the harmonic-mean estimator, the alpha_m correction, and the 1.04/sqrt(m) error bound. Durand and Flajolet, "LogLog counting of large cardinalities" (2003) -- the predecessor using geometric mean, with weaker error at 1.30/sqrt(m). Heule, Nunkesser, and Hall, "HyperLogLog in practice: algorithmic engineering of a state-of-the-art cardinality estimation algorithm" (2013) -- Google\'s HLL++ with empirical bias correction for medium cardinalities, sparse-to-dense promotion, and 64-bit hashes.',
-        'Study next: Bloom Filter for approximate membership -- "was this item seen?" is the natural complement to "how many distinct items were there?" Count-Min Sketch for streaming frequency estimation -- "how often did this item appear?" uses the same hash-into-registers pattern but answers a different question. Hash Functions for the mathematical foundation HyperLogLog depends on -- hash quality directly determines estimate quality. Reservoir Sampling for maintaining a uniform random sample from a stream in fixed memory.',
-      ],
-    },
+        'Memory is m small registers, commonly 6 bits each. Standard error is about 1.04 / sqrt(m), so m = 1,024 gives about 3.25% error and m = 16,384 gives about 0.81% error. Doubling memory improves error by only about sqrt(2), so accuracy gets expensive slowly.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Redis exposes HyperLogLog through PFADD, PFCOUNT, and PFMERGE. The fit is fixed per-key memory for approximate unique counts, regardless of how many items pass through the key.',
+        'Analytics databases use sketches for approximate COUNT DISTINCT. Each partition builds a local sketch, and the coordinator merges registers instead of shuffling raw IDs. Observability systems use the same pattern for unique devices, sources, queries, and error signatures.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'HyperLogLog cannot answer membership questions, list elements, or delete items. A register stores only the strongest rank seen, not which item caused it. If you need was user X seen, use a Bloom filter or exact set.',
+        'It also fails when sketches are incompatible. Different hash functions, seeds, p values, or identity normalization rules make register-wise max meaningless. Use versioned sketch formats and keep exact counts for billing, permissions, and legal reporting.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Use p = 2, so m = 4 registers starting at [0, 0, 0, 0]. Hash A as 00|10110, so bucket 0 gets rank 1. Hash B as 01|00101, so bucket 1 gets rank 3. Hash C as 10|01100, so bucket 2 gets rank 2. Hash D as 11|00001, so bucket 3 gets rank 5.',
+        'The registers become [1, 3, 2, 5]. The denominator is 2^-1 + 2^-3 + 2^-2 + 2^-5 = 0.90625. With alpha_4 about 0.532, the raw estimate is 0.532 * 16 / 0.90625 = 9.39 for a true count of 4, showing why tiny m is noisy. Larger m reduces that variance.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources are Flajolet et al., HyperLogLog, 2007, Durand and Flajolet, LogLog, 2003, and Heule, Nunkesser, and Hall, HyperLogLog in Practice, 2013. The last paper explains HLL++ bias correction and sparse representation.',
+        'Study hash functions first, because uniform hash bits are the estimator. Study Bloom filters for approximate membership, Count-Min Sketch for frequencies, and reservoir sampling for fixed-memory stream summaries with different guarantees.',
+      ], },
   ],
 };

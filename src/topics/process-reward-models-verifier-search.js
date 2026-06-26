@@ -227,82 +227,92 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the first view as two grading paths for one reasoning trace. The outcome path judges only the final answer, while the process path adds labels on intermediate steps before selection.',
+        'Active nodes are the part of the training or search loop doing work. Compare nodes are alternatives that the visual keeps visible so you can see what signal is missing.',
         {type: 'image', src: './assets/gifs/process-reward-models-verifier-search.gif', alt: 'Animated walkthrough of the process reward models verifier search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Multi-step reasoning fails in a way ordinary final-answer grading hides. A model can make a false algebra move, cancel the wrong term, invent a lemma, or misread a condition, then still land on the correct answer by luck. It can also write a beautiful trace that ends with a wrong answer because one early step poisoned the rest. If the only label is "final answer correct," the training signal cannot say where the reasoning changed from valid to invalid.`,
+        'Multi-step reasoning can fail before the final answer appears. A model may make a false algebra move, use a theorem outside its conditions, or copy a number incorrectly, then still end with a plausible answer.',
         {type: 'callout', text: 'A process reward model turns reasoning into a scored path, so search can reject a branch before the final answer hides the error.'},
-        `Process reward models exist to put feedback at the same granularity as reasoning. An outcome reward model asks whether the destination is right. A process reward model asks whether each step is locally valid, relevant, and consistent with the previous steps. OpenAI's Let's Verify Step by Step paper compared these two supervision styles on mathematical reasoning and released PRM800K, a dataset of 800,000 step-level correctness labels for model-generated MATH solutions: https://arxiv.org/abs/2305.20050 and https://github.com/openai/prm800k.`,
+        'An outcome reward model, or ORM, scores the final answer. A process reward model, or PRM, scores each step in the path, so the system can learn where reasoning stays valid and where it breaks.',
       ],
     },
     {
-      heading: 'The naive approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is outcome supervision. Give the model many problems, sample solutions, check the final answer, and reward outputs that finish correctly. That approach is not foolish. For tasks with exact answers, final labels are cheap, easy to scale, and easy to audit. A final-answer verifier also avoids exposing or storing long reasoning traces when the only product requirement is a correct response.`,
-        `The wall is credit assignment. A final-answer label is a one-bit judgment over an entire path. It cannot distinguish a correct method from a lucky guess, a nearly correct solution from a broken one, or a repairable path from a path that should be abandoned immediately. Search has the same problem. If a generator samples ten reasoning traces, a final-answer vote can choose the most common answer, but it may still miss the first invalid move shared by many traces. The system needs a way to score partial work before the end.`,
+        'The obvious approach is to sample an answer and check the final result. In math, code, and closed-form questions, this is cheap because the label can be a number, a unit test result, or a multiple-choice answer.',
+        'That approach is useful when only the destination matters. It also avoids storing long traces and avoids asking humans to inspect every intermediate sentence.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is credit assignment. A final label says the whole answer was right or wrong, but it does not say which step caused the outcome.',
+        'Search inherits the same weakness. If ten traces reach three final answers, a vote can choose the common answer, but it cannot prove that the shared early move was valid.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is that reasoning traces are search paths, not just strings. If each intermediate step can be judged, the search procedure can prune a bad branch when the error appears, rerank several plausible paths by their weakest or average steps, and spend more compute on branches that still preserve the problem's constraints. The verifier becomes the scoring function for a tree of partial solutions.`,
+        'The core insight is to treat a reasoning trace as a path through partial states. Each step should preserve the problem facts and follow from earlier steps.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'A reasoning trace can be read as a directed path through partial states, with verifier scores deciding which edges survive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        `That turns "generate one chain of thought" into a proposal-and-selection system. The generator proposes candidate steps. The process reward model estimates whether the current path remains valid. The selector chooses whether to continue, repair, branch, or stop. This is the same broad idea behind self-consistency, Tree of Thoughts, Monte Carlo search, and executable verification in code, but the PRM supplies a learned step-level score when no exact programmatic oracle exists.`,
+        'Once steps have scores, generation becomes proposal and selection. The model proposes branches, the verifier scores partial work, and the search policy decides which branch deserves more compute.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A PRM training pipeline starts by defining what counts as a step. That sounds administrative, but it is a real modeling choice. A step might be one equation transformation, one natural-language claim, one code edit, or one theorem application. If steps are too small, annotation becomes noisy and expensive. If steps are too large, the label again hides the exact error.`,
+        'Training begins by defining a step. A step might be one equation transform, one claim in a proof, one code edit, or one plan action.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A learned verifier is still a model, so calibration and holdout slices matter as much as architecture. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
-        `Next, a data engine collects solution traces and labels their steps. Humans can label them directly. A symbolic checker can validate some algebra. Unit tests can score code. A stronger model can assist, but then the dataset needs independent audits because model judges import their own biases. The PRM learns a function from problem, previous context, and candidate step to a score such as correct, incorrect, or uncertain. At inference time, the server samples one or more candidate traces, evaluates steps with the PRM, and uses those scores to choose the final answer or allocate more search budget.`,
-        `The OpenAI paper also makes active learning part of the mechanism. Step labels are expensive, so the system should not spend humans on obvious easy examples forever. It should route uncertain, high-impact, or disagreement-heavy steps to labelers. That is why the plot view compares random labeling with active learning: the data structure around the verifier matters as much as the neural scoring model.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The first view separates outcome supervision from process supervision. The outcome path flows from problem to steps to final answer to outcome reward. The process path diverts through step labels and a PRM before selection. The important difference is not cosmetic. The process path creates an earlier decision point, so the system can catch the first bad move instead of waiting for the final answer.`,
-        `The verifier-search view shows the search consequence. Several candidate paths can be fluent and plausible, but one contains a bad intermediate step. A step verifier gives the scheduler a reason to discard or repair that branch. The matrix of search patterns then places PRM reranking next to greedy chain-of-thought, self-consistency, tree search, and executable verification. The visual claim is that a PRM is not a full reasoning system by itself. It is a scoring component that changes which branches survive.`,
+        'Humans, symbolic checkers, tests, or stronger models label candidate steps. The PRM learns a score from the problem, the previous trace, and the next proposed step.',
+        'At inference time, the system samples several traces, scores their steps, and chooses a final answer by path evidence. A low step score can prune a branch, request a repair, or lower the whole trace during reranking.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument is conditional, not absolute. If a step label accurately identifies whether a partial solution still preserves truth, then pruning an invalid partial path is safe because no later fluent prose can make the earlier false step valid. If the PRM assigns higher scores to locally valid steps, reranking by process score raises the chance of selecting a trace whose whole chain is valid.`,
-        `The invariant is path validity. Each accepted step must follow from the problem statement and the previous accepted steps. A PRM approximates that invariant. It can never prove general correctness unless the step checker is exact, but it gives search a denser signal than final-answer grading. This is why process supervision can help most on tasks where errors appear early and propagate, such as contest math, symbolic reasoning, and multi-step code planning.`,
+        'The correctness argument is conditional on verifier quality. If a step is invalid, no later prose can make the earlier false statement logically valid.',
+        'The invariant is path validity: every accepted step must follow from the problem and prior accepted steps. A PRM does not prove that invariant in general, but it gives search a denser test than the final answer alone.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The training cost is label density. A final-answer dataset needs one label per solution. A process dataset may need many labels per solution, a detailed rubric, labeler qualification, quality-control examples, disagreement resolution, and active-learning infrastructure. PRM800K is useful precisely because building such a dataset is expensive. The cost is not only dollars. It is also schema design: the dataset must represent steps consistently enough that the model can learn the boundary.`,
-        `Inference cost rises when PRMs are used for search. Sampling ten paths and scoring each step can multiply token generation, verifier calls, latency, and memory pressure. A production system usually needs a cascade: cheap generation first, deterministic checks where available, PRM reranking for ambiguous reasoning, and human or executable verification for high-stakes decisions. The PRM should buy accuracy where the extra compute matters, not become a default tax on every prompt.`,
+        'The cost starts with labels. One final answer needs one label, while one worked solution may need ten or more step labels with a consistent rubric.',
+        'Inference cost grows with the number of sampled paths and the number of checked steps. If a system samples 8 traces with 12 steps each, it may run 96 verifier evaluations before the final answer.',
+        'The behavior changes when the search budget doubles. More samples can recover from one bad branch, but they also amplify verifier bias if the scorer rewards fluent wrong reasoning.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `PRMs fit domains where partial work has visible structure but exact final verification is incomplete. Math proofs, symbolic derivations, tutoring, theorem-style explanations, code reasoning before execution, and agent plans all have intermediate claims that can be checked for consistency. They are also useful for evaluation: a failed final answer with a mostly sound path is a different model error from a hallucinated path that happens to end in the right number.`,
+        'PRMs fit contest math, proof tutoring, code planning, and agent workflows where partial work can be inspected. They are most useful when errors appear early and then poison the rest of the answer.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/MCTS_Algorithm.png/250px-MCTS_Algorithm.png', alt: 'Monte Carlo tree search phases of selection expansion simulation and backpropagation', caption: 'Verifier-guided reasoning borrows the same search intuition as tree search: propose branches, score evidence, then spend more work where it can change the choice. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:MCTS_Algorithm.png.'},
-        `They also connect naturally to retrieval and tool systems. Self-RAG-style systems judge relevance and support before answering. Code agents can use tests as executable verifiers and learned models for parts tests do not cover. In a verifier-guided inference control plane, a PRM can decide which requests deserve more samples, which branches should be repaired, and which outputs should be escalated to a stronger checker.`,
+        'They also help evaluation. A wrong final answer with nine sound steps is a different failure from a trace that invents facts in line one.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `A PRM fails when the verifier learns the appearance of good reasoning instead of the invariant. Polished prose, familiar theorem names, or common proof templates can receive high scores even when the content is false. Search then amplifies the verifier's blind spot because every branch is selected through that same biased scorer. This is reward hacking with reasoning-shaped artifacts.`,
-        `A visible trace is also not guaranteed to be the model's complete internal reasoning. Treat traces as supervised outputs and audit records, not transparent access to all computation. More search is not automatically better either. If all samples share the same misconception, self-consistency can confidently pick the wrong answer. If the verifier is miscalibrated, tree search can spend more compute exploring the wrong region. Diversity, calibration, sealed holdouts, and slice analysis are part of the method, not afterthoughts.`,
+        'A PRM fails when it learns the style of correctness instead of correctness. Polished wording, common theorem names, or familiar proof shapes can receive high scores while the actual step is false.',
+        'The trace is also not guaranteed to expose every internal computation. Treat it as a supervised artifact and audit record, not a transparent window into the model.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study RLHF and preference optimization first, because PRMs are still reward models and inherit proxy-risk problems. Then study LLM evaluation harnesses, calibration curves, threshold optimization, and uncertainty quantification so verifier scores are treated as measured signals rather than truth. For search, study self-consistency, Tree of Thoughts, beam search, Monte Carlo Tree Search and UCT, and agent planning. For stronger verification, study AlphaEvolve-style executable scoring, code world models, RAG evaluation, Self-RAG, and execution-as-a-service verifier systems.`,
+        'Suppose a model solves 12x + 6 = 30. A valid trace subtracts 6 to get 12x = 24, then divides by 12 to get x = 2.',
+        'A bad trace might divide the original equation by 6 and write 2x + 6 = 5. An ORM sees only whether the final x is correct, while a PRM can score that division step near zero because 6 / 6 became 6 instead of 1.',
+        'Now sample 4 traces. If their weakest step scores are 0.92, 0.88, 0.31, and 0.74, verifier search can discard the third trace even if its final answer is fluent.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Start with OpenAI, "Let\'s Verify Step by Step", and the PRM800K dataset. Then study outcome reward models, RLHF, calibration curves, beam search, self-consistency, Tree of Thoughts, and executable verifiers for code.',
       ],
     },
   ],

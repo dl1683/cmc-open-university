@@ -1,4 +1,4 @@
-﻿// Influence functions: saliency asks which features drove a verdict; this
+// Influence functions: saliency asks which features drove a verdict; this
 // page asks which training examples taught it.
 
 import { plotState, matrixState, InputError } from '../core/state.js';
@@ -186,122 +186,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The first view shows a scatter plot of ten training emails with two features (exclamation marks, ALL-CAPS words) and a logistic-regression decision boundary. The test email is marked with its current spam probability. Active markers are examples whose deletion is being measured. Visited markers are examples already evaluated. Found markers highlight the most influential examples.',
+        'The animation asks a counterfactual question about training data. A counterfactual is a comparison against a world where one fact is changed; here, one training example is removed and the model is retrained or approximated as if it had been retrained.',
         {type: 'callout', text: 'Influence is a counterfactual data question: remove one training point and measure how the trained model would move.'},
-        'The ledger view shows each training example as a row, with one column: the change in the test email\'s spam probability when that example is removed and the model is retrained from scratch. Negative values mean the example was supporting the spam verdict; removing it lowers the score. Positive values mean the example was pushing against it.',
-        'The second trace injects a mislabeled point and measures each example\'s effect on clean validation loss instead of a single test prediction. The example whose removal most improves held-out loss is the strongest candidate for a label error.',
-      
-        {type: 'image', src: './assets/gifs/influence-functions.gif', alt: 'Animated walkthrough of the influence functions visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Active points are the examples currently being tested, visited points have already been scored, and found points are the examples with the largest measured effect. Negative influence on a spam score means the removed example had been pushing the model toward spam; positive influence means it had been pushing away from spam.',
+        {type: 'image', src: './assets/gifs/influence-functions.gif', alt: 'Animated walkthrough of the influence functions visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          text: 'If the model makes a mistake, which training points are most responsible, and would the mistake be avoided if those points were removed?',
-          attribution: 'Koh & Liang, "Understanding Black-box Predictions via Influence Functions," ICML 2017',
-        },
-        'Feature attribution answers which parts of the input drove a prediction. Influence asks a different question: which training examples taught the model to behave this way? That question matters when a model gives a suspicious verdict, memorizes a bad label, reproduces copyrighted training data, or appears poisoned.',
-        'The idea has a long history. R. Dennis Cook introduced Cook\'s distance in 1977 to measure how much each data point affects the fitted parameters of a linear regression. Cook\'s distance uses the hat matrix to estimate the parameter shift from deleting one observation without actually refitting. Koh and Liang generalized this to arbitrary differentiable models by replacing the hat matrix with the inverse Hessian of the training loss, making the same deletion-approximation idea work for logistic regression, neural networks, and any model trained by empirical risk minimization.',
+        'A trained model is not only a function from inputs to outputs. It is also a compressed record of the examples that shaped its parameters, so debugging a bad prediction often requires asking which rows taught the model that behavior.',
+        'Feature attribution explains which input features mattered for one prediction. Influence functions explain which training examples mattered, which is the question you need for label debugging, data poisoning audits, dataset valuation, and copyright or provenance review.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first instinct is to look at the model\'s weights or the test input\'s features. For the toy spam classifier, that means staring at exclamation counts, all-caps words, and the decision boundary. Feature inspection explains local geometry but cannot tell you which training emails pulled the boundary into that position.',
-        'The second instinct is similarity: sort training examples by distance to the test point and assume the nearest ones matter most. But proximity is not influence. A nearby example surrounded by many supporting neighbors may have almost no effect if removed, because the others hold the boundary in place. A farther boundary example may matter far more because it is the marginal vote that tips the separator. Influence is about counterfactual training impact, not geometric distance.',
+        'The direct method is leave-one-out retraining. Remove training example i, train the model again, measure the target prediction or validation loss, put the example back, and repeat for every example.',
+        'This is correct because it measures the exact counterfactual. It is also easy to explain to a zero-background reader: the most influential example is the one whose removal changes the thing you care about the most.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The exact answer is leave-one-out retraining: delete one example, retrain from scratch, measure how the target quantity changes. For n training examples, that requires n full retrainings. With ten emails and 200 gradient-descent steps, this page finishes in milliseconds.',
-        'At real scale, the wall is arithmetic. ImageNet has 1.2 million training images. A single ResNet-50 training run takes hours on a modern GPU. Leave-one-out influence for every training point would require 1.2 million retrainings -- roughly 137 GPU-years. For a single test prediction. If you want influence scores for a thousand test points, multiply again. The naive method is the gold standard and the scaling impossibility.',
-        'This is the problem Koh and Liang solved: approximate the leave-one-out effect using second-order information from one trained model, without ever retraining.',
+        'Leave-one-out retraining scales with the number of training rows times the cost of a full training run. If a model has 1,000,000 training examples and one training run costs 8 GPU-hours, exact influence over all rows costs 8,000,000 GPU-hours for one target question.',
+        'Similarity search does not solve the problem. A nearby training point may be redundant, while a farther boundary point may be the one holding the decision surface in place.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Influence functions replace full retraining with a local sensitivity calculation. If a training row were given a tiny extra weight, its gradient would pull the parameters in one direction; the inverse Hessian converts that pull through the curvature of the loss surface.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock loss surface with a curved valley', caption: 'A curved loss surface makes the Hessian idea concrete: influence estimates how a small training-weight change moves the optimum through local curvature. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'},
+        'The Hessian is the matrix of second derivatives of the loss, so it describes local curvature. The influence score then projects the estimated parameter movement onto the test loss or prediction you are trying to explain.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The core idea from Cook (1977), extended by Koh and Liang (2017), is to ask: if I infinitesimally upweight one training example z, how does the optimal parameter vector theta-hat change? The answer is a classic result from robust statistics. Upweighting z by a small epsilon shifts the optimum by approximately -H_inv * grad_L(z, theta-hat), where H is the Hessian of the total training loss at the optimum and grad_L(z, theta-hat) is the gradient of the loss on example z.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock loss surface with a curved valley', caption: 'A curved loss surface makes the Hessian idea concrete: influence estimates how a small training-weight change moves the optimum through local curvature. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'},
-        {
-          type: 'code',
-          language: 'python',
-          text: '# Influence of training point z on test loss at z_test\n# theta_hat: trained parameters\n# H: Hessian of training loss at theta_hat\n\ngrad_z = gradient(loss(z, theta_hat))        # training point gradient\ngrad_test = gradient(loss(z_test, theta_hat)) # test point gradient\n\n# Influence = - grad_test^T . H^{-1} . grad_z\nH_inv_grad_z = solve(H, grad_z)  # Hessian-inverse-vector product\ninfluence = -dot(grad_test, H_inv_grad_z)',
-        },
-        'The formula has three parts. First, compute the gradient of the loss at the training point z. This is the direction that z pulls the parameters during training. Second, multiply by the inverse Hessian H^{-1}. The Hessian describes the curvature of the loss surface, so H^{-1} translates the gradient pull into an actual parameter shift, accounting for how stiff or flexible the loss landscape is in each direction. Third, dot the result with the test-point gradient to project the parameter shift onto the quantity you care about.',
-        'The Hessian is a p-by-p matrix where p is the number of parameters. For a model with millions of parameters, forming and inverting this matrix is impossible. Two approximations make it tractable. Implicit Hessian-vector products compute H*v without ever forming H, using a second backward pass through the computation graph. LiSSA (Linear time Stochastic Second-order Algorithm) estimates H^{-1}*v through a truncated Neumann series: sample mini-batches, apply iterated corrections, and converge to the inverse-Hessian-vector product without storing the full matrix. Koh and Liang showed LiSSA works well enough to rank influential examples on deep networks.',
+        'Train the model once and save the final parameters. For each training point, compute its loss gradient; for the target test point, compute the gradient of the target loss or score.',
+        'The classic estimate is minus the test gradient dotted with H inverse times the training gradient. Practical systems do not form H inverse directly; they solve Hessian-vector products with iterative methods, damping, subsampling, or cheaper gradient-tracing approximations.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The approximation is a first-order Taylor expansion of the retraining process. If the loss is twice-differentiable and the model is at a local minimum (gradient near zero), then small perturbations to the training distribution produce small, linear shifts in the optimal parameters. The Hessian captures the local curvature, so the inverse Hessian tells you how far the optimum moves per unit of gradient force. This is exact in the infinitesimal limit and a good approximation when the perturbation (removing one example out of thousands) is small.',
-        'For convex losses like logistic regression, the Hessian is positive definite everywhere, and the optimum is unique. The approximation is tight. For non-convex deep networks, the story is rougher: the Hessian may be indefinite, there are many local minima, and the "optimum" depends on the training trajectory. Adding a damping term (H + lambda*I) regularizes the Hessian and makes the approximation stable, at the cost of some accuracy. Empirically, Koh and Liang showed the approximate influence scores still correlate well with actual leave-one-out retraining on networks trained to convergence.',
+        'The correctness argument is a Taylor approximation around the trained optimum. At an optimum, the total training gradient is near zero; a tiny change to one example creates a small force, and local curvature predicts how far the optimum must move to cancel that force.',
+        'For convex models with a well-conditioned Hessian, this is a stable approximation to leave-one-out retraining. For deep networks it is not a proof of exact deletion, but it is a principled ranking method when the perturbation is small and the local geometry is informative.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Leave-one-out retraining: full retrain per example, n retrains total, exact gold standard.',
-            'Influence functions from Koh and Liang: one H^{-1}*v product per example after one-time Hessian work, tight for convex models and approximate for deep nets.',
-            'TracIn from Pruthi et al.: gradient dot-product per checkpoint, cheaper than Hessian methods but noisier and checkpoint-dependent.',
-            'Data Shapley from Ghorbani and Zou: Monte Carlo over subset permutations in practice, game-theoretic but expensive even when approximated.',
-          ],
-        },
-        'The Hessian-inverse-vector product is the bottleneck for influence functions. With LiSSA, each product costs O(t * p) where t is the number of Neumann iterations and p is the parameter count. Once you have H^{-1} * grad_z for a training point, computing influence on any test point is a single dot product. This means the expensive work is per-training-point, and you can amortize it across many test queries.',
-        'Memory is the second constraint. Storing per-example gradients for n training points with p parameters requires n*p floats. For a 100M-parameter model and 1M training examples, that is 400 TB in float32. Practical implementations compute influence on-the-fly or use gradient compression, random projections, or representative subsets.',
+        'Exact leave-one-out costs n full retrains for n training examples. Influence functions pay one training run, then one gradient and one inverse-Hessian-vector-style solve per scored example.',
+        'Cost behaves differently depending on reuse. If the expensive vector solve is shared across many test points, scoring more targets can be cheap; if each target needs a fresh solve over a huge model, the method can still be expensive.',
+        'Memory is often the hidden cost. Storing per-example gradients for 1,000,000 examples and 100,000,000 parameters is impossible in ordinary memory, so implementations stream, compress, project, or score a candidate subset.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Label debugging is the most proven use case. Rank training examples by self-influence (how much does removing this example change the model\'s loss on this same example) or by influence on validation loss. The top-ranked examples disproportionately contain mislabeled data, annotation errors, and ambiguous cases. Koh and Liang found that influence functions identified mislabeled examples in a dog-vs-fish classifier that human review confirmed, and that removing those examples improved test accuracy.',
-        'Data poisoning audits use influence to find injected examples that disproportionately affect specific predictions. If an attacker added backdoor examples to shift the model on a trigger pattern, those examples will have high influence on the triggered test inputs. Influence provides a principled shortlist for human review instead of scanning the entire training set.',
-        'Data valuation and attribution apply influence to answer which data sources contributed to a model\'s behavior. This matters for licensing disputes, copyright claims, and deciding which data providers to pay. Influence on held-out performance ranks data sources by their marginal contribution to model quality.',
+        'Label debugging uses influence to rank examples whose removal improves validation loss. A high-scoring row is then inspected by a human because it may be mislabeled, ambiguous, duplicated, or adversarial.',
+        'Security teams use influence to narrow poisoning investigations. Data owners use it to estimate which sources helped or hurt a model, especially when a global dataset-quality score would hide target-specific behavior.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'High influence does not mean high quality. A mislabeled boundary example is highly influential because it pulls the model the wrong way. A rare but correct minority example is also highly influential because the dataset has little else like it. Removing high-influence data blindly can erase important edge cases and hurt underrepresented groups.',
-        'The second-order approximation degrades on large non-convex models. When the loss surface has many saddle points, the Hessian is indefinite, and the damped inverse may not reflect the true retraining behavior. Models trained with heavy data augmentation, dropout, or stochastic depth introduce randomness that the deterministic influence formula does not capture. Empirical studies (Basu et al., 2021) found that influence function rankings can diverge from actual leave-one-out rankings on deep networks, especially for examples far from the decision boundary.',
-        {
-          type: 'note',
-          text: 'Low influence on one test point does not mean useless. Interior examples stabilize class distributions, improve calibration, and may be critical for different test queries. Influence is always target-specific -- never treat it as a global data-quality score.',
-        },
-        'Group effects are invisible to single-point influence. Two examples may each have low individual influence but high joint influence because they together anchor a region of the boundary. Pairwise and higher-order influence interactions are combinatorially expensive to compute. Removing individually low-influence points can sometimes cause large aggregate shifts.',
+        'High influence is not the same as bad data. A rare but correct minority example can be highly influential because few other rows teach the same region of the input space.',
+        'The approximation can fail when the model is far from a stable local optimum, the Hessian is noisy or indefinite, training uses heavy randomness, or examples interact in groups. Single-point influence also misses cases where two ordinary examples together create a large effect.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a spam classifier gives a test email p(spam) = 0.82. Removing example A and retraining gives 0.60, removing B gives 0.84, removing C gives 0.81, and removing D gives 0.73.',
+        'The influence on the spam probability is old minus new: A = 0.22, B = -0.02, C = 0.01, and D = 0.09. A was the strongest support for the spam verdict, D also supported it, B slightly opposed it, and C barely mattered.',
+        'If the validation loss is 0.410 and removing a suspicious row lowers it to 0.355, the improvement is 0.055. That row is not automatically wrong, but it is a good review candidate because its absence made clean held-out behavior better.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Cook, R.D. "Detection of Influential Observation in Linear Regression," Technometrics, 1977 -- the origin of deletion diagnostics and Cook\'s distance.',
-            'Koh & Liang, "Understanding Black-box Predictions via Influence Functions," ICML 2017, https://arxiv.org/abs/1703.04730 -- the generalization to deep models via implicit Hessian-vector products.',
-            'Agarwal, Bullins & Hazan, "Second-Order Stochastic Optimization for Machine Learning in Linear Time," JMLR 2017 -- the LiSSA algorithm for scalable H^{-1}*v estimation.',
-            'Pruthi et al., "Estimating Training Data Influence by Tracing Gradient Descent," NeurIPS 2020, https://arxiv.org/abs/2002.08484 -- TracIn, the gradient-dot-product alternative.',
-            'Ghorbani & Zou, "Data Shapley: Equitable Valuation of Data for Machine Learning," ICML 2019, https://arxiv.org/abs/1904.02868 -- game-theoretic data valuation.',
-            'Basu et al., "Influence Functions in Deep Learning Are Fragile," ICLR 2021 -- empirical analysis of where the approximation breaks.',
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Logistic Regression gives the model geometry used in this visualization.',
-            'Prerequisite: Cross-Validation and Honest Evaluation gives the held-out discipline that validates influence claims.',
-            'Extension: Data Shapley Valuation gives a game-theoretic alternative to pointwise influence.',
-            'Extension: Poisoning Attack Threat Model gives the adversarial setting where influence becomes a defense.',
-            'Contrast: Saliency Maps and Feature Attribution explain input features rather than training data.',
-            'Contrast: LIME explains black boxes through local function approximation rather than training-data attribution.',
-          ],
-        },
+        'Start with Cook, Detection of Influential Observation in Linear Regression, for the statistical origin of deletion diagnostics. Then read Koh and Liang, Understanding Black-box Predictions via Influence Functions, for the modern machine-learning formulation.',
+        'Study Hessian Matrix before the curvature formula, Logistic Regression for the toy classifier, Gradient Descent for parameter movement, Data Shapley for a game-theoretic alternative, and TracIn for a cheaper checkpoint-gradient approach.',
       ],
     },
   ],

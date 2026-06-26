@@ -377,6 +377,13 @@ export const article = {
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'A rank-one change bends the matrix in one direction. If the old inverse is already stored, the update only needs how that inverse responds to u and how v reads through the inverse.',
+        'The denominator 1 + v^T A^-1 u is the guard. When it is zero, the updated matrix is singular; when it is tiny, the correction may amplify floating-point error.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'The identity is:',
@@ -449,7 +456,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Sherman-Morrison wins when updates are truly rank one, the inverse is needed for scoring or uncertainty, and latency matters more than batch throughput.',
         {
@@ -488,6 +495,14 @@ export const article = {
           attribution: 'Gene Golub and Charles Van Loan, "Matrix Computations" (4th edition, 2013)',
         },
         'This warning applies broadly but not universally. When the algorithm specifically needs A^-1 x for many different x vectors, or needs x^T A^-1 x as a score, and the matrix dimension is moderate, maintaining the inverse is a defensible engineering choice -- not a numerical sin -- as long as conditioning is monitored and rebuilds are scheduled.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Let A = [[3, 1], [1, 2]], so A^-1 = [[0.4, -0.2], [-0.2, 0.6]]. Let u = [1, 2]^T and v = [2, 1]^T.',
+        'Compute q = A^-1 u = [0, 1] and r^T = v^T A^-1 = [0.6, 0.2]. The denominator is d = 1 + v^T q = 2, so the update is allowed.',
+        'The correction is q r^T / d = [[0,0],[0.3,0.1]]. Subtracting it gives [[0.4,-0.2],[-0.5,0.5]], which matches the direct inverse of A + u v^T = [[5,2],[5,4]].',
       ],
     },
     {

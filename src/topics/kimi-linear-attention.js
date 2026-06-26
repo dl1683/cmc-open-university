@@ -215,185 +215,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. Switch between them using the View control.',
+        'Read KDA as a recurrent memory path and MLA as a periodic global-attention path. Active KDA nodes are the gate, delta write, and state update; the found read node is the output computed without scanning every previous token.',
         { type: 'callout', text: 'Kimi Linear is a memory-allocation design: cheap recurrent state handles most layers, while periodic global attention preserves long-range recall.' },
-        {
-          type: 'bullets',
-          items: [
-            'KDA finite state -- shows a single token flowing through the recurrent pipeline: input, gate, delta write, state, linear read, output. Active (highlighted) nodes are the gating and state-update machinery. The found node is the linear read that produces output without scanning prior tokens.',
-            'Long-context efficiency -- shows reported model specs, the agentic decode use case, a throughput plot comparing Kimi Linear to an MLA baseline, and an evaluation checklist. Active series in the plot is the Kimi hybrid; the comparison series is full attention or MLA.',
-          ],
-        },
-        'In the layer-rhythm graph (step 3 of KDA finite state), blue nodes are KDA blocks and the green node is the periodic MLA block. The 3:1 ratio is the reported hybrid cadence: three cheap recurrent layers, then one global attention layer.',
-        {
-          type: 'note',
-          text: 'The throughput plots show the direction of the reported claims, not verified independent benchmarks. Read them as "this is the shape the authors claim," not "this is ground truth." Always check evaluation methodology before trusting absolute numbers.',
-        },
-      
+        'The safe inference rule is about memory form. A KDA layer compresses history into a fixed state, while an MLA layer keeps explicit global access through a compressed key-value cache.',
         {type: 'image', src: './assets/gifs/kimi-linear-attention.gif', alt: 'Animated walkthrough of the kimi linear attention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Transformer attention remembers everything by storing a key-value pair for every token in every layer. That exact memory is the source of both its quality and its cost problem.',
+        'Full transformer attention stores key and value vectors for every previous token in every attention layer. That key-value cache is accurate memory, but long-context decoding becomes dominated by memory bandwidth.',
         { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png', alt: 'Transformer model architecture with encoder and decoder attention blocks', caption: 'The standard Transformer uses attention blocks throughout the stack; Kimi Linear changes the memory form in most layers. Source: https://commons.wikimedia.org/wiki/File:The-Transformer-model-architecture.png.' },
-        'At 1M tokens across 80 layers with 128-dimensional heads, KV cache alone can exceed 40 GB. Every generated token must read that entire cache. Decode becomes memory-bandwidth-bound long before compute runs out.',
-        {
-          type: 'quote',
-          text: 'We find that incorporating a small proportion of softmax attention layers within a primarily linear architecture is crucial for maintaining strong language modeling performance.',
-          attribution: 'Kimi-Linear team, arXiv:2510.26692',
-        },
-        'Kimi Linear exists because neither extreme works alone. Pure attention is too expensive at long context. Pure linear recurrence is too lossy for tasks that need exact recall. The architecture mixes both forms so each layer uses the memory mechanism that fits its role.',
+        'Kimi Linear exists because agent and document workloads need both long inputs and long outputs. Pure full attention is expensive at that length, while pure recurrence risks forgetting exact distant facts.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Keep full softmax attention in every layer. Each token attends to all prior tokens through explicit key-value pairs. This is the quality ceiling: no information is compressed, no detail is lost, and the model can retrieve any prior token by content match.',
-        {
-          type: 'table',
-          headers: ['Approach', 'Memory per layer', 'Decode cost per token', 'Recall quality'],
-          rows: [
-            ['Full attention', 'O(n) KV pairs', 'O(n) reads', 'Exact'],
-            ['Sliding window', 'O(w) KV pairs', 'O(w) reads', 'Local only'],
-            ['Pure linear/recurrent', 'O(1) state matrix', 'O(1) update', 'Compressed'],
-          ],
-        },
-        'Full attention works and is simple to reason about. Sliding windows are cheap but discard everything outside the window. Pure recurrence compresses all history into a fixed-size state, which is constant-cost but lossy.',
-        'The obvious instinct is to pick one and accept the tradeoff. Kimi Linear rejects that choice.',
+        'The obvious approach is to keep softmax attention everywhere. Each new token compares its query with all previous keys, reads the matching values, and preserves exact token-level recall.',
+        'A cheaper obvious approach is a sliding window or pure linear attention. Sliding windows discard older tokens, while pure finite-state recurrence compresses all history into a fixed-size state.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Wall 1: KV cache bandwidth. Full attention stores n key-value pairs per layer. Generating token n+1 requires reading all n pairs to compute attention weights. At 1M context on 80 layers, decode is dominated by memory reads, not arithmetic. The GPU spends most of its time moving cache, not computing.',
-        'Wall 2: finite-state capacity. Pure recurrence replaces the KV cache with a fixed-size state matrix, typically d_key x d_value. That matrix must encode everything the model might need from history. When two distant facts compete for the same state dimensions, one gets overwritten. Needle-in-a-haystack retrieval at position 200 out of a million is exactly the task where a fixed state fails.',
-        'Wall 3: kernel reality. An architecture can be O(1) per token on paper and still lose to full attention in practice if the implementation requires awkward chunking, precision workarounds, or serialized state updates that prevent batching. The gap between algorithmic complexity and wall-clock throughput is where many linear attention papers stall.',
-        {
-          type: 'note',
-          text: 'The memory-bandwidth wall is quantitative, not just asymptotic. On an H100 with 3.35 TB/s HBM bandwidth, reading a 20 GB KV cache takes ~6 ms per token. At 100 tokens/second target throughput, that single operation consumes 60% of the time budget. This is why KV cache reduction translates directly to decode speed.',
-        },
+        'The first wall is cache growth. If context length doubles, a full-attention layer reads about twice as many key-value entries for every generated token.',
+        'The second wall is finite-state capacity. A fixed recurrent state can be cheap per token, but independent facts must share the same limited slots and can overwrite one another.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Use different memory forms in different layers. Most layers use Kimi Delta Attention, or KDA, a gated recurrent state update; periodic layers use Multi-Head Latent Attention, or MLA, to preserve broader global recall.',
+        'The reported Kimi Linear design uses a hybrid rhythm with several KDA layers for each MLA layer. The architecture is therefore not linear attention replacing attention everywhere; it is a budgeted mixture.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Kimi Linear stacks two block types in a fixed rhythm.',
-        {
-          type: 'diagram',
-          text: 'Layer rhythm (reported 3:1 ratio):\n\n[KDA] --> [KDA] --> [KDA] --> [MLA] --> [KDA] --> [KDA] --> [KDA] --> [MLA] --> ...\n  |         |         |         |         |         |         |         |\n  v         v         v         v         v         v         v         v\nstate     state     state    global    state     state     state    global\nupdate    update    update   attend    update    update    update   attend',
-          label: 'Three recurrent layers for cheap sequential processing, then one global attention layer for broad recall',
-        },
-        'Kimi Delta Attention (KDA) is the recurrent block. Each token passes through a learned gate that decides what to write into a fixed-size state matrix and what to decay. The update rule is a gated delta: S_t = decay * S_{t-1} + gate * (v_t * k_t^T). Output is computed as y_t = S_t * q_t -- a single matrix-vector multiply, not an attention scan.',
-        {
-          type: 'code',
-          language: 'text',
-          text: '# KDA state update (conceptual)\ndecay = sigmoid(W_decay @ x_t)        # what to forget\ngate  = sigmoid(W_gate @ x_t)         # what to write\nk_t   = W_k @ x_t                     # key projection\nv_t   = W_v @ x_t                     # value projection\nq_t   = W_q @ x_t                     # query projection\n\nS_t   = decay * S_{t-1} + gate * outer(v_t, k_t)\ny_t   = S_t @ q_t                     # linear read',
-        },
-        'Multi-Head Latent Attention (MLA) is the global block, borrowed from DeepSeek. It compresses keys and values into a low-rank latent before computing softmax attention. This gives full-sequence access with a smaller KV footprint than standard multi-head attention.',
-        'The hybrid works because KDA handles most tokens cheaply through state updates, and MLA periodically refreshes global access. The 3:1 ratio means 75% of layers are O(1)-per-token recurrent and 25% are softmax attention with compressed KV.',
+        'KDA updates a state from the current token. The token produces gates, keys, values, and queries; the gates decide what to decay and what new outer-product information to write into the state.',
+        'The read operation multiplies the state by the query, so decode avoids scanning all previous tokens in KDA layers. MLA layers still perform global attention, but they compress keys and values into a latent representation to reduce cache size.',
+        'The paper reports a 48B-total, 3B-activated mixture-of-experts model using KDA plus MLA. It reports up to 75 percent key-value cache reduction and up to 6 times decoding throughput at very long context under its comparison setup.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument has three parts.',
-        'First, most sequential dependencies are local. Syntax, style continuation, coreference within a paragraph, and routine transformations rarely need to look back thousands of tokens. A learned finite state can capture these patterns because the relevant information decays naturally with distance. KDA handles this majority of layers.',
-        'Second, the tasks where recurrence fails -- exact retrieval, cross-document reference, long-range factual recall -- are sparse. They need global access, but not at every layer. Periodic MLA blocks provide enough global modeling capacity to handle these cases without paying global cost everywhere.',
-        {
-          type: 'diagram',
-          text: 'Information flow through hybrid layers:\n\nToken 1 ----state----> Token 100 ----state----> Token 10000\n   \\                      |                        /\n    \\--- MLA (layer 4) ---+--- MLA (layer 8) -----/\n         exact access          exact access\n\nRecurrent path: cheap, lossy over distance\nMLA path:       expensive, exact, periodic',
-          label: 'KDA carries local context cheaply; MLA recovers distant facts at intervals',
-        },
-        'Third, the gating mechanism in KDA is learned, not fixed. The model discovers which dimensions of state to preserve and which to overwrite based on training signal. This is strictly more expressive than fixed-decay recurrence (like RetNet) because the forget rate adapts per-token and per-dimension.',
-        {
-          type: 'note',
-          text: 'The hybrid is not provably optimal. It is an empirical bet that the 3:1 ratio captures enough global capacity for current benchmarks. Different tasks may want different ratios. The architecture wins when most processing is genuinely local and the global queries are sparse enough to fit in 25% of layers.',
-        },
+        'The correctness claim is empirical rather than mathematical. If most layer computations only need a compressed running state, KDA can preserve enough information while saving cache reads.',
+        'The MLA layers cover the cases where compression is too lossy. They periodically reintroduce global token access, so exact distant evidence does not have to survive only through a finite recurrent state.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Operation', 'Full attention', 'Pure KDA', 'Kimi Linear (3:1 hybrid)'],
-          rows: [
-            ['Prefill (n tokens)', 'O(n^2 d)', 'O(n d^2)', 'O(n d^2) for KDA layers + O(n^2 d / 4) for MLA layers'],
-            ['Decode (per token)', 'O(n d) cache read', 'O(d^2) state update', '~75% O(d^2) + ~25% O(n d / r) where r is MLA compression ratio'],
-            ['KV cache at context n', 'O(n L d)', 'O(L d^2) fixed', 'O(L_mla * n * d/r + L_kda * d^2)'],
-            ['Memory scaling', 'Linear in n', 'Constant in n', 'Sublinear in n (dominated by MLA layers)'],
-          ],
-        },
-        'The reported numbers from the Kimi Linear paper on a 48B-total / 3B-activated MoE model: up to 75% KV cache reduction and up to 6x decode speedup over an MLA-only baseline at very long context. These gains grow with context length because the fixed-cost KDA layers become a larger fraction of total work.',
-        'The complexity tax is real. The system has two attention mechanisms with different kernels, a layer-placement hyperparameter (the 3:1 ratio), gating parameters that must be trained, and chunked-state computation for efficient prefill of the recurrent layers. A full-attention model has one mechanism and one kernel.',
-        {
-          type: 'note',
-          text: 'Doubling context length roughly doubles the KV cache cost for full attention. For Kimi Linear, doubling context increases cost only in the MLA layers (25% of total). If d=128 and n goes from 500K to 1M, the KDA layers cost the same. That is the source of the sublinear scaling.',
-        },
+        'Full attention decode cost grows with context length because each generated token reads more cached keys and values. KDA decode cost is closer to fixed per token because it updates and reads a state whose size does not grow with n.',
+        'The hybrid cost depends on the layer ratio. If three out of four layers are KDA and one is MLA, doubling context length mostly affects the MLA quarter while KDA layers keep the same state size.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Long-running agents -- agentic workloads read large codebases and generate long plans. Both input and output are long. KDA layers reduce the per-token decode cost, and MLA layers preserve the ability to reference distant code.',
-            'Extended conversation -- multi-turn chats accumulate context over hours. Full attention KV cache grows with every turn. Hybrid recurrence caps the cost of KDA layers regardless of conversation length.',
-            'RL rollouts -- reinforcement learning from human feedback generates many candidate completions. Each rollout decodes thousands of tokens. Cheaper decode per token multiplies across rollouts.',
-            'Document workflows -- legal review, research synthesis, and report generation over 100K+ token inputs. The periodic MLA layers can attend to key evidence while KDA layers handle the bulk narrative.',
-          ],
-        },
-        'The common pattern: the task has long context, long output, or both, and the bottleneck is decode memory bandwidth rather than compute.',
-        'Kimi Linear also serves as a curriculum bridge. It connects attention, KV cache, MLA, recurrent state, Mamba-style models, RetNet, RWKV, and transformer serving rooflines in one concrete architecture. Understanding Kimi Linear means understanding the design space.',
+        'The target use case is long-context generation: coding agents, legal review, research synthesis, and long conversations. These workloads combine large input context with many generated output tokens, which makes decode cache cost visible.',
+        'It also matters for reinforcement-learning rollouts and batch serving. If each rollout or user request produces thousands of tokens, a lower per-token decode cost compounds across the serving fleet.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Why it happens', 'Example task'],
-          rows: [
-            ['Lost needle recall', 'KDA state overwrites old facts; MLA layers may not align with the retrieval point', 'Find the one contract clause that contradicts clause 47, buried at position 200K'],
-            ['Short-context overhead', 'Gating and state machinery add parameters and latency that full attention does not need at short context', 'Chatbot with 500-token conversations'],
-            ['Kernel immaturity', 'Chunked recurrent kernels are less battle-tested than flash attention', 'Production serving with strict latency SLAs on day one'],
-            ['Training recipe sensitivity', 'Hybrid ratio, gating initialization, and MLA placement require careful tuning', 'Teams without resources to sweep architecture hyperparameters'],
-          ],
-        },
-        'The deepest failure is the capacity bound. A d x d state matrix has d^2 scalar slots. If the task requires the model to recall more than d^2 independent facts from history, the state must overwrite something. Full attention has no such limit -- it stores one KV pair per token, scaling recall linearly with context.',
-        {
-          type: 'quote',
-          text: 'Linear attention mechanisms fundamentally trade memory capacity for computational efficiency. The question is not whether information is lost, but whether the lost information matters for the task.',
-          attribution: 'Paraphrased from the linear attention literature (Katharopoulos et al., 2020; Kacham et al., 2024)',
-        },
-        'It also fails as a teaching topic if reduced to "linear attention is faster." The real lesson is the engineering of memory forms: which layers store what, how much global recall survives, whether the kernel actually runs fast, and whether quality holds on the exact workload you care about.',
+        'Kimi Linear can fail when exact recall dominates the task. A fixed KDA state can overwrite rare facts, and the periodic MLA layers may not recover every needed dependency.',
+        'It can also lose on short contexts or immature kernels. A full-attention implementation with FlashAttention-style kernels may be faster and simpler when cache size is not the bottleneck.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a model has 32 attention-like layers and a 1,000,000-token context. A full-attention design keeps cache for all 32 layers, so every generated token must interact with 32 layers worth of long-context memory.',
+        'Now use a 3:1 hybrid: 24 KDA layers and 8 MLA layers. The KDA layers keep fixed recurrent states, so the long context mainly affects the 8 MLA layers instead of all 32.',
+        'If a full layer would read 1.0 unit of long-context cache, full attention reads 32 units per token. The hybrid reads about 8 MLA units plus fixed KDA work, so the context-dependent cache traffic is roughly one quarter as large before implementation constants.',
+        'The tradeoff is information capacity. The 24 KDA layers must compress history, so a fact at token 200,000 may survive if gates preserve it or an MLA layer attends to it, but there is no guarantee that every detail remains available.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'Role', 'Link'],
-          rows: [
-            ['Kimi-Linear: An Expressive, Efficient Attention Architecture', 'Primary paper', 'https://arxiv.org/abs/2510.26692'],
-            ['MoonshotAI Kimi-Linear repository', 'Reference implementation', 'https://github.com/MoonshotAI/Kimi-Linear'],
-            ['DeepSeek-V2 MLA paper', 'MLA mechanism origin', 'https://arxiv.org/abs/2405.04434'],
-            ['Transformers are RNNs (Katharopoulos et al., 2020)', 'Linear attention foundation', 'https://arxiv.org/abs/2006.16236'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: study Attention and KV Cache first. You need to understand what full attention stores and why KV cache grows before the hybrid tradeoff makes sense.',
-            'Companion: study DeepSeek Multi-Head Latent Attention to understand the global-attention block that Kimi Linear borrows.',
-            'Alternatives: study Selective State Space Models (Mamba), RWKV Recurrent Transformer, and RetNet Retention State to see other answers to the same problem.',
-            'Extensions: study Hybrid Attention State Budget Case Study and Titans Test-Time Neural Memory Case Study for deeper analysis of hybrid memory allocation.',
-            'Evaluation: study Transformer Inference Roofline and Benchmark Variance & Model Selection to build the tools for judging whether reported gains are real.',
-          ],
-        },
+        'Primary source: Kimi Linear: An Expressive, Efficient Attention Architecture, arXiv:2510.26692, https://arxiv.org/abs/2510.26692. Treat its speed and cache numbers as reported results unless you have independent benchmarks for your hardware, context length, and workload.',
+        'Study standard attention and KV cache first, then Multi-Head Latent Attention from DeepSeek-V2, then linear attention such as Katharopoulos et al. 2020. After that, compare Mamba, RetNet, RWKV, and other state-based models as different answers to the same memory-allocation problem.',
       ],
     },
   ],

@@ -343,104 +343,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the first pass as information moving upward from leaves to an arbitrary root. Each child summarizes its whole subtree before the parent combines those summaries. Read the second pass as information moving back down, so every child receives the contribution from the rest of the tree.',
+        'The safe inference is edge-local. For any edge parent-child, the tree splits into the child side and the outside side. Rerooting DP computes both sides once and combines them for every possible root.',
         {type: 'image', src: './assets/gifs/rerooting-dp-all-roots-tree.gif', alt: 'Animated walkthrough of the rerooting dp all roots tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Rerooting dynamic programming exists for tree problems where every node asks the same question: what would the answer be if I were the root? A naive solution reruns a DFS from every node. That is easy to understand and usually too slow.',
-        'The technique turns an all-roots problem into two passes. The first pass computes information flowing up from children. The second pass sends the missing outside information back down. Every node ends with a view of the whole tree from its own position.',
+        'Many tree problems ask for an answer for every possible root. For each node, you might want the sum of distances to all other nodes, the best path through that root, or a count of reachable labels. Running a full DFS from every root repeats nearly the same work.',
+        'Rerooting dynamic programming exists to reuse the overlap. A tree edge is a clean boundary: removing it splits the tree into two components. If each side can be summarized, every root answer can be assembled from local pieces.',
         {type: 'callout', text: 'Rerooting DP turns every edge into a two-way boundary: one pass learns each child side, and the second pass sends the parent side back.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to choose one root, run a DFS, compute the answer for that root, then repeat for every possible root. On a tree with n nodes, that can cost O(n^2) because each root walks the whole tree again.',
-        'Another tempting approach is to cache subtrees and hope reuse falls out naturally. It usually does not, because when the root moves across an edge, the old parent side becomes a child side. The missing part is not more memoization; it is a way to pass information across the cut edge.',
+        'The obvious approach is to choose each node as root and run a traversal from it. For n nodes, that means n traversals. It is simple and often fine for tiny trees.',
+        'For sum of distances, each traversal visits all n nodes, so the total work is O(n^2). A tree with 100,000 nodes cannot afford 10,000,000,000 visits just to answer a question whose subtrees overlap almost completely.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'For each edge u-v, the tree splits into two components if the edge is removed. A rerooting algorithm computes the contribution from each side of that edge. Once a node knows contributions from all neighbor directions, it can combine them to answer the rooted-at-this-node question.',
+        'The wall is repeated boundary work. If node u and node v are neighbors, rooting at u and rooting at v reuse the same components on either side of edge u-v. The naive method recomputes those components from scratch.',
+        'The missing invariant is an outside contribution. A normal subtree DP tells a node what its children contain. It does not tell a child what exists above it, so it cannot answer as if that child were the root.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Every edge has two directed views. One view summarizes the component on the child side. The other view summarizes the component on the parent side. If a node can combine incoming summaries from all neighbors, it can act as the root.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/24/Tree_graph.svg', alt: 'Labeled tree graph with six vertices and five edges', caption: 'Removing any edge in a tree splits it into two clean components, which is the boundary rerooting DP exploits. Source: https://commons.wikimedia.org/wiki/File:Tree_graph.svg.'},
-        'This is why the method often uses prefix and suffix aggregates over children. To send a value from parent u to child v, u must combine every contribution except the one that came from v. Prefix/suffix scans make that exclusion O(1) per edge after one local pass.',
+        'The algorithm builds those directed summaries in two passes. The postorder pass computes child-to-parent summaries. The preorder pass sends parent-to-child summaries using the answer at the parent and the child subtree size.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'First choose any root. Run a postorder DFS. For each node, compute down[node] from its children. The meaning depends on the problem: subtree size, height, sum of distances inside the subtree, best path, count of valid colorings, or another associative summary.',
-        'Second run a preorder DFS. Each node receives an up contribution representing everything outside its own subtree. It combines up with child contributions to compute the answer for itself. For each child, it builds that child outside contribution by combining up plus all sibling contributions except the child.',
-        'The combination function must be explicit. Many rerooting templates require an identity value, a merge operation, and a way to add the current node or edge. If those pieces are associative and the exclusion step is correct, the second pass touches each directed edge once.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The first-pass view proves that each subtree can summarize itself without knowing the rest of the tree. Children push compact facts upward. The root is arbitrary; it is only a staging point for collecting one-directional information.',
-        'The reroot view proves that moving the root across an edge does not require recomputing the world. The child already knows its own side. The parent sends the other side. Together those two summaries cover the whole tree exactly once.',
+        'For sum of distances, store two values for each node in the first pass: subtree size and sum of distances from that node to nodes in its subtree. A parent adds child.size to its size and adds child.down + child.size to its distance sum, because every node in the child subtree is one edge farther from the parent.',
+        'After the root answer is known, move the root across each edge. If child v has subtree size s in a tree of n nodes, then ans[v] = ans[u] - s + (n - s). Nodes inside v subtree get one step closer, and all other nodes get one step farther.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'A tree has exactly one simple path between any two nodes. That makes each neighbor direction from a node represent a disjoint component. Combining all neighbor-direction contributions is therefore enough to describe the whole tree from that node.',
-        'The two-pass proof is edge-local. In the downward pass, every directed edge parent-to-child carries the aggregate for the component on the parent side of the cut. Since the child already has aggregates from its own children, it can see every component around it.',
+        'Correctness follows from the edge split. When rerooting from u to child v, exactly s nodes on the v side decrease their distance by 1. The other n - s nodes increase their distance by 1. No other distance changes.',
+        'The first pass is correct by induction on subtrees: a leaf has size 1 and distance sum 0, and a parent combines already-correct child summaries. The second pass is correct by applying the edge formula once per tree edge, so every node receives the answer for being root.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Rerooting usually runs in O(n) time for a tree with n nodes, assuming the merge operation is O(1). Space is O(n) for arrays such as down, up, answer, parent, and traversal order. Recursive implementations also spend call-stack space unless rewritten iteratively.',
-        'The tradeoff is abstraction complexity. A one-root DP is often easier to write. Rerooting adds careful direction handling, identity values, prefix/suffix exclusion, and edge cases for leaves. It is worth it only when many roots or many node-centered answers are required.',
+        'The algorithm is O(n) time for tree DPs with O(1) combine work per edge. Each edge is used once upward and once downward. Memory is O(n) for adjacency, subtree summaries, and final answers.',
+        'When n doubles, work roughly doubles instead of quadrupling. That behavior is the whole point: the algorithm pays for each edge a constant number of times, not once per candidate root.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Rerooting wins for sum of distances from every node, eccentricity-like height values, subtree contribution problems, all-roots color counts, tree matching variants, and many competitive-programming tree DP tasks. It is also useful whenever a service needs a score for every possible root of a hierarchy.',
-        'A classic example is sum of distances in a tree. Postorder computes subtree sizes and distance sums for one root. Preorder moves the root to each child using the formula answer[child] = answer[parent] - size[child] + (n - size[child]). The formula is just rerooting expressed for that specific summary.',
+        'Rerooting DP appears in competitive programming, tree analytics, network centrality on trees, phylogenetic tree scoring, and hierarchical planning. The common pattern is that every node needs a whole-tree answer.',
+        'It is useful when the combine function is local and associative enough to remove one neighbor contribution and add another. Sum of distances is the clean example, but the pattern also covers subtree counts, longest downward paths, and label aggregates.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The method assumes a tree. On a general graph, removing an edge may not split the structure cleanly because alternate paths exist. You need graph DP over a tree decomposition, shortest-path algorithms, or another technique, not ordinary rerooting.',
-        'Another failure is using a merge that is not associative or forgetting directed edge state. If the order of children changes the answer, prefix/suffix scans may be invalid. If edge weights or directions matter, the transfer function must include them explicitly.',
+        'It fails when the graph is not a tree. Cycles destroy the clean edge split, because removing one edge may not separate the graph. General graphs need different dynamic programming or shortest-path methods.',
+        'It also fails when the state cannot be transferred locally. If rerooting requires recomputing a global optimization with no subtractable neighbor contribution, the two-pass trick may not apply. The combine rule must be designed with rerooting in mind.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'For sum of distances, the postorder pass computes two facts for each subtree: how many nodes it contains and the sum of distances from the current node to nodes inside that subtree. A child contributes its distance sum plus its size because every node in the child subtree is one edge farther from the parent.',
-        'The preorder pass moves the answer across an edge. If child v has size s and the whole tree has n nodes, moving the root from parent u to v makes the s nodes in v subtree one step closer and the other n - s nodes one step farther. That gives answer[v] = answer[u] - s + (n - s).',
-        'This formula is the concrete version of rerooting. The child already owns its side of the cut. The parent answer contains the whole tree. The edge move adjusts the two sides without walking every node again.',
+        'Use tree edges 1-2, 1-3, and 3-4. Root first at 1. Subtree sizes are size[2] = 1, size[4] = 1, size[3] = 2, size[1] = 4.',
+        'The distance sum from root 1 is dist(1,2) + dist(1,3) + dist(1,4) = 1 + 1 + 2 = 4. Move root from 1 to 3. The child side has s = 2 nodes, so ans[3] = 4 - 2 + (4 - 2) = 4.',
+        'Move root from 3 to 4. The child side has s = 1, so ans[4] = 4 - 1 + 3 = 6. Move root from 1 to 2 with s = 1, so ans[2] = 4 - 1 + 3 = 6. The answers are node 1: 4, node 2: 6, node 3: 4, node 4: 6.',
       ],
     },
     {
-      heading: 'Implementation checklist',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Name the meaning of every DP value before writing code. Is it measured from the node to its subtree, from the subtree to the node, or from one side of an edge to the other? Most rerooting bugs are meaning drift, not syntax mistakes.',
-        'Build an explicit parent array or traversal order if recursion depth may be large. JavaScript recursion can overflow on deep trees. An iterative postorder plus preorder often makes the data flow easier to debug and safer for adversarial inputs.',
-        'Test on a chain, a star, a single node, and a balanced tree. Chains expose direction mistakes. Stars expose sibling exclusion mistakes. Single nodes expose identity values. Balanced trees expose whether both passes combine correctly.',
-      ],
-    },
-    {
-      heading: 'How to choose it',
-      paragraphs: [
-        'Use rerooting when the graph is a tree, every node needs a related answer, and moving the root changes the answer predictably across an edge. If only one root matters, ordinary tree DP is simpler. If many path queries matter, LCA or heavy-light decomposition may be a better fit.',
-        'The strongest signal is an O(n^2) brute force where each run repeats almost the same tree traversal from a different root. Rerooting asks what summary can cross an edge so the repeated work becomes one upward pass and one downward pass.',
-        'Do not force rerooting onto problems where the state changes globally in a nonlocal way. The method works because each edge cut has two clean sides. If the answer depends on arbitrary interactions between distant branches, the merge contract may not exist.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Tree Traversals, DFS, Dynamic Programming, Prefix Sums, Segment Tree merge intuition, Lowest Common Ancestor, Centroid Decomposition, and Compressed Sparse Row Graph. A good exercise is to solve sum of distances first, then rewrite the same idea as a generic rerooting template with merge, lift, and identity functions.',
+        'Study rerooting DP explanations from AtCoder educational material and tree dynamic programming chapters in algorithm texts. The essential proof is the directed-edge component split.',
+        'Study next: depth-first search for postorder traversal, tree DP for subtree summaries, lowest common ancestor for tree distance queries, and centroid decomposition for a different tree divide-and-conquer pattern.',
       ],
     },
   ],

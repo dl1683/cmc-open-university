@@ -274,114 +274,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/nonblocking-progress-guarantees-primer.gif', alt: 'Animated walkthrough of the nonblocking progress guarantees primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Concurrent code can be safe and still stop moving. A mutex-protected queue may preserve FIFO perfectly, but if the lock owner is paused, every other thread can wait behind it.',
-        'The naive question is "is it thread-safe?" That is only a safety question. Progress guarantees answer a different question: under pauses, contention, or unlucky schedules, who is still guaranteed to finish?',
-        {type: 'callout', text: 'Safety asks whether the result is legal; progress asks whether some thread can still reach a result under pauses and contention.'},
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram with running waiting and blocked states', caption: 'Process-state transitions make the stress case visible: runnable hardware does not help if the needed owner is blocked or paused. Source: Wikimedia Commons, CC BY-SA 3.0.'},
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Locks make mutual exclusion easy to explain, but they couple progress to the lock owner. If the owner is preempted, blocks in a signal-unsafe region, or dies without recovery, the other threads cannot complete through that lock.',
-        'Replacing the lock with CAS loops does not automatically solve every liveness problem. A loop can let the system move while one unlucky thread loses forever. That distinction is why the ladder has several rungs instead of one label called nonblocking.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'Progress terms are liveness contracts, not speed claims. Obstruction-free code completes if a thread eventually runs alone. Lock-free code guarantees system-wide progress: some operation completes. Wait-free code guarantees per-thread progress: every operation completes in a finite number of its own steps.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die where atomic instructions execute in hardware', caption: 'CAS and other atomic primitives are hardware contracts, but the progress guarantee comes from the whole algorithm around them. Source: Wikimedia Commons, KL and Intel, public domain.'},
-        'A CAS increment loop is the small example. Each successful CAS completes one increment, so the object is lock-free. A particular caller can keep losing the race and retrying, so the loop is not wait-free by itself.',
-        'This vocabulary prevents vague claims. "Nonblocking" is a family. "Lock-free" does not mean no retries. "Wait-free" does not mean fastest. Each word says which thread, under which schedule, is guaranteed to finish.',
-      ],
-    },
-    {
-      heading: 'Animation notes',
-      paragraphs: [
-        'In the progress-ladder view, read the paused thread as the stress test. If T1 pauses while holding a lock, T2 can be correct but unable to finish. If the object is lock-free, T2 may still complete some operation through CAS or another nonblocking step. If it is wait-free, T2 has a bound on its own operation.',
-        'In the contention-case view, the retry loop is the distinction. A successful CAS proves system-wide movement, but a losing thread may retry many times. Helping schemes change that story by letting active threads finish published operations for one another.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Blocking algorithms usually wait for an owner or condition. Obstruction-free algorithms avoid blocking once contention disappears. Lock-free algorithms arrange every infinite execution so some successful CAS, publish, or handoff keeps completing operations.',
-        'Wait-free algorithms go further. They bound each caller work, often by publishing operation descriptors and helping pending operations finish. Helping converts another thread pause from a global blocker into work that active threads can complete.',
-        'Many practical algorithms sit between theory and hardware. A design may be lock-free in the abstract model but still suffer from cache-line bouncing, memory allocator locks, reclamation stalls, or operating-system scheduling effects. The progress proof has to include the actual components on the path.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The guarantee is quantified over schedules. Lock-free means no schedule can prevent all operations from completing forever. Wait-free means no schedule can starve one operation forever if its thread keeps taking steps.',
-        'This proof is separate from correctness. A nonblocking object still needs linearizability, ABA defense, safe reclamation, and memory-ordering discipline. Progress says an answer eventually happens; safety says the answer is allowed.',
-        'The mental separation is important. A lock-free stack can still be wrong if it loses a node or frees memory too early. A lock-based queue can still be the right engineering choice if its workload does not have the pause or priority-inversion risks this ladder is designed to expose.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A shared counter implemented as a CAS loop reads x, computes x + 1, and tries compare-and-swap. If T1 pauses, T2 can still read and increment, so the counter is not blocked by T1. Every successful CAS completes one caller operation, so the object is lock-free.',
-        'But T2 might lose the CAS repeatedly to other threads and keep retrying. That is why the simple loop is not wait-free for each caller. A wait-free design would need a bound, often by publishing operations in slots and having threads help complete pending work.',
-        'A queue shows the same difference at larger scale. A lock-based queue may be simplest and fastest under light contention. A lock-free queue can keep consumers moving when one producer pauses. A wait-free queue for a real-time path may require bounded slots and fixed capacity so allocation and helping are also bounded.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Stronger progress usually costs more design machinery. Lock-free code may pay retry and cache-coherence costs under contention. Wait-free code may need per-thread slots, helping arrays, descriptors, bounded scans, or fixed-size rings.',
-        'A mutex can be faster than a lock-free object at low contention. Wait-free can be slower on average while still being the right choice for a hard deadline because it bounds each operation.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Choose the guarantee by failure mode. A metrics pipeline may choose a lock-free multi-producer queue because one paused producer should not block all consumers. A real-time audio callback may choose a bounded wait-free ring because it needs predictable per-callback work.',
-        'Kernel paths, signal-sensitive code, runtimes, and low-latency services often care about progress under pause or priority inversion. Batch jobs and simple admin paths may prefer a lock because the proof is easier and the risk is lower.',
-        'The ladder is also a design-review tool. Before approving a complicated nonblocking structure, ask what failure it removes, what safety proof it adds, what reclamation method it uses, and what benchmarks show under contention.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Do not use lock-free as a synonym for fast. Do not claim wait-free unless every operation has a bound independent of other thread speeds. Do not ignore starvation: lock-free permits an individual thread to lose forever in the abstract model.',
-        'Do not chase stronger progress while leaving safety unproved. A wait-free structure that returns the wrong value, reuses freed memory, or violates memory ordering is still broken.',
-        'Do not forget memory reclamation. Removing a node without a lock is only half of deletion. Another thread may still hold a pointer. Hazard pointers, epochs, RCU, reference counts, or garbage collection must be part of the proof.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Write the progress claim in one sentence before writing code. For example: "enqueue is lock-free but not wait-free" or "the single-producer audio ring is wait-free for push and pop." Then identify the linearization point, ABA defense, memory ordering, and reclamation scheme.',
-        'Benchmark more than average throughput. Measure retries per operation, p99 latency, cache misses, allocator interaction, and behavior when one thread is paused. A nonblocking algorithm should be tested under the failure mode it claims to survive.',
-        'Keep the public API honest. If resize, close, flush, or destroy can block, document that separately from the progress of push and pop. Many structures are nonblocking only for a subset of operations, and hiding that boundary leads to bad real-time or signal-handler use.',
-      ],
-    },
-    {
-      heading: 'Case study',
-      paragraphs: [
-        'A telemetry library wants many threads to enqueue metrics without letting one paused thread block the process. A lock-free multi-producer queue is attractive because the system can keep accepting metrics even if one producer stalls mid-operation.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b7/Circular_buffer.svg', alt: 'Circular buffer ring divided into slots', caption: 'A bounded ring buffer is a common shape for real-time paths because capacity and per-operation work can be fixed in advance. Source: Wikimedia Commons, Cburnett, CC BY-SA 3.0 or GFDL.'},
-        'A real-time audio callback has a stricter need. It cannot spin for an unbounded number of CAS retries, allocate memory, or wait on a paused helper. That path usually wants a bounded wait-free single-producer/single-consumer ring or another design whose operation count is known in advance.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Maurice Herlihy introduced wait-free synchronization as a strong progress condition for concurrent objects: https://dl.acm.org/doi/10.1145/114005.102808. A PDF is available at https://cs.brown.edu/people/mph/Herlihy91/p124-herlihy.pdf.',
-        'Study Linearizability History Checker, ABA Tagged Pointer Stack, Lock-Free Queue, Hazard Pointers & Epoch Reclamation, Bw-Tree Delta Chain & Mapping Table, Read-Copy-Update, Sequence Locks, MCS Queue Lock, Futex Wait Queue, and SharedArrayBuffer & Atomics next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['The progress ladder compares blocking, obstruction-free, lock-free, and wait-free algorithms. These words describe liveness, meaning whether operations can keep completing under pauses or contention. A paused thread is the stress case; active paths show work still moving, removed paths show blocked completion, and found nodes show operations that reached done.', {type: 'image', src: './assets/gifs/nonblocking-progress-guarantees-primer.gif', alt: 'Animated walkthrough of the nonblocking progress guarantees primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}]},
+    { heading: 'Why this exists', paragraphs: ['Concurrent code can return legal results and still stop moving. A mutex-protected queue can preserve FIFO order perfectly, but if the lock owner is paused, every waiter may be stuck. Progress guarantees name who can still finish, while safety only says whether the result is correct.', {type: 'callout', text: 'Safety asks whether the result is legal; progress asks whether some thread can still reach a result under pauses and contention.'}, {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram with running waiting and blocked states', caption: 'Process-state transitions make the stress case visible: runnable hardware does not help if the needed owner is blocked or paused. Source: Wikimedia Commons, CC BY-SA 3.0.'}]},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a lock. Put shared state behind a mutex, let one thread enter the critical section, and make other threads wait. This is often the best engineering choice because locks are simple, fast under low contention, and easier to prove than many nonblocking structures.']},
+    { heading: 'The wall', paragraphs: ['The wall is owner dependence. If a thread pauses while holding a lock, every thread that needs that lock can be unable to finish, even if the CPU has idle cores. Replacing the lock with compare-and-swap loops does not automatically give every thread progress because a caller can keep losing the race and retrying.']},
+    { heading: 'The core insight', paragraphs: ['The core insight is to ask which operation is guaranteed to complete. Obstruction-free means a thread completes if it eventually runs alone, lock-free means the system as a whole keeps completing operations, and wait-free means every operation completes in a bounded number of its own steps. These are not speed labels.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die where atomic instructions execute in hardware', caption: 'CAS and other atomic primitives are hardware contracts, but the progress guarantee comes from the whole algorithm around them. Source: Wikimedia Commons, KL and Intel, public domain.'}]},
+    { heading: 'How it works', paragraphs: ['A lock-free counter can read x, compute x + 1, and use compare-and-swap, or CAS, to install the new value only if x has not changed. If the CAS succeeds, one operation completed; if it fails, the caller rereads and retries. Wait-free designs often add helping, where threads publish operation descriptors and active threads finish pending work for one another.']},
+    { heading: 'Why it works', paragraphs: ['The proof is about all possible schedules. Lock-free means no infinite execution can prevent every operation from completing; some operation must keep making progress. Wait-free strengthens the quantifier: if a thread keeps taking steps, its own operation must finish within a finite bound regardless of other thread speeds.']},
+    { heading: 'Cost and complexity', paragraphs: ['Stronger progress usually costs more machinery. Lock-free code pays retry loops, cache-line bouncing, memory-order constraints, and reclamation complexity. Wait-free code may need per-thread slots, descriptors, helping scans, or bounded rings, but it can keep p99 latency bounded when unbounded retries are unacceptable.']},
+    { heading: 'Real-world uses', paragraphs: ['Lock-free queues fit telemetry, runtimes, and low-latency services where one paused producer should not halt all consumers. RCU-style read paths fit kernels where readers must avoid blocking. Wait-free bounded rings fit real-time audio callbacks and signal-sensitive paths where allocation, blocking, and unbounded retries are unacceptable.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b7/Circular_buffer.svg', alt: 'Circular buffer ring divided into slots', caption: 'A bounded ring buffer is a common shape for real-time paths because capacity and per-operation work can be fixed in advance. Source: Wikimedia Commons, Cburnett, CC BY-SA 3.0 or GFDL.'}]},
+    { heading: 'Where it fails', paragraphs: ['Nonblocking algorithms fail when the proof ignores memory reclamation. Removing a node is not enough because another thread may still hold a pointer to it. They also fail when the public claim is broader than the actual operations, such as push being lock-free while resize, close, destroy, or allocation can block.']},
+    { heading: 'Worked example', paragraphs: ['Three threads increment a shared CAS counter from 7. T1 reads 7 and pauses; T2 reads 7, CASes 7 to 8, and completes; T3 reads 8, CASes 8 to 9, and completes. The counter is lock-free because T2 and T3 complete while T1 is paused, but it is not wait-free because T1 can resume and keep losing without a bound.']},
+    { heading: 'Sources and study next', paragraphs: ['Primary sources include Herlihy on wait-free synchronization, Herlihy and Wing on linearizability, Michael and Scott queues, Treiber stacks, hazard pointers, epoch reclamation, RCU literature, and memory-model specifications for the target language. Study linearizability, ABA tagged pointers, lock-free queues, hazard pointers, epochs, sequence locks, MCS locks, futexes, and SharedArrayBuffer Atomics next.']},
   ],
 };

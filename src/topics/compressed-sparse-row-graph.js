@@ -256,71 +256,112 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "The build view shows CSR construction: edges are sorted by source vertex, rowPtr records where each vertex's neighbors begin in the flat colIdx array, and the final sentinel closes the last row.",
+        'The "build CSR" view walks through construction: edges are sorted by source vertex, rowPtr records where each vertex\'s neighbor list begins in the flat colIdx array, and a sentinel entry closes the last row. Active highlights mark the row currently being built. Found highlights mark the colIdx slice belonging to that row. Compare highlights flag empty rows or layout alternatives.',
         {
-          type: "callout",
-          text: "CSR makes each neighbor list a slice of one flat array, so graph traversal becomes pointer arithmetic plus a sequential scan.",
+          type: 'callout',
+          text: 'CSR makes each neighbor list a slice of one flat array, so graph traversal becomes pointer arithmetic plus a sequential scan.',
         },
-        "Active highlights mark the current row being built or scanned. Found highlights mark the colIdx slice that belongs to that row. Compare highlights show empty rows or tradeoff alternatives.",
-        "In the scan view, follow the pointer arithmetic: vertex u reads rowPtr[u] and rowPtr[u+1] to find its contiguous neighbor slice. The key inference: if start equals end, the vertex has no outgoing edges -- same rule, no special case.",
-      
-        {type: 'image', src: './assets/gifs/compressed-sparse-row-graph.gif', alt: 'Animated walkthrough of the compressed sparse row graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The "scan and tradeoffs" view shows what happens at read time. Vertex u reads rowPtr[u] and rowPtr[u+1] to locate its contiguous neighbor slice. If start equals end, the vertex has zero outgoing edges -- the same two-index rule handles every case with no branching.',
+        'At each frame, track which array is being accessed and why. The key question is always: how does the algorithm find a vertex\'s neighbors without scanning the entire edge set?',
+        {type: 'image', src: './assets/gifs/compressed-sparse-row-graph.gif', alt: 'Animated walkthrough of the compressed sparse row graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Compressed Sparse Row, or CSR, exists because sparse graphs and sparse matrices often contain far more absence than presence. A dense adjacency matrix spends space on every possible edge, even when almost all entries are empty. CSR stores only the present edges, plus enough indexing information to recover each row quickly.`,
-        `For graph algorithms, CSR is the physical version of an adjacency list. The graph idea says vertex A connects to B and C. CSR says exactly where B and C live in memory. That physical detail matters because large graph workloads often spend more time moving neighbor lists through memory than doing complicated arithmetic.`,
+        'Graphs in the real world are sparse. A social network with a billion users and an average of 500 connections has about 250 billion edges -- large, but still only 0.00000005% of the billion-squared possible edges. Any representation that reserves space for missing edges wastes almost everything.',
+        'Beyond space, there is a speed problem. Graph algorithms like BFS, PageRank, and connected components do the same thing on every vertex: read its neighbor list, process each neighbor, move on. If that neighbor list is scattered across heap-allocated linked-list nodes, each read is a cache miss. CSR -- Compressed Sparse Row -- packs all neighbor lists end-to-end in a single flat array and uses a small index to find where each vertex\'s slice begins. The result is that scanning neighbors becomes a sequential memory read, which modern CPUs execute at maximum throughput.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `Store a graph or sparse matrix. Adjacency matrix: n*n array, 1 if edge exists. Space: O(n^2). For a social network with 1B users and average 500 friends: 10^18 entries, 99.99995% zeros. Adjacency list: array of linked lists. Space: O(n+m). But linked lists have poor cache locality (pointer chasing).`,
-        `CSR (Compressed Sparse Row): three arrays. row_ptr[i] = index into col_idx where row i's non-zeros begin. col_idx = column indices of all non-zeros, row by row. values = corresponding values. Space: O(n + nnz) where nnz = number of non-zeros. Row i's neighbors: col_idx[row_ptr[i]..row_ptr[i+1]]. All contiguous in memory -- cache-friendly sequential scan.`,
-        `SpMV (sparse matrix-vector multiply): for each row i, dot product with the dense vector. The fundamental operation of PageRank, graph neural networks, and iterative solvers. CSR makes SpMV cache-optimal. CSC (Compressed Sparse Column): transpose of CSR. Efficient for column access. SciPy, MATLAB, and most graph libraries use CSR/CSC internally.`,
+        'The textbook way to store a graph is an adjacency matrix: an n-by-n grid where entry (i, j) is 1 if edge i->j exists, 0 otherwise. Testing whether a specific edge exists is O(1). But space is O(n^2), which for the billion-user network means 10^18 entries. That will not fit in any memory system on Earth.',
+        'The next idea is an adjacency list: an array of n linked lists, one per vertex, each containing only the actual neighbors. Space drops to O(n + m), where m is the number of edges. But linked lists scatter neighbor nodes across the heap. Walking a single neighbor list causes one pointer chase per neighbor, and pointer chases are the slowest operation on modern hardware -- each one stalls the CPU for 50-100 nanoseconds while the cache hierarchy resolves the random address.',
+        'What we want is O(n + m) space like an adjacency list, but with neighbors stored contiguously like a dense array, so scanning them is a sequential read. That is exactly what CSR provides.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The adjacency list gives compact storage but slow traversal. The adjacency matrix gives fast edge lookup but explodes in space. Both representations force a choice between the two things graph algorithms actually need: compact storage and fast sequential scans of neighbor lists.',
+        'The root problem is per-vertex containers. Each linked list (or each dynamic array) is allocated independently, so the memory allocator can place them anywhere. Even if you use vectors instead of linked lists, you still have n separate heap allocations with n separate pointers. The CPU\'s prefetcher cannot predict which memory block comes next. For a graph algorithm that touches every vertex, this means n unpredictable jumps through memory -- and on large graphs, those jumps dominate the total running time.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `CSR removes the per-vertex container and keeps one flat neighbor array. The rowPtr array is the index into that flat storage. For vertex u, rowPtr[u] is the start position and rowPtr[u + 1] is the end position. The neighbors are the half-open slice colIdx[start..end).`,
+        'Eliminate every per-vertex container. Concatenate all neighbor lists into one flat array called colIdx, ordered by source vertex. Then build a second small array called rowPtr that records where each vertex\'s slice begins. For vertex u, its neighbors are colIdx[rowPtr[u] .. rowPtr[u+1]). Two array lookups and one loop -- no pointers, no allocations, no cache misses beyond the unavoidable cold start.',
         {
-          type: `image`,
-          src: `https://mermaid.ink/svg/pako:PY3LCsIwEEX3-YrZSwv-gNDUVtyIC3fDLNpmkgqlU_Kg-vdiJG7P4Z5rF9mnefARHlo12BnHAZyXtLGB8Q1Bkp-YoKpOoNHLfo8exNrAMZBqMm9xkuVqXmCXIcLKTzeP4gMpnfUZQ_we_MaYqIgOeTV_fDgSqTaLvgTzsK55NaT6rC54K30QC4k-`,
-          alt: `CSR rowPtr offsets select a contiguous slice inside the flat colIdx neighbor array.`,
-          caption: `CSR stores edge destinations once in colIdx and uses rowPtr offsets to recover each vertex slice. Source: https://mermaid.ink/svg/pako:PY3LCsIwEEX3-YrZSwv-gNDUVtyIC3fDLNpmkgqlU_Kg-vdiJG7P4Z5rF9mnefARHlo12BnHAZyXtLGB8Q1Bkp-YoKpOoNHLfo8exNrAMZBqMm9xkuVqXmCXIcLKTzeP4gMpnfUZQ_we_MaYqIgOeTV_fDgSqTaLvgTzsK55NaT6rC54K30QC4k-`,
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:PY3LCsIwEEX3-YrZSwv-gNDUVtyIC3fDLNpmkgqlU_Kg-vdiJG7P4Z5rF9mnefARHlo12BnHAZyXtLGB8Q1Bkp-YoKpOoNHLfo8exNrAMZBqMm9xkuVqXmCXIcLKTzeP4gMpnfUZQ_we_MaYqIgOeTV_fDgSqTaLvgTzsK55NaT6rC54K30QC4k-',
+          alt: 'CSR rowPtr offsets select a contiguous slice inside the flat colIdx neighbor array.',
+          caption: 'CSR stores edge destinations once in colIdx and uses rowPtr offsets to recover each vertex slice. Source: https://mermaid.ink/svg/pako:PY3LCsIwEEX3-YrZSwv-gNDUVtyIC3fDLNpmkgqlU_Kg-vdiJG7P4Z5rF9mnefARHlo12BnHAZyXtLGB8Q1Bkp-YoKpOoNHLfo8exNrAMZBqMm9xkuVqXmCXIcLKTzeP4gMpnfUZQ_we_MaYqIgOeTV_fDgSqTaLvgTzsK55NaT6rC54K30QC4k-',
         },
-        `The final entry in rowPtr is a sentinel equal to the number of stored edges. That one extra value removes a special case for the last vertex. Every row, including an empty row, can be described by the same start and end rule. If start equals end, the vertex has no outgoing neighbors.`,
+        'The last entry, rowPtr[V], is a sentinel equal to the total number of edges. This removes a special case for the last vertex: every vertex, including one with zero neighbors, is described by the same two-index rule. If rowPtr[u] equals rowPtr[u+1], vertex u has no outgoing edges. No branching, no null checks.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `To build CSR from an edge list, group or sort edges by source vertex. Then append each source vertex\'s destinations to colIdx and record the running offset before each row in rowPtr. After the final row, append the total edge count as rowPtr[V].`,
-        `Weighted graphs add a values array parallel to colIdx, so values[k] is the weight for edge colIdx[k] inside the current row slice. Undirected graphs usually store both directions, u -> v and v -> u, unless the algorithm is intentionally using a triangular or symmetric compressed form.`,
+        'Building CSR from a raw edge list takes three passes. First, count the out-degree of each vertex by scanning all edges. Second, compute the prefix sum of the degree array -- this becomes rowPtr. Third, scatter each edge\'s destination into the correct position in colIdx, using a running write pointer per row. The sentinel rowPtr[V] = m is set at the end. Total cost: O(m) for the count, O(V) for the prefix sum, O(m) for the scatter -- so O(V + m) overall, with no sorting required.',
+        'Weighted graphs add a third array, values[], parallel to colIdx. The weight of the k-th edge is values[k], and it corresponds to neighbor colIdx[k]. Undirected graphs store each edge twice (once in each direction), doubling colIdx and values, unless the algorithm intentionally uses a symmetric upper-triangular form.',
+        'An alternative build path sorts the edge list by source vertex, then walks the sorted list to fill rowPtr and colIdx in one pass. This costs O(m log m) for the sort but produces sorted neighbor lists within each row, which some algorithms (like triangle counting via sorted-merge intersection) require.',
       ],
     },
     {
-      heading: 'How scanning works',
+      heading: 'Why it works',
       paragraphs: [
-        `A neighbor scan is pointer arithmetic. Read start = rowPtr[u] and end = rowPtr[u + 1]. Loop k from start up to, but not including, end. Each colIdx[k] is one outgoing neighbor. A full traversal reads O(V) row offsets and O(E) neighbor entries.`,
+        'The correctness argument is straightforward. rowPtr is a prefix-sum array over vertex degrees. By construction, rowPtr[u+1] - rowPtr[u] equals the out-degree of vertex u, and colIdx[rowPtr[u] .. rowPtr[u+1]) contains exactly the destinations of u\'s outgoing edges. Since every edge is placed exactly once during the scatter pass, no edge is duplicated or lost.',
+        'The performance argument comes from memory hierarchy. CPUs read data in cache lines of 64 bytes. A sequential scan of colIdx fetches one cache line per 16 integers (assuming 4-byte indices), processing all 16 before moving to the next. A linked list fetches one cache line per node and uses only the 4-byte pointer payload, wasting 60 bytes per fetch. For a vertex with 100 neighbors, CSR does about 7 cache-line fetches while a linked list does 100. This 14x difference compounds across billions of edges.',
+        'The representation is also SIMD-friendly. Because neighbors sit contiguously, vector instructions can process 4 or 8 neighbor indices per cycle during operations like sparse matrix-vector multiply. Pointer-based layouts cannot benefit from SIMD at all.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Space: rowPtr uses V+1 integers. colIdx uses m integers (directed) or 2m (undirected). values[] uses m entries if weighted. Total: O(V + m), which is optimal for any representation that stores all edges. For a billion-vertex graph with 250 billion edges using 4-byte indices, rowPtr is 4 GB, colIdx is 1 TB. That is large but fits in a distributed cluster; the equivalent adjacency matrix would need 10^18 bytes.',
+        'Build time: O(V + m) with the count-prefix-scatter method, or O(m log m) with the sort-based method. Both are one-shot costs. Once built, CSR is read-only: inserting or deleting a single edge requires rebuilding the entire structure, because colIdx is a packed array with no gaps. This makes CSR a poor choice for dynamic graphs where edges appear and disappear over time.',
+        'Scan time: reading all neighbors of vertex u costs O(degree(u)), which is optimal. A full BFS or DFS touches each vertex once (O(V) rowPtr lookups) and each edge once (O(m) colIdx reads), for O(V + m) total. This matches the theoretical lower bound for graph traversal.',
         {
-          type: `image`,
-          src: `https://mermaid.ink/svg/pako:HclNCoMwEAbQfU7xXcArFPyFQgtFoZuQRZhMsRAZiTPa4xeyfe-T5aI1FsVjdq2f5YIFNM0NnZ85JhS5Xlpw5C9xcF2t3i9aOG4gyff0C66vPPiJlVacTCoFZ8zGR3BDzdG3RLZZjspIotiLJCMNbqw_-WV_viGmuyks_AE`,
-          alt: `Sparse matrix-vector multiply scans one CSR row, fetches vector values, and accumulates the output.`,
-          caption: `CSR makes SpMV a row-slice scan: stream neighbor columns, fetch vector entries, and accumulate one output row. Source: https://mermaid.ink/svg/pako:HclNCoMwEAbQfU7xXcArFPyFQgtFoZuQRZhMsRAZiTPa4xeyfe-T5aI1FsVjdq2f5YIFNM0NnZ85JhS5Xlpw5C9xcF2t3i9aOG4gyff0C66vPPiJlVacTCoFZ8zGR3BDzdG3RLZZjspIotiLJCMNbqw_-WV_viGmuyks_AE`,
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:HclNCoMwEAbQfU7xXcArFPyFQgtFoZuQRZhMsRAZiTPa4xeyfe-T5aI1FsVjdq2f5YIFNM0NnZ85JhS5Xlpw5C9xcF2t3i9aOG4gyff0C66vPPiJlVacTCoFZ8zGR3BDzdG3RLZZjspIotiLJCMNbqw_-WV_viGmuyks_AE',
+          alt: 'Sparse matrix-vector multiply scans one CSR row, fetches vector values, and accumulates the output.',
+          caption: 'CSR makes SpMV a row-slice scan: stream neighbor columns, fetch vector entries, and accumulate one output row. Source: https://mermaid.ink/svg/pako:HclNCoMwEAbQfU7xXcArFPyFQgtFoZuQRZhMsRAZiTPa4xeyfe-T5aI1FsVjdq2f5YIFNM0NnZ85JhS5Xlpw5C9xcF2t3i9aOG4gyff0C66vPPiJlVacTCoFZ8zGR3BDzdG3RLZZjspIotiLJCMNbqw_-WV_viGmuyks_AE',
         },
-        `This is why CSR is so common in sparse linear algebra. Sparse matrix-vector multiplication is just row scanning with arithmetic attached. BFS, PageRank, connected components, triangle counting, and recommendation graph walks reuse the same shape: choose a row, stream a contiguous neighbor slice, and move on.`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'SciPy\'s sparse matrix module stores CSR as indptr (rowPtr) and indices (colIdx). Every call to scipy.sparse.csr_matrix.dot() runs the row-scan SpMV loop. MATLAB\'s sparse() is CSC, which is CSR transposed. GraphBLAS defines graph algorithms as sparse linear algebra operations and uses CSR/CSC as the underlying storage. cuSPARSE on NVIDIA GPUs uses CSR for SpMV kernels, assigning one warp (32 threads) per row to scan neighbors in parallel.',
+        'PageRank is a repeated SpMV: multiply the link matrix by a rank vector until convergence. BFS is a masked SpMV: the frontier vector is multiplied by the adjacency matrix to discover the next layer. Connected components, shortest paths (Bellman-Ford), and triangle counting all decompose into row scans over CSR. The representation is so dominant in graph analytics that frameworks like Apache Giraph and Ligra convert input edge lists to CSR at load time.',
+        'In machine learning, graph neural networks (GCN, GAT, GraphSAGE) use CSR to implement the neighborhood aggregation step. PyTorch Geometric and DGL store adjacency as CSR internally, even when the user-facing API accepts edge lists.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'CSR is a read-only structure. Inserting one edge into a graph with m edges requires shifting up to m entries in colIdx and updating up to V entries in rowPtr. There is no way to insert in-place because the array has no slack space. For dynamic graphs -- social networks where friendships form and break, routing tables that update every second -- CSR is the wrong choice. Adjacency lists (or adjacency hash maps) allow O(1) amortized insertion.',
+        'CSR also struggles with column access. Finding all edges pointing to vertex v requires scanning the entire colIdx array, which is O(m). If the algorithm needs both row and column access (e.g., computing in-degrees or running algorithms on the transpose), you need a separate CSC copy, doubling memory. Some systems store both CSR and CSC side-by-side, which is memory-optimal for bidirectional access but doubles build time.',
+        'Power-law graphs present a load-balancing problem. In a social network, most vertices have a few neighbors but a handful of hubs have millions. A parallel algorithm that assigns one thread per row will finish most rows instantly and stall on the hub rows. GPU implementations address this with hybrid approaches: use one thread per row for low-degree vertices and one warp or one thread-block per row for high-degree vertices.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Suppose A points to B and C, B points to C and D, C points to D, and D has no outgoing neighbors. If vertices are ordered A, B, C, D, the flat neighbor array is [B, C, C, D, D]. The row pointer array is [0, 2, 4, 5, 5].`,
-        `Those five offsets are enough to recover every row. A owns colIdx[0..2), B owns colIdx[2..4), C owns colIdx[4..5), and D owns colIdx[5..5). The final empty slice is not a bug. It is the same rule handling a vertex with no outgoing edges, which is exactly why the sentinel is useful.`,
-        `This example also shows why rowPtr is a prefix-sum structure. Each entry says how many neighbor entries appear before the row begins. Building CSR is therefore closely related to counting degrees, taking prefix sums, and scattering edges into the final flat positions.`,
+        'Take a directed graph with 4 vertices: A->B, A->C, B->C, B->D, C->D. Number the vertices A=0, B=1, C=2, D=3. Vertex degrees: A has 2 outgoing, B has 2, C has 1, D has 0.',
+        'Build rowPtr as the prefix sum of degrees: [0, 2, 4, 5, 5]. There are 5 entries (V+1 = 5) because the sentinel rowPtr[4] = 5 marks the total edge count. Build colIdx by writing each vertex\'s destinations in order: [1, 2, 2, 3, 3], which is [B, C, C, D, D] using letter names.',
+        'Verify: A\'s neighbors are colIdx[0..2) = [B, C]. Correct. B\'s neighbors are colIdx[2..4) = [C, D]. Correct. C\'s neighbors are colIdx[4..5) = [D]. Correct. D\'s neighbors are colIdx[5..5) = [] (empty). Correct. Every vertex\'s slice is recovered by two lookups into rowPtr and a loop over colIdx.',
+        'Now run SpMV with this graph as a matrix and vector x = [1, 0, 1, 0]. Row A: colIdx positions 0,1 give columns 1 and 2, so result[A] = x[1] + x[2] = 0 + 1 = 1. Row B: columns 2 and 3, so result[B] = x[2] + x[3] = 1 + 0 = 1. Row C: column 3, so result[C] = x[3] = 0. Row D: empty, so result[D] = 0. Output: [1, 1, 0, 0]. This is exactly how PageRank, BFS, and GNN aggregation work under the hood.',
       ],
-    }
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Saad, "Iterative Methods for Sparse Linear Systems" (2003), chapter 3 -- the standard reference for CSR and sparse matrix formats. Barrett et al., "Templates for the Solution of Linear Systems" (1994) -- accessible introduction to sparse storage schemes. Buluç and Gilbert, "The Combinatorial BLAS" (2011) -- CSR as the foundation of graph-as-linear-algebra frameworks. Kepner and Gilbert, "Graph Algorithms in the Language of Linear Algebra" (2011) -- the GraphBLAS vision built on CSR/CSC.',
+        'Study adjacency lists to understand the dynamic-graph alternative that CSR sacrifices. Study sparse matrix-vector multiply (SpMV) to see CSR\'s most important operation in detail. Study prefix sums to understand the construction technique and its parallelization. Study graph traversal (BFS, DFS) to see CSR as the physical layer beneath algorithmic descriptions.',
+      ],
+    },
   ],
 };

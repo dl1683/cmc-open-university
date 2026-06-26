@@ -85,152 +85,106 @@ export function* run(input) {
   };
 }
 
+
 export const article = {
   sections: [
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for A/B Testing & p-values. Same conversion rates, two sample sizes — watch \"obviously better\" turn into noise, and back into signal..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'The animation runs one A/B test with fixed conversion rates (A = 5.0%, B = 6.5%) and lets you toggle between 1,000 and 10,000 visitors per variant. The bell curve is the null distribution: a picture of what measured differences would look like if the two buttons were identical and only random assignment produced the gap.',
+        'The marker on the curve is the single observed result. Watch where it sits relative to the tails. At 1,000 visitors the curve is wide, and the marker lands in a region luck reaches routinely. At 10,000 the curve tightens, and the same marker moves deep into the tail. The conversion rates did not change; the evidence did.',
+        'Each frame states the z-score (how many standard-error widths the observed gap is from zero) and the p-value (how often chance alone would produce a gap at least that extreme). Follow those two numbers across frames to see evidence accumulate.',
         {type: "callout", text: "A/B testing turns a product choice into a noise model: the observed lift only matters after you ask how often chance can fake it."},
-      
-        {type: 'image', src: './assets/gifs/ab-testing.gif', alt: 'Animated walkthrough of the ab testing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/ab-testing.gif', alt: 'Animated walkthrough of the ab testing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `A/B testing exists because product intuition is a poor measuring instrument. A new button, ranking rule, checkout step, or price page can look better because of day-of-week traffic, a lucky cohort, a campaign that sent unusual users, or one large customer arriving at the right time. Random assignment is the tool that turns "I think B helped" into a cleaner comparison between users who were eligible for the same product at the same time.`,
-        `The p-value exists to answer one narrow question inside that comparison: if A and B had the same true conversion rate, how often would random assignment produce a measured gap at least this large? That question is smaller than people want it to be. It is not the probability that B is better. It is not a launch decision. It is a noise check.`,
+        'Product intuition is a poor measuring instrument. A new checkout button can look better because of day-of-week traffic, a lucky cohort, a marketing campaign that sent unusual users, or one large customer arriving at the right time. Without a controlled comparison, \"B helped\" is an opinion dressed as a metric.',
+        'A/B testing (Fisher 1935, formalized in clinical trials) solves this by randomly assigning users to variant A (control) or B (treatment) and measuring the outcome. Because assignment is random, the only systematic difference between groups is the treatment itself. Everything else -- device mix, time of day, user patience -- is balanced in expectation.',
+        'The p-value answers one narrow question inside that comparison: if A and B had the same true conversion rate, how often would random assignment produce a measured gap at least this large? It is not the probability that B is better. It is not a launch decision. It is a noise check.',
       ],
     },
     {
-      heading: `The obvious approach`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is to divide conversions by visitors and ship the variant with the larger rate. In this module, A converts at 5.0% and B converts at 6.5%. That is a 1.5 percentage-point absolute lift and a 30% relative lift, so a dashboard headline can make B look obviously superior.`,
-        `The wall is random variation. Two random groups of people almost never behave identically, even when both groups see the same experience. With 1,000 visitors per variant, a few dozen extra or missing conversions can happen by luck. With 10,000 per variant, the same rate gap is much harder to explain away because the sampling noise is smaller.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `The naive comparison fails because it has no model of what luck looks like. A 30% relative lift sounds large, but the experimenter still needs to ask whether this many conversions could have landed in B's bucket by accident. Small denominators make ordinary randomness look dramatic.`,
-        `It also fails because product teams rarely run one pure comparison and stop. They peek at results, slice by country and device, watch many metrics, and rerun tests when the first result is boring. Each extra look creates more chances for noise to masquerade as a win. The p-value is useful only when it is interpreted within a real testing plan.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `The core insight is that evidence is effect size divided by noise. The observed effect here is fixed: B is 1.5 percentage points above A. The uncertainty around that effect depends on sample size and on how variable conversion outcomes are. A click or purchase is a Bernoulli outcome, so the standard error of the difference shrinks as traffic grows.`,
-        `The code turns that idea into a two-proportion z-test. It counts conversions for A and B, pools the estimated conversion rate under the "no real difference" assumption, computes the standard error for the difference between two independent groups, and divides the observed gap by that standard error. The result is a z-score: how many noise-widths away from zero the observed gap sits.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `Under the null hypothesis, both variants share one true conversion rate. The pooled estimate uses all conversions from both arms because, under that hypothesis, A and B are two samples from the same process. That pooled rate feeds the standard-error formula for a difference in proportions.`,
-        `The z-score is then compared against the standard normal curve. A large positive or negative z-score lands far from zero. The p-value is the probability, under the null, of seeing a difference at least that extreme in either direction. The module uses a normal CDF approximation to make that probability visible without dragging in a statistics library.`,
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        `The curve is the "chance alone" world. It shows where measured differences would land across many imaginary reruns if the product change had no effect. The marker is the one experiment you actually observed. At low traffic, the curve is wide, so the marker can sit inside a region that luck reaches often. At higher traffic, the curve tightens around zero, so the same marker can move into the tail.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg`, alt: `Normal distribution probability density functions`, caption: `The null curve shows where measured lift would fall if the variants were equal. Source: Wikimedia Commons, Inductiveload, public domain.`},
-        `That is the point of the sample-size control. Nothing about the displayed conversion rates changes. A is still 5.0%, B is still 6.5%, and the lift is still 1.5 percentage points. What changes is the amount of data behind those rates. The visual proves that "same lift" is not the same as "same evidence."`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Random assignment makes the two groups comparable before the product experience differs. If assignment is fair and stable, outside causes should be balanced in expectation: mobile users, desktop users, impatient users, loyal users, and random arrival patterns all land in both buckets. That is why the remaining difference can be treated as a signal-plus-noise problem instead of an uncontrolled observational comparison.`,
-        `The normal approximation works here because each arm has many independent conversion trials. Individual users still vary, but the aggregate difference has a predictable sampling distribution. This is the same reason polling margins and confidence intervals shrink slowly with sample size: to cut uncertainty in half, you need roughly four times as much data.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg`, alt: `Standard deviation regions under a normal distribution`, caption: `Standard deviation makes sampling noise visible: more traffic narrows uncertainty slowly, by square root n. Source: Wikimedia Commons, M. W. Toews, public domain.`},
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The computation is cheap: count conversions, compute a standard error, call a normal CDF, and compare with a threshold. The real costs are traffic, time, engineering effort, and exposing users to a variant that might be worse. Because uncertainty shrinks like 1/sqrt(n), traffic has diminishing returns. Polished changes with tiny effects can require long experiments.`,
-        `The inference tradeoff is also real. Fixed-sample A/B testing gives a clean decision rule if the sample size, metric, and analysis plan are chosen up front. Adaptive methods such as multi-armed bandits may waste fewer users on losing variants, but they make the statistical interpretation different. Optimization and clean measurement are related goals, not the same goal.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `A/B testing wins when the change is user-facing, randomization is ethical, the outcome can be measured soon enough, and interference between users is limited. Checkout flows, onboarding steps, email subject lines, recommendation layouts, ranking changes, notification timing, and pricing-page copy all fit this pattern when the metric is chosen carefully.`,
-        `It is especially valuable when intuition is divided. Designers, engineers, executives, and sales teams can all have plausible stories. A randomized experiment replaces argument with a shared measurement protocol. The result may still be uncertain, but the uncertainty is explicit instead of hidden inside opinion.`,
-      ],
-    },
-    {
-      heading: 'Where it fails (2)',
-      paragraphs: [
-        `Peeking is the classic failure. If you check every day and stop when p < 0.05, the advertised false-alarm rate no longer applies. Multiple metrics create the same problem. If twenty unrelated outcomes are inspected, one may look significant by accident. Multiple Testing & False Discoveries is the next topic for that dashboard trap.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg`, alt: `Normal distribution cumulative distribution functions`, caption: `The CDF view shows why tail probability depends on the whole distribution, not just the observed difference. Source: Wikimedia Commons, Inductiveload, public domain.`},
-        `Instrumentation mistakes can be worse than statistical mistakes. Users must be assigned consistently, conversions must be attributed to the right exposure, bots and internal traffic may need filtering, and the metric should match the product decision. A perfectly computed p-value on a broken event stream is still broken evidence.`,
-      ],
-    },
-    {
-      heading: 'Decision discipline',
-      paragraphs: [
-        `A practical launch decision needs more than p < 0.05. Ask whether the effect is large enough to matter, whether the confidence interval excludes harmful outcomes, whether the result holds on guardrail metrics, and whether the implementation cost is justified. Statistical significance can detect a tiny improvement that is not worth shipping.`,
-        `The reverse is also true: a non-significant result is not proof of no effect. It may mean the test was underpowered. Statistical Power & Sample Size explains how to decide traffic before launch so a meaningful lift has a real chance of being detected.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Statistical Power & Sample Size before launching an experiment, then Confidence Intervals & the Bootstrap after estimating the lift. Multiple Testing & False Discoveries covers dashboards with many outcomes. Multi-Armed Bandits and Thompson Sampling show the optimization version of the problem, where traffic is shifted while learning.`,
-        `For causal work beyond experiments, study Causal Graphs, Confounding & Simpson's Paradox, Instrumental Variables & Natural Experiments, Doubly Robust Estimation, Propensity Score Overlap Diagnostics, Causal Forest Uplift Policy, and Contextual Bandit Logged Policy Evaluation Case Study. Those topics explain what extra structure is needed when clean random assignment is not available.`,
+        'Divide conversions by visitors and ship the variant with the larger rate. In this module, A converts at 5.0% and B converts at 6.5%. That is a 1.5 percentage-point absolute lift and a 30% relative lift. A dashboard headline makes B look obviously superior.',
+        'This is the approach most product teams reach for instinctively, and it works when the gap is enormous and the sample is huge. The trouble is that \"enormous\" and \"huge\" are doing all the load-bearing work in that sentence, and most real experiments have neither.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `Decide between two product variants. Ask experts? Experts have biases and cannot predict user behavior. Launch the change and compare before/after? Confounded — seasonality, marketing campaigns, and a hundred other factors changed between periods.`,
-        `A/B test (Fisher 1935, formalized in clinical trials): randomly assign users to variant A (control) or B (treatment). Measure the outcome (conversion rate, revenue, engagement). Because assignment is random, the only systematic difference between groups is the treatment itself.`,
-        `Null hypothesis H₀: variants are equal (any observed difference is random noise). p-value: probability of observing a difference this large if H₀ is true. If p < 0.05: reject H₀ — statistically significant.`,
-        `Sample size: need enough observations. For detecting a 1% lift in a 10% conversion rate at 80% power: ~15,000 users per group. For 0.1% lift: ~1.5 million per group.`,
-        `Sequential testing (Wald 1947): check results continuously, stop early if significance reached. But naive peeking inflates false positives — must use correction (alpha spending, always-valid p-values).`,
+        'Two random groups of people almost never behave identically, even when both groups see the same experience. With 1,000 visitors per variant, a few dozen extra or missing conversions can happen by luck. A 30% relative lift sounds large, but the experimenter still needs to ask whether this many conversions could have landed in B\'s bucket by accident. Small denominators make ordinary randomness look dramatic.',
+        'A before/after comparison is worse: seasonality, marketing campaigns, and a hundred other factors change between periods, so the product change is confounded with everything else that moved. Asking experts is also unreliable -- experts have biases and cannot predict user behavior at the margin. The wall is that no naive comparison comes with a model of what luck looks like.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Evidence is effect size divided by noise. The observed effect here is fixed: B is 1.5 percentage points above A. The uncertainty around that effect depends on sample size and on how variable conversion outcomes are. A purchase is a Bernoulli outcome (0 or 1), so each user\'s result has variance p(1-p). The standard error of the difference between two independent group means shrinks as 1/sqrt(n).',
+        'The test formalizes this into a two-proportion z-test. Under the null hypothesis H0 (both variants share one true rate), pool all conversions from both arms to estimate that shared rate. Compute the standard error for the difference in proportions. Divide the observed gap by that standard error. The result is a z-score: how many noise-widths away from zero the observed gap sits. A z-score of 1.96 or larger corresponds to p < 0.05.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Step 1: pool the conversion rate. Under H0, A and B are two samples from the same process, so pooled_rate = (conversions_A + conversions_B) / (n_A + n_B). Step 2: compute the standard error of the difference. SE = sqrt(pooled_rate * (1 - pooled_rate) * (1/n_A + 1/n_B)). Step 3: compute z = (rate_B - rate_A) / SE. Step 4: look up the p-value from the standard normal distribution. The module uses a normal CDF approximation (Abramowitz-Stegun erf) to avoid dragging in a statistics library.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg`, alt: `Normal distribution probability density functions`, caption: `The null curve shows where measured lift would fall if the variants were equal. Source: Wikimedia Commons, Inductiveload, public domain.`},
+        'The bell curve in the animation is that null distribution made visible. It shows where measured differences would land across many imaginary reruns if the product change had no effect. The marker is the one experiment you actually observed. Toggle the sample-size control: A stays 5.0%, B stays 6.5%, the lift stays 1.5 points, but the curve narrows by sqrt(10), pushing the marker from \"plausible under luck\" to \"wildly improbable under luck.\" Same lift, different evidence.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Random assignment makes the two groups comparable before the product experience differs. If assignment is fair and stable, confounders are balanced in expectation: mobile users, desktop users, impatient users, loyal users, and random arrival patterns all land in both buckets. The remaining difference is a signal-plus-noise problem, not an uncontrolled observational comparison.',
+        'The normal approximation works because each arm has many independent Bernoulli trials. By the central limit theorem, the sampling distribution of the mean converges to a normal distribution as n grows. For conversion rates above a few percent and samples above a few hundred, the approximation is tight. This is the same reason polling margins shrink slowly: to cut uncertainty in half, you need roughly four times as much data.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg`, alt: `Standard deviation regions under a normal distribution`, caption: `Standard deviation makes sampling noise visible: more traffic narrows uncertainty slowly, by square root n. Source: Wikimedia Commons, M. W. Toews, public domain.`},
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The computation is negligible: count conversions, compute one square root, evaluate one CDF, compare with a threshold. The real costs are traffic, time, engineering effort, and exposing users to a variant that might be worse.',
+        'Because uncertainty shrinks like 1/sqrt(n), traffic has diminishing returns. Detecting a 1 percentage-point lift in a 10% conversion rate at 80% power requires roughly 15,000 users per group. Detecting a 0.1-point lift requires roughly 1.5 million per group. Halving the detectable effect quadruples the required sample. Polished products with small marginal improvements need long, expensive experiments.',
+        'Fixed-sample testing gives a clean decision rule when sample size, metric, and analysis plan are chosen before launch. Adaptive methods like multi-armed bandits can waste fewer users on losing variants, but they change the statistical interpretation. Sequential testing (Wald 1947) lets you check results continuously and stop early, but naive peeking inflates false positives -- you must use alpha-spending functions or always-valid p-values to compensate.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'A/B testing wins when the change is user-facing, randomization is ethical, the outcome can be measured soon enough, and interference between users is limited. Checkout flows, onboarding steps, email subject lines, recommendation layouts, ranking changes, notification timing, and pricing-page copy all fit when the metric is chosen carefully.',
+        'It is especially valuable when intuition is divided. Designers, engineers, executives, and sales teams can all have plausible stories about which variant is better. A randomized experiment replaces argument with a shared measurement protocol. The result may still be uncertain, but the uncertainty is explicit instead of hidden inside opinion.',
+        'At scale, companies like Microsoft, Netflix, and Booking.com run thousands of concurrent experiments. User assignment is typically done via a deterministic hash of user ID and experiment ID (see Hash Function), ensuring consistent assignment across sessions without storing per-user state.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Peeking is the classic failure. If you check every day and stop when p < 0.05, the advertised 5% false-alarm rate no longer applies -- the true rate can approach 30%. Multiple metrics create the same problem: inspect twenty unrelated outcomes and one may look significant by accident. Bonferroni correction (use alpha/k per test) is conservative but safe; the Benjamini-Hochberg procedure controls the false discovery rate less aggressively.',
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg`, alt: `Normal distribution cumulative distribution functions`, caption: `The CDF view shows why tail probability depends on the whole distribution, not just the observed difference. Source: Wikimedia Commons, Inductiveload, public domain.`},
+        'Network effects break the independence assumption. In social networks, user A\'s experience affects user B\'s behavior (viral features, marketplace effects). The fix is cluster randomization -- randomize by geographic region or social cluster, not by individual user. Interference between groups is the biggest threat to A/B test validity at companies like Meta and Uber.',
+        'Instrumentation mistakes can be worse than statistical mistakes. Users must be assigned consistently, conversions must be attributed to the correct exposure, bots and internal traffic may need filtering, and the metric should match the product decision. A perfectly computed p-value on a broken event stream is still broken evidence. A non-significant result is also not proof of no effect -- it may mean the test was underpowered (see Statistical Power & Sample Size).',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Control: 1,000 users, 100 conversions (10.0%). Treatment: 1,000 users, 120 conversions (12.0%). Difference: 2 percentage points, relative lift 20%. Is this significant?`,
-        `Pooled proportion p = 220/2000 = 0.11. SE = √(0.11 · 0.89 · (1/1000 + 1/1000)) = √(0.000196) = 0.014. z = (0.12 − 0.10) / 0.014 = 1.43. p-value = 0.153 > 0.05. NOT significant.`,
-        `Despite a 20% relative lift, 1,000 users per group is too few to distinguish signal from noise. Need ~4,000 per group for this effect size. Lesson: do not stop the test early because the lift "looks good." The sample size calculation must happen BEFORE the test, not during.`,
-      ],
-    },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Multiple comparisons problem: test 20 button colors simultaneously. At α = 0.05, expect 1 false positive (20 × 0.05 = 1) even if all colors perform identically.',
-            'Bonferroni correction: use α/20 = 0.0025 per test. Conservative but safe. False Discovery Rate (Benjamini–Hochberg): less conservative, controls the fraction of false positives among discoveries.',
-            'Network effects: A/B testing assumes independence between users. In social networks, user A’s experience affects user B’s (viral features, marketplace effects).',
-            'Solution: cluster randomization — randomize by geographic region or social cluster, not by individual user. Interference between groups is the biggest threat to A/B test validity at companies like Meta and Uber.',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        `Multiple comparisons problem: test 20 button colors simultaneously. At α = 0.05, expect 1 false positive (20 × 0.05 = 1) even if all colors perform identically. Bonferroni correction: use α/20 = 0.0025 per test. Conservative but safe. False Discovery Rate (Benjamini–Hochberg): less conservative, controls the fraction of false positives among discoveries.`,
-        `Network effects: A/B testing assumes independence between users. In social networks, user A’s experience affects user B’s (viral features, marketplace effects). Solution: cluster randomization — randomize by geographic region or social cluster, not by individual user. Interference between groups is the biggest threat to A/B test validity at companies like Meta and Uber.`,
+        'Control: 1,000 users, 100 conversions (10.0%). Treatment: 1,000 users, 120 conversions (12.0%). Absolute difference: 2 percentage points. Relative lift: 20%. The dashboard says ship it.',
+        'Pooled proportion p_hat = (100 + 120) / (1000 + 1000) = 220 / 2000 = 0.11. Standard error SE = sqrt(0.11 * 0.89 * (1/1000 + 1/1000)) = sqrt(0.000196) = 0.014. z = (0.12 - 0.10) / 0.014 = 1.43. Two-tailed p-value = 2 * (1 - Phi(1.43)) = 2 * 0.0764 = 0.153.',
+        'p = 0.153 > 0.05, so the result is NOT significant. About 15 out of 100 A/A tests (identical buttons) would produce a gap this large by chance alone. Despite a 20% relative lift, 1,000 users per group is too few to separate signal from noise for a 2-point effect.',
+        'To reach significance for this effect size, you need roughly 4,000 users per group. At 10,000 per group, z rises to about 4.5 and p drops below 0.0001. The lesson: decide sample size BEFORE launching, not during. The formula is n = (z_alpha/2 + z_beta)^2 * (p1*(1-p1) + p2*(1-p2)) / (p2 - p1)^2, where z_alpha/2 = 1.96 for 5% significance and z_beta = 0.84 for 80% power.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Fisher 1935 (The Design of Experiments — randomized controlled experiments). Neyman & Pearson 1933 (hypothesis testing framework). Kohavi et al. 2009 (Controlled Experiments on the Web — practical guide from Microsoft).`,
-        `Study next: Bayesian Statistics (alternative to frequentist testing), Multi-Armed Bandit (adaptive allocation instead of fixed split), Regression Discontinuity (when randomization is impossible), Causal Inference (broader framework for causation), Hash Function (used for consistent user assignment to variants).`,
+        'Fisher 1935, The Design of Experiments -- formalized randomized controlled experiments. Neyman & Pearson 1933 -- the hypothesis testing framework (null vs. alternative, Type I and Type II errors). Wald 1947 -- sequential analysis. Kohavi, Longbotham, Sommerfield & Henne 2009, \"Controlled Experiments on the Web: Survey and Practical Guide\" -- the standard practical reference from Microsoft.',
+        'Study Statistical Power & Sample Size before launching any experiment -- it determines how much traffic you need. Study Confidence Intervals & the Bootstrap after estimating the lift to understand the range of plausible effects. Multiple Testing & False Discoveries covers dashboards with many simultaneous outcomes. Multi-Armed Bandits and Thompson Sampling show the optimization version of the problem, where traffic is shifted toward winners while learning.',
+        'For causal work beyond randomized experiments: Causal Graphs and Confounding & Simpson\'s Paradox explain the structure that A/B tests bypass through randomization. Instrumental Variables & Natural Experiments, Doubly Robust Estimation, and Propensity Score Overlap Diagnostics handle settings where clean random assignment is not available. Hash Function covers consistent user-to-variant assignment.',
       ],
     },
-],
+  ],
 };
 

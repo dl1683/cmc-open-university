@@ -184,95 +184,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The black box is the original model, which means a predictor whose internal reasoning is not directly readable. The perturbed samples are nearby inputs made by changing features around one case. The simple model is the local surrogate trained only to explain that one neighborhood.',
+        'Read the highlighted weights as local evidence, not global truth. If the explanation says a word, pixel, or feature pushed this prediction up, it means the surrogate saw that feature matter near the selected input. It does not prove the same feature matters everywhere.',
         {type: 'image', src: './assets/gifs/lime.gif', alt: 'Animated walkthrough of the lime visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'Why This Exists',
+      heading: 'Why this exists',
       paragraphs: [
-        `LIME exists for the common case where a model affects a decision but the model itself is sealed. You may have an API that returns a fraud score, a medical risk score, a content decision, or a loan denial, but no weights, no gradients, and no source code. A user still needs a reason: which parts of this input pushed the decision up or down?`,
-        `The full model may be a neural network, random forest, vendor service, ensemble, or proprietary stack. LIME does not try to open it. It asks a narrower question: around this one input, can a simple model imitate the black box well enough to explain this one prediction?`,
+        'Complex models can be accurate while giving users no direct reason for one prediction. A doctor, analyst, or engineer may need to know which input features changed one decision before trusting or debugging it. LIME exists to answer that local question without requiring access to the model internals.',
+        'LIME means Local Interpretable Model-agnostic Explanations. Local means one neighborhood around one input. Interpretable means the explanation model is simple enough to inspect, such as a sparse linear model. Model-agnostic means the method only needs to query the black box.',
         {type: 'callout', text: `LIME explains one decision by fitting a small local surrogate, not by discovering the hidden model inside the black box.`},
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is to demand global feature importance. Ask the model owner for one ranking of features, then say income mattered most, debt second, age third, or exclamation marks mattered more than capital letters. That feels useful because it turns a complicated model into a familiar table of weights.`,
-        `Global importance can work for a simple linear model whose features act independently. It breaks once features interact. In the demo, spam probability depends on the product of exclamation marks and ALL-CAPS words. One feature's effect depends on the other feature's value. A single global weight cannot describe that curve honestly.`,
+        'The obvious approach is to inspect the original model. For a linear classifier, read the weights. For a small decision tree, follow the branches. That works when the model itself is simple and exposed.',
+        'Another approach is to compute global feature importance. That can say which features matter across the dataset. It does not explain why this one loan application, image, or document received this one prediction.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The wall',
       paragraphs: [
-        `The wall is locality. A black-box model can be nonlinear, discontinuous, or built from many feature interactions. Even if a simple explanation is faithful near one email, it may be false for another email. This is not a small caveat. It is the central contract of LIME.`,
-        `There is another wall: access. Many explanation methods need internals. Gradient saliency needs differentiability and model access. Tree-path explanations need the tree. Coefficient inspection needs the coefficients. LIME works when none of that is available, but the price is sampling. It must learn the local behavior by repeatedly querying the model.`,
+        'The wall is that modern predictors can be nonlinear, proprietary, or too large to inspect. A global average can hide opposite local behavior: a feature may increase risk for one subgroup and decrease it for another. The user needs a local explanation tied to the specific input.',
+        'A local explanation also needs a readable vocabulary. Saying that layer 17 activation 433 changed is not useful to most decision makers. LIME tries to express the explanation in original features or human-readable components.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The core insight',
       paragraphs: [
-        `The core insight is that a local imitation can be useful even when a global explanation is impossible. Near a single point, many curved decision surfaces can be approximated by a line or a small sparse model. That simple surrogate is not the black box. It is an explanatory instrument.`,
+        'Near one input, a complicated decision surface can often be approximated by a simpler model. LIME samples nearby variants, asks the black box for predictions, weights samples by closeness to the original input, and fits an interpretable surrogate. The surrogate is then used as the explanation.',
+        'The method does not claim to recover the black box. It claims that the surrogate is useful inside a small neighborhood. The size and sampling quality of that neighborhood control how much the explanation should be trusted.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branches ending in class labels.', caption: `Interpretable surrogates trade global flexibility for local readability; decision trees are one familiar form of human-readable model. Source: Wikimedia Commons, T-kita, public domain.`},
-        `LIME makes this trade explicit. It chooses interpretability first, then asks the black box enough nearby questions to make that interpretable model locally faithful. The explanation is the surrogate's coefficients, not the hidden model's true internals. The right reading is: for this input, under this perturbation scheme, this feature moved the local surrogate most.`,
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
-        `A LIME run starts with the input being explained. For tabular data, it perturbs feature values. For text, it may remove or mask words. For images, it often turns superpixels on and off. Each perturbed input is sent to the black box, producing a score.`,
-        `The samples are weighted by distance from the original input, so close neighbors matter more than far ones. Then LIME fits an interpretable model, often a sparse linear model, on those weighted samples. Finally it reports the strongest positive and negative coefficients. In the demo, CAPS words matter more than exclamation marks near one email, but the relationship flips at another point.`,
-      ],
-    },
-    {
-      heading: 'What the Visual Proves',
-      paragraphs: [
-        `The plot begins with a curved boundary to show why one global line would be dishonest. LIME samples nearby points around the email being explained and fits a local stand-in. The fitted line is useful because it tracks the black box near that email, not because it discovers the black box's real formula.`,
-        `The second matrix is the important warning. The same black box gives a different local explanation at a different point. That is not a bug in the demo. It is the thing LIME is trying to teach: an explanation can be faithful locally and wrong globally. A serious report must state the neighborhood, sampling method, and stability.`,
-      ],
-    },
-    {
-      heading: 'Why It Works',
-      paragraphs: [
-        `The correctness claim is local fidelity, not truth recovery. If the weighted samples are representative of the neighborhood and the surrogate fits those samples well, then the surrogate's coefficients summarize how the black box behaves near the original input. The distance kernel is what turns a general regression problem into a local one.`,
-        `This is why feature scaling, distance choice, perturbation design, and fit quality matter. The surrogate is trustworthy only when the local sample cloud resembles plausible inputs and the simple model actually predicts the black-box scores in that cloud. LIME should be evaluated by local error, stability under resampling, and counterfactual checks, not by how tidy the bar chart looks.`,
-      ],
-    },
-    {
-      heading: 'Cost and Behavior',
-      paragraphs: [
-        `The main cost is queries. A practical LIME explanation may use hundreds or thousands of perturbed samples for one prediction. If the black box is cheap and local, that is acceptable. If the model call is slow, rate-limited, or billed per request, explanations become expensive quickly.`,
-        `Fitting the surrogate is usually small compared with querying the model. For a linear surrogate with k selected features, weighted least squares is cheap at the scale of one explanation, but feature selection, image superpixels, and repeated stability runs add overhead. Memory use is modest: the sample matrix, the black-box scores, the weights, and the final local model.`,
-      ],
-    },
-    {
-      heading: 'Where It Wins',
-      paragraphs: [
-        `LIME wins when the model is accessible only through predictions and the user needs an explanation for a single decision. It is useful for model debugging, audit sampling, support tools, and human review screens where a local reason is better than a silent score.`,
+        'Choose the input to explain, such as one text review. Create perturbed versions by removing or changing features, such as dropping words. Query the black-box model on each perturbation to get predicted scores.',
+        'Give each perturbation a weight based on distance from the original input. Close samples matter more because the explanation is local. Fit a sparse linear model or small tree to predict the black-box scores from the interpretable features.',
+        'Return the surrogate coefficients as the explanation. In text, positive word weights support the predicted class and negative weights oppose it. In images, superpixels play the role of interpretable features.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input, hidden, and output nodes.', caption: `A neural network can be queried from the outside even when its internals are unavailable; LIME uses those queries to build a local explanation. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.`},
-        `It is especially natural for tabular business models, text classifiers, and image classifiers with clear perturbation units. A credit model can show which features pushed a denial. A text classifier can show which words drove a label. An image classifier can show which superpixels mattered. The common thread is not model type. It is query access plus an input representation that humans can understand.`,
       ],
     },
     {
-      heading: 'Failure Modes',
+      heading: 'Why it works',
       paragraphs: [
-        `LIME fails when perturbations leave the data manifold. Randomly removing words, toggling image regions, or changing tabular fields independently can create inputs that real users would never produce. The black box may behave strangely there, and the surrogate may explain that artificial behavior instead of the real decision boundary.`,
-        `It also fails against hostile models. Slack et al. showed that perturbation-based explainers can be fooled by scaffolding: a model can detect synthetic probes and behave innocently during explanation while staying biased on real inputs. LIME is an auditing aid for cooperative or uncertain systems, not a proof that a deployed system is fair.`,
+        'The correctness argument is conditional. If the sampled neighborhood is representative and the black-box decision boundary is smooth enough there, then a simple weighted surrogate can approximate the black-box behavior near the input. The fitted weights explain the surrogate, and the surrogate approximates the black box locally.',
+        'LIME is therefore only as reliable as its local fidelity score. Fidelity means how closely the surrogate predictions match black-box predictions on weighted nearby samples. Low fidelity means the explanation is readable but not faithful.',
       ],
     },
     {
-      heading: 'Practical Checks',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A useful LIME report should include the predicted class, local score, top positive and negative features, number of samples, kernel width, feature representation, local fit quality, and stability across repeated seeds. Without those details, the explanation is hard to trust or reproduce.`,
-        `Deletion tests are a good sanity check. Remove or mask a feature that LIME says is important, query the black box again, and see whether the score moves in the expected direction. Also test nearby real examples, not only synthetic ones. If the explanation changes wildly across tiny plausible edits, report uncertainty instead of a confident feature ranking.`,
+        'The main cost is black-box queries. If LIME creates s perturbations and the model prediction costs M, the query cost is O(sM). Fitting a sparse linear surrogate adds cost based on s and the number of interpretable features d, often much smaller than the model-query cost.',
+        'When s doubles, the explanation usually becomes more stable but costs about twice as many model calls. Memory is O(sd) if perturbations are stored densely, though sparse text and image representations can reduce it. The expensive behavior is repeated prediction, especially for large neural models.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Study Logistic Regression to understand why a linear surrogate is interpretable. Study Kernel Regression for the role of distance weighting. Study SHAP for a related model-agnostic method with Shapley-value credit rules and higher cost. Study Saliency Maps when model internals and gradients are available.`,
-        `Then read Adversarial Examples, Data Leakage, Calibration Curves, and Cross-Validation to separate explanation from reliability. For modern interpretability, Sparse Autoencoder Feature Dictionary Case Study goes inside model activations instead of probing only visible inputs. Primary references: Ribeiro, Singh, and Guestrin's LIME paper at https://arxiv.org/abs/1602.04938, and Slack et al.'s attack paper at https://arxiv.org/abs/1911.02508.`,
+        'LIME is useful for debugging classifiers when the engineer can query the model but not easily inspect it. It can show that a text classifier relies on a spurious token, or that an image classifier reacts to the background rather than the object. The access pattern is one prediction at a time, with enough budget for many nearby probes.',
+        'It is also useful in model governance as a local audit artifact. A reviewer can compare explanations for accepted and rejected cases, look for unstable reasons, and decide whether a decision needs deeper investigation. The explanation supports review; it does not replace validation.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'LIME fails when the neighborhood is unnatural. Removing words can create text no real user would write, and masking image patches can create artifacts the model reacts to. The surrogate may explain behavior on synthetic samples rather than behavior on realistic inputs.',
+        'It also fails when small changes cause sharp prediction jumps. In that case a linear local model can be unstable, and different random seeds can produce different explanations. Always check fidelity, repeat runs, and compare with other explanation methods such as SHAP or counterfactual tests.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a sentiment model gives one review a positive score of 0.92. LIME perturbs five words and makes 1000 nearby reviews by hiding subsets of words. The black box scores each variant, and samples closer to the original get larger weights.',
+        'A fitted surrogate might assign +0.31 to excellent, +0.18 to fast, -0.22 to broken, and +0.05 to packaging. If removing excellent drops the black-box score from 0.92 to 0.61 in many nearby samples, that positive weight is earned by local behavior. If the surrogate reaches R^2 = 0.84 on weighted samples, the explanation is plausible but still local.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Ribeiro, Singh, and Guestrin, Why Should I Trust You?, KDD 2016. Study the original LIME paper for the sampling, locality kernel, sparse surrogate fitting, and evaluation protocol.',
+        'Study next by contrast. SHAP gives game-theoretic feature attributions with different cost assumptions. Counterfactual explanations ask what smallest change would alter the decision. Partial dependence and accumulated local effects explain global feature behavior rather than one prediction.',
       ],
     },
   ],

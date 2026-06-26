@@ -154,166 +154,108 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Difference-in-Differences. Subtract across time to kill place effects, subtract across places to kill time effects: a known policy effect recovered live, plus the parallel-trends bet..",
+        `The animation builds a synthetic minimum-wage world where the true policy effect is known (+3), then shows why single comparisons fail and how the double subtraction recovers the truth. The first view constructs the 2x2 table cell by cell: New Jersey (treated) and Pennsylvania (control), before and after the policy. Active cells are the current computation. Found cells are quantities the design has successfully isolated. Removed cells are naive estimates the proof has discarded.`,
+        {type: 'image', src: './assets/gifs/difference-in-differences.gif', alt: 'Animated walkthrough of the difference in differences visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
         {type: "callout", text: "DiD is a causal design for borrowing a control group trend, not just an arithmetic trick with four averages."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/difference-in-differences.gif', alt: 'Animated walkthrough of the difference in differences visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        `The second view switches to the parallel-trends assumption. It lays out what the assumption says, what it does not require, the standard diagnostic (pre-trend event studies), and three classic ways the assumption breaks. Watch the removed markers on the failure stories: each one shows a specific bias direction, not just a vague warning.`,
+        `The line plot in the first view is the picture every DiD paper draws. The dashed counterfactual line starts at New Jersey\'s before value and follows Pennsylvania\'s slope. The vertical gap between that line and New Jersey\'s actual after value is the DiD estimate. If you can read the gap as the treatment effect and explain why the counterfactual slope came from Pennsylvania, you have the design.`,
+      ],
     },
     {
       heading: `Why this exists`,
       paragraphs: [
-        `Policy questions often arrive without random assignment. One state raises a minimum wage. One school district changes funding. One hospital adopts a protocol. One platform rolls out a rule to some users first. The analyst wants the causal effect, but the treated group was not chosen by a coin flip.`,
+        `Policy questions arrive without random assignment. A state raises its minimum wage. A school district changes funding rules. A hospital adopts a new protocol. A platform rolls out a feature to one region first. The analyst wants the causal effect of the policy, but the treated group was not selected by a coin flip, so raw comparisons carry confounders.`,
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Illustration_of_Difference_in_Differences.png/330px-Illustration_of_Difference_in_Differences.png`, alt: `Difference-in-differences plot with treated control and counterfactual lines`, caption: `The DiD estimand is the vertical gap between observed treated-after outcome and the parallel-trend counterfactual. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Illustration_of_Difference_in_Differences.png/330px-Illustration_of_Difference_in_Differences.png`},
-        `A raw before/after comparison is tempting because it follows the treated group over time. A raw treated/control comparison is tempting because it compares the treated group with an untreated group. Both can be badly wrong. The before/after comparison mixes the policy with everything else that changed over time. The treated/control comparison mixes the policy with permanent differences between places, firms, people, or markets.`,
-        `Difference-in-differences, usually shortened to DiD, solves one common version of that problem. It uses two subtractions: one across time and one across groups. The first subtraction removes fixed group differences. The second subtraction removes shared time shocks. If the control group's untreated trend is a valid stand-in for the treated group's missing untreated trend, the remaining difference is the policy effect.`,
+        `Two kinds of nuisance sit in the data simultaneously. Fixed group effects are permanent differences between places, firms, or people: New Jersey restaurants have always been smaller than Pennsylvania\'s. Shared time effects are shocks that hit everyone in the same period: a recession drags employment down in both states at once. Any single comparison removes one nuisance but carries the other.`,
+        `Difference-in-differences (DiD) removes both at once with two subtractions. Subtract within each group across time to kill fixed levels. Then subtract across groups to kill the shared time shock. If the control group\'s untreated trend is a valid stand-in for the treated group\'s missing untreated trend, the remainder is the policy effect. The design is the workhorse behind half of applied economics, and the 1994 Card and Krueger minimum-wage study is its most famous application.`,
       ],
     },
     {
       heading: `The obvious approach`,
       paragraphs: [
-        `The first obvious comparison is treated after minus treated before. In the New Jersey and Pennsylvania minimum-wage setting, that asks whether employment in New Jersey changed after the New Jersey policy. This comparison is easy to explain, but it carries every economy-wide shock that happened at the same time. If a recession hit both states, the before/after estimate blames the policy for the recession.`,
-        `The second obvious comparison is treated after minus control after. That asks whether New Jersey employment after the policy was higher or lower than Pennsylvania employment after the same date. This comparison controls for the shared date, but it carries permanent differences between the states. If Pennsylvania restaurants were always larger or had different staffing levels, the cross-section estimate blames the policy for a pre-existing gap.`,
-        `Neither comparison is foolish. Each removes one nuisance source. The before/after comparison removes permanent group levels because New Jersey is compared with itself. The treated/control comparison removes the shared calendar date because both groups are observed after the policy. The failure is that the data contain two nuisances, not one.`,
+        `The first natural comparison is treated-after minus treated-before. In the animation\'s synthetic world, New Jersey goes from 78 to 77, a change of -1. That looks like the policy hurt employment. But a recession hit both states that year, dragging everyone down by 4. The before/after estimate blames the policy for the recession because it cannot separate the two forces.`,
+        `The second natural comparison is treated-after minus control-after. New Jersey after (77) minus Pennsylvania after (88) is -11. That looks like New Jersey is far behind. But New Jersey was always smaller: 78 versus 92 before the policy. The cross-section estimate blames the policy for a pre-existing gap that has nothing to do with the wage change.`,
+        `Neither comparison is foolish. The before/after comparison removes permanent group levels because New Jersey is compared with itself. The cross-section comparison removes the shared calendar date because both groups are observed at the same moment. Each kills one nuisance. The problem is that the data contain two nuisances, and each single subtraction only handles one.`,
+        `A researcher who reports either number as the policy effect is making a hidden claim: that the nuisance they did not remove is zero. In the synthetic world, that claim is visibly false in both cases. The recession is -4, not zero. The level gap is 14, not zero. One subtraction is not enough.`,
       ],
     },
     {
       heading: `The wall`,
       paragraphs: [
-        `The wall is the missing counterfactual. We observe New Jersey after the policy. We do not observe New Jersey after the same date without the policy. Causal inference is the discipline of building a defensible replacement for that missing timeline.`,
+        `The fundamental obstacle is the missing counterfactual. We observe New Jersey after the policy. We never observe New Jersey after the same date without the policy. That unobserved timeline is the thing we need to subtract, and it does not exist in any dataset.`,
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Parallel_Trend_Assumption.png/330px-Parallel_Trend_Assumption.png`, alt: `Parallel trend assumption diagram with observed and assumed counterfactual lines`, caption: `Parallel trends is the claim that the control slope can stand in for the unobserved treated-without-treatment slope. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Parallel_Trend_Assumption.png/330px-Parallel_Trend_Assumption.png`},
-        `A control group is useful only if it supplies the right missing change. DiD does not require the treated and control groups to have the same level. That is the important mental shift. Permanent differences can be large and still cancel. What DiD requires is that, without treatment, the treated group would have changed by the same amount as the control group. This is the parallel-trends assumption.`,
-        `Parallel trends is untestable exactly where it matters because the untreated treated outcome after treatment is never observed. Pre-policy trends can make the assumption more credible. They cannot prove it. Every DiD design is an argument that the control group's slope deserves to be borrowed.`,
+        `A control group is useful only if it supplies the right missing change. DiD does not need the groups to match in level. New Jersey can start 14 points below Pennsylvania and the design still works, because levels cancel in the first subtraction. What DiD needs is that, had the policy never happened, New Jersey\'s change would have equaled Pennsylvania\'s change. This is the parallel-trends assumption: same slopes, not same levels.`,
+        `Parallel trends is untestable exactly where it matters. The treated group\'s untreated-after outcome is the missing cell. Pre-policy data can make the assumption more credible by showing lockstep movement before treatment, but lockstep history is evidence, not proof, about the counterfactual future. Every DiD study is ultimately an argument that the control group\'s slope deserves to be borrowed for the treated group\'s missing timeline.`,
+      ],
+    },
+    {
+      heading: `The core insight`,
+      paragraphs: [
+        `Two subtractions kill two nuisances. The first subtraction (within-group, across time) removes anything fixed about a group because it appears in both periods and cancels. The second subtraction (across groups) removes anything shared about a time period because it appears in both groups\' changes and cancels. What survives both subtractions is the treated group\'s extra movement -- the piece that is neither permanent nor shared.`,
+        `The insight is structural, not numerical. It does not depend on the specific values 78, 77, 92, 88. It depends on additive separability: the outcome is a sum of a group effect, a time effect, and a treatment effect. If the world works that way, two differences isolate the treatment term by zeroing out the other two. The design is literally its own name: a difference of differences.`,
+        `This also reveals the design\'s fragility. If the treatment effect is not additive -- if, for example, the policy\'s impact depends on the group\'s level -- the cancellation is incomplete. And if any unmodeled force bends one group\'s slope without bending the other\'s, the estimator absorbs that force and calls it treatment. The power and the risk live in the same place: the assumption that two subtractions are enough.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The classic 2-by-2 DiD estimator has four cells: treated before, treated after, control before, and control after. First compute the treated group's change: treated after minus treated before. Then compute the control group's change: control after minus control before. Then subtract the changes. In symbols: DiD = (treated after - treated before) - (control after - control before).`,
-        `The first difference removes group fixed effects. Anything permanent about New Jersey appears in both New Jersey cells and cancels. Anything permanent about Pennsylvania appears in both Pennsylvania cells and cancels. The second difference removes shared time shocks. If both states were hit by the same recession, that recession appears in both changes and cancels when the changes are compared.`,
-        `What remains is the treated group's extra movement after removing its fixed level and the shared time movement. If parallel trends held and no other treated-only shock occurred, that extra movement is the treatment effect. DiD is named plainly: it is a difference of two differences.`,
-      ],
-    },
-    {
-      heading: `Worked example`,
-      paragraphs: [
-        `The visualization uses a synthetic world shaped like the famous Card and Krueger minimum-wage study. New Jersey is treated. Pennsylvania is the control. New Jersey starts lower than Pennsylvania, so a simple cross-section would be misleading. Both states also face a shared soft economy, so a simple before/after comparison would be misleading.`,
-        {type: `image`, src: `https://finshots.in/images/blog/davidcard.jpg`, alt: `Portrait of economist David Card`, caption: `David Card shared the 2021 economics Nobel for empirical labor-economics work including natural-experiment designs. Source: https://finshots.in/images/blog/davidcard.jpg`},
-        `In the synthetic numbers, New Jersey goes from 78 before to 77 after, a change of -1. Pennsylvania goes from 92 before to 88 after, a change of -4. The before/after estimate for New Jersey alone says employment fell by 1. That is not the policy effect in this synthetic world because the economy also moved. The after-only comparison says New Jersey is 11 below Pennsylvania. That is not the policy effect either because New Jersey started lower.`,
-        `DiD compares the changes: (-1) - (-4) = +3. Pennsylvania's -4 stands in for the recession. New Jersey's -1 contains recession plus policy. Subtracting the Pennsylvania change removes the shared recession and leaves the policy effect built into the example. The line plot shows the same calculation visually: start at New Jersey's before value, apply Pennsylvania's slope to build the untreated New Jersey counterfactual, and measure the vertical gap to New Jersey's actual after value.`,
+        `The 2x2 DiD estimator uses four cells. Treated before: 78. Treated after: 77. Control before: 92. Control after: 88. Step one: compute each group\'s change over time. New Jersey changed by 77 - 78 = -1. Pennsylvania changed by 88 - 92 = -4. These within-group differences have already killed the level gap: New Jersey\'s permanent 78-baseline and Pennsylvania\'s permanent 92-baseline each appeared in both their own cells and cancelled.`,
+        `Step two: subtract the changes. DiD = (-1) - (-4) = +3. Pennsylvania\'s change of -4 is the recession component. New Jersey\'s change of -1 is recession plus policy. Subtracting the control change strips out the shared recession and leaves the policy effect. The estimate matches the +3 built into the synthetic world.`,
+        `In regression form, the same estimator is a linear model with group fixed effects, time fixed effects, and a treatment indicator (the interaction of being treated and being in the post period). The coefficient on that interaction term is the DiD estimate. With more than two periods, the regression extends to an event-study specification: separate coefficients for each pre- and post-period relative to the treatment date, letting the researcher inspect pre-trends and dynamic effects.`,
+        `The line plot renders the same arithmetic visually. Start at New Jersey\'s before value (78). Apply Pennsylvania\'s slope (-4) to construct the counterfactual: where New Jersey would have ended up without the policy (74). The vertical gap between New Jersey\'s actual after value (77) and the counterfactual (74) is the DiD estimate: +3. The control group\'s only job is to donate its slope for that dashed line.`,
       ],
     },
     {
       heading: `Why it works`,
       paragraphs: [
-        `A plain model shows the cancellation. Suppose the outcome equals a group effect, plus a time effect, plus a treatment effect for treated observations after the policy, plus noise. The group effect captures fixed differences such as state size or industrial mix. The time effect captures shocks shared by both groups such as a recession. The treatment term appears only in the treated-after cell.`,
-        `Subtracting before from after within a group removes the group effect because it is present in both periods. The treated change contains the shared time effect plus the treatment effect. The control change contains the shared time effect without the treatment effect. Subtracting the control change from the treated change removes the shared time effect. That is the identification argument in its cleanest form.`,
-        `The argument breaks if the untreated treated group would not have followed the control's change. That is why DiD is not just arithmetic. The arithmetic is easy. The hard work is defending the counterfactual slope.`,
+        `Model the outcome as Y = group_effect + time_effect + treatment_effect * (treated AND after) + noise. The group effect captures anything permanent about a unit: state size, industry mix, geography. The time effect captures anything shared across groups in a period: recessions, seasons, federal policy. The treatment term appears only in the treated-after cell.`,
+        `Subtracting before from after within the treated group gives: (group + time_after + treatment) - (group + time_before) = (time_after - time_before) + treatment. The group effect cancels. Subtracting before from after within the control group gives: (time_after - time_before). No treatment term because the control is untreated. Subtracting the control change from the treated change gives: treatment. Both time effects cancel.`,
+        `This is the identification argument. It works because the model is additive and the time effect is shared. If the treated group would have experienced a different time effect than the control -- a different slope -- the cancellation is incomplete and the estimate is biased. That is exactly the parallel-trends assumption restated algebraically. The arithmetic always produces a number. The question is whether that number means what the researcher claims.`,
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: `Cost and complexity`,
       paragraphs: [
-        `The 2-by-2 computation is almost free. Its cost is conceptual and statistical. The analyst must choose a credible control group, define treatment timing, decide the outcome window, estimate uncertainty, and show why parallel trends is plausible. In regression form, the same estimator is often written with group fixed effects, time fixed effects, and a treatment indicator.`,
-        `Real studies usually have more than two periods. That is good because pre-periods let analysts plot event studies and inspect whether treated and control groups moved together before treatment. Multiple post-periods can show whether effects appear immediately, grow over time, or fade. But more periods also create more ways to fool yourself: anticipation, dynamic effects, and changing composition can all bend the plot.`,
-        `Staggered treatment timing needs extra care. If different groups adopt at different dates and treatment effects vary over time, simple two-way fixed-effect regressions can mix comparisons in hard-to-interpret ways. Modern DiD methods build cleaner comparisons by treatment cohort and time. The core question remains the same: which untreated trajectory is each treated group allowed to borrow?`,
-      ],
-    },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `A local shock breaks DiD when it affects one group at the same time as the policy. If Pennsylvania gets a casino, a factory closing, or a weather shock that New Jersey does not share, Pennsylvania's slope no longer represents New Jersey's untreated slope. The borrowed counterfactual is bent, and the estimate absorbs the local shock.`,
-        `Policy targeting is another failure. Governments and firms do not assign policies randomly. They often act when outcomes are already trending up or down. If a minimum wage increase happens because the local economy was already strengthening, the DiD estimate can give the policy credit for momentum that was already present. If a policy is passed in response to decline, it can be blamed for decline that caused the policy.`,
-        `Anticipation contaminates the before period. If employers, schools, hospitals, or users change behavior before the official treatment date because they know the policy is coming, the pre-treatment cell is no longer untreated. Spillovers create a different problem: if Pennsylvania workers, firms, or customers respond to New Jersey's policy, the control is no longer clean. Composition changes can also break the design if the groups being measured change across periods.`,
-      ],
-    },
-    {
-      heading: `Implementation guidance`,
-      paragraphs: [
-        `Start with the design, not the regression. Define the treated group, control group, treatment date, outcome, pre-periods, post-periods, and exclusion rules. Explain why the control group should have the same untreated trend as the treated group. If that sentence is weak, the design is weak no matter how clean the regression output looks.`,
-        `Plot the data before estimating. Show levels and changes over time. Check whether pre-policy trends look parallel. Run placebo treatment dates when possible. Report event-study coefficients so readers can see pre-trends and dynamic effects. Cluster standard errors at the level where treatment varies, such as state, school district, firm, or hospital, because observations within a treated unit are not independent policy assignments.`,
-        `Avoid bad controls. Controls affected by treatment belong after the causal effect, not before it. Adjusting for post-treatment variables can remove part of the effect you are trying to estimate. Covariates can help precision or support conditional parallel trends, but they do not rescue a design where the untreated slope is not credible.`,
+        `The computational cost of the 2x2 estimator is trivial: four numbers, two subtractions. The real costs are inferential and design-level. Choosing a credible control group, defining treatment timing, selecting the outcome measure, justifying parallel trends, and computing correct standard errors all require judgment and domain knowledge that no formula automates.`,
+        `Standard errors must be clustered at the level where treatment varies. If the policy is assigned at the state level, there are only two clusters (New Jersey and Pennsylvania), which is too few for reliable inference. Real DiD studies need many treated and control units, or they must use permutation-based inference, wild bootstrap, or other small-sample corrections. Ignoring clustering produces standard errors that are far too small, making noise look like significance.`,
+        `With more than two periods and staggered treatment timing (different groups treated at different dates), the simple two-way fixed-effects regression can produce misleading estimates. When treatment effects vary over time, the regression mixes clean never-treated-vs-treated comparisons with already-treated-vs-newly-treated comparisons, and the weights can even go negative. Modern methods (Callaway and Sant\'Anna, Sun and Abraham, de Chaisemartin and D\'Haultfoeuille) build cleaner comparisons by cohort and relative time. The core question is the same -- which untreated trajectory gets borrowed -- but the bookkeeping is harder.`,
+        `Data requirements scale with ambition. A basic 2x2 needs four cells. An event study needs several pre-periods and post-periods. Testing robustness to control group choice, outcome definition, and functional form multiplies the analysis. None of this is computationally expensive, but it is analytically expensive: each choice is an argument the researcher must defend.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `DiD wins when a policy or event lands on one group but not another, the groups have credible shared trends, and the analyst can observe enough pre-periods to make that claim visible. It is common in applied economics, public policy, education, healthcare, labor, taxation, platform experiments, and operational rollouts where randomized assignment is unavailable or unethical.`,
-        `It is the wrong tool when treated and control groups were already moving differently, when treatment timing follows the outcome trend, when spillovers are strong, when the control group faces a different shock, or when the policy changes who is observed. In those settings, a clean-looking 2-by-2 table can be more dangerous than no estimate because it makes an assumption look like arithmetic.`,
-        `The main misconception is that groups must be similar in level. They do not. DiD can handle fixed level gaps. The real requirement is slope similarity in the untreated world. Another misconception is that pre-trends prove the assumption. They do not. They are evidence about the past and a warning system for obvious failures, not a proof about the missing future.`,
+        `DiD is the default tool in applied economics when a policy lands on one jurisdiction and not its neighbor. Card and Krueger (1994) compared fast-food employment in New Jersey and Pennsylvania after New Jersey raised its minimum wage. Their DiD estimate was slightly positive, contradicting the textbook prediction that minimum wages reduce employment. That result, defended and debated for decades, contributed to David Card\'s 2021 Nobel Prize in Economics.`,
+        {type: `image`, src: `https://finshots.in/images/blog/davidcard.jpg`, alt: `Portrait of economist David Card`, caption: `David Card shared the 2021 economics Nobel for empirical labor-economics work including natural-experiment designs. Source: https://finshots.in/images/blog/davidcard.jpg`},
+        `Beyond labor economics, DiD appears in public health (did a state-level smoking ban reduce hospitalizations?), education (did a funding reform change test scores?), taxation (did a corporate tax cut increase investment?), and technology platforms (did a policy change on one platform shift user behavior relative to a comparable platform that did not change?). The common structure is a policy that creates a sharp before/after boundary and a comparison group that shares the same time environment but not the policy.`,
+        `DiD is also used in operational settings. A company rolls out a new feature to one market and compares sales trends with a holdout market. A hospital system adopts a protocol in some facilities first. A city implements congestion pricing while neighboring cities do not. Anywhere a natural or deliberate rollout creates treated and untreated groups with shared time exposure, DiD is a candidate design.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Where it fails`,
       paragraphs: [
-        `Primary anchors: Card and Krueger's 1994 minimum-wage paper at https://davidcard.berkeley.edu/papers/njmin-aer.pdf, the 2021 Nobel Prize press release discussing natural experiments in labor economics at https://www.nobelprize.org/prizes/economic-sciences/2021/press-release/, and the broader DiD literature on parallel trends, event studies, and staggered treatment timing.`,
-        `Study A/B Testing & p-values to see what random assignment buys when it is available. Study Causal Graphs for confounding language, Doubly Robust Estimation for adjustment when confounders are measured, Instrumental Variables for a different untestable identifying bet, Synthetic Control Donor Weights for weighted counterfactual trends, Regression Discontinuity for threshold assignment, and Permutation Tests for design-based uncertainty intuition.`,
-      ],
-    },
-      {
-      heading: 'The core insight',
-      paragraphs: [
-        "The core insight is the smallest idea that changes what can be proven.",
-        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
-        "Everything else in the topic should serve this one sentence.",
+        `A local shock to the control group bends the borrowed slope. If Pennsylvania opens a casino the same year as the New Jersey wage increase, Pennsylvania\'s employment trend steepens for reasons New Jersey does not share. The DiD estimate absorbs the casino\'s effect and misattributes it to the minimum wage. The same failure works in reverse: a shock to the treated group that is unrelated to the policy also loads into the estimate.`,
+        `Policy targeting is a subtler failure. Governments raise minimum wages when local economies are already strengthening, or pass safety regulations in response to visible decline. If treatment timing correlates with the outcome\'s pre-existing trend, the DiD estimate gives the policy credit (or blame) for momentum it did not cause. This is selection on trends, the exact violation parallel trends forbids.`,
+        `Anticipation contaminates the before period. If employers hear the law is coming and shift hiring into the pre-policy window, the "before" cell is no longer untreated. Part of the response has moved across the subtraction boundary, biasing the change comparison in both directions. Spillovers contaminate the control: if Pennsylvania workers commute to New Jersey or Pennsylvania firms adjust wages preemptively, the control group is no longer clean.`,
+        `Composition changes break the design when the groups being measured change across periods. If the minimum wage causes some restaurants to close, the surviving sample is different from the original sample, and the before/after comparison no longer tracks the same units. Attrition, entry, and migration all create composition bias that the basic 2x2 does not address.`,
       ],
     },
     {
-      heading: 'Learning map',
+      heading: `Worked example`,
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        `The animation uses a fully known synthetic world. Employment = base(state) + trend(period) + effect * (treated AND after). New Jersey base: 78. Pennsylvania base: 92. Trend (shared recession): -4. True policy effect: +3. This gives four cells: NJ before = 78, NJ after = 78 + (-4) + 3 = 77, PA before = 92, PA after = 92 + (-4) = 88.`,
+        `Naive estimate 1 (before/after for NJ): 77 - 78 = -1. This says employment fell. It is wrong because -1 = recession(-4) + policy(+3). The recession is hidden inside the change. Naive estimate 2 (NJ after vs PA after): 77 - 88 = -11. This says NJ is far behind. It is wrong because the gap existed before the policy (78 - 92 = -14); the gap actually shrank by 3 because of the policy.`,
+        `DiD: (77 - 78) - (88 - 92) = (-1) - (-4) = +3. The first subtraction kills group levels: NJ\'s 78 base cancels within NJ\'s own change; PA\'s 92 base cancels within PA\'s change. The second subtraction kills the recession: both changes contain -4, and -4 minus -4 is zero. What remains is the +3 treatment effect, matching the truth built into the model.`,
+        `The counterfactual line starts at NJ\'s before value (78) and drops by PA\'s change (-4), landing at 74. NJ\'s actual after value is 77. The gap is 77 - 74 = +3. This is the same number, computed geometrically instead of algebraically. If you change the true effect to 0, the counterfactual and actual lines converge. If you change it to -5, NJ falls below the counterfactual. The estimate always equals the vertical gap between the observed treated endpoint and the borrowed-slope counterfactual.`,
       ],
     },
-
     {
-      heading: 'Frame-by-frame checkpoints',
+      heading: `Sources and study next`,
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
+        `The foundational study is Card and Krueger, "Minimum Wages and Employment: A Case Study of the Fast-Food Industry in New Jersey and Pennsylvania" (1994), available at https://davidcard.berkeley.edu/papers/njmin-aer.pdf. The 2021 Nobel Prize press release discusses natural experiments in labor economics at https://www.nobelprize.org/prizes/economic-sciences/2021/press-release/. For modern methods addressing staggered timing, see Callaway and Sant\'Anna (2021) and Sun and Abraham (2021).`,
+        `Study A/B Testing & p-values to see what random assignment buys when it is available. Study Causal Graphs for confounding language and back-door adjustment. Study Doubly Robust Estimation for cases where confounders are measured. Study Instrumental Variables & Natural Experiments for a different identifying assumption (exclusion rather than parallel trends). Study Synthetic Control Donor Weights for a data-driven alternative to choosing a single control group.`,
+        `For related statistical reasoning, study Regression Discontinuity for threshold-based designs, Permutation Tests for design-based uncertainty, and Bootstrap for resampling-based inference. Each of these tools makes a different bet about what the data can support; DiD\'s bet is that the control group\'s slope is the treated group\'s missing future.`,
       ],
     },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Difference-in-Differences moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

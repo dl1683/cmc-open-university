@@ -206,13 +206,19 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        { type: "callout", text: "SwissTable spends one cheap metadata byte per slot to avoid touching expensive keys on most failed candidates." },
-        "Read the animation as the execution trace for SwissTable Hash Map. A production hash-table design: split hashes into H1/H2, scan control-byte groups with SIMD-style masks, and keep values flat in memory..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/swisstable-hash-map.gif', alt: 'Animated walkthrough of the swisstable hash map visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {
+          type: 'callout',
+          text: 'SwissTable spends one cheap metadata byte per slot to avoid touching expensive keys on most failed candidates.',
+        },
+        'Read the probe-groups view as a failed-lookup proof. The control bytes are checked first; only slots whose short H2 tag matches become real key-comparison candidates.',
+        'Read empty and deleted control bytes differently. An empty byte proves the lookup can stop; a deleted byte cannot stop the probe chain because later keys may have passed through it.',
+        {
+          type: 'image',
+          src: './assets/gifs/swisstable-hash-map.gif',
+          alt: 'Animated walkthrough of the swisstable hash map visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
+      ],
     },
     {
       heading: 'Why this exists',
@@ -223,30 +229,29 @@ export const article = {
           alt: 'Hash table diagram with keys mapped into buckets and collision chains.',
           caption: 'A conventional hash table explains the collision problem; SwissTable keeps open addressing but adds a metadata filter before key comparison. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.',
         },
-        'Hash maps are supposed to be O(1), but real machines do not execute Big-O. They load cache lines, chase pointers, branch, compare keys, and move memory during rehash. A table that does fewer random loads can beat a table with the same asymptotic bound.',
-        'SwissTable is a production hash-table design built around that fact. It keeps entries flat, stores compact metadata next to the slots, and scans a group of control bytes before it touches full keys.',
+        'A hash map promises expected O(1) lookup, but machines pay in cache misses, branches, key comparisons, and pointer chasing. SwissTable exists because a table with the same Big-O can be much faster when its memory layout matches the CPU.',
+        'The design goal is to keep entries flat in memory and reject most nonmatching slots by scanning compact metadata. That shifts work from expensive random payload loads to cheap byte comparisons.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Chaining (each bucket holds a linked list) handles collisions but scatters memory: every list node is a separate allocation, poison for CPU caches. Open addressing stores everything in one flat array: on collision, probe the next slot.',
-        'Linear probing checks slot h, h+1, h+2, ... -- simple, cache-friendly, but creates "clusters" where runs of occupied slots attract more collisions. The longer the cluster, the more likely the next insertion lands inside it and extends it further.',
-        'Robin Hood hashing fixes clustering variance by stealing from the rich: if the current element has a shorter probe distance than the one already sitting in the slot, swap them. This keeps all probe sequences short and narrows the gap between best-case and worst-case lookup. SwissTable takes a different path: instead of reordering entries, it adds a fast metadata layer that skips most equality checks entirely.',
+        'Chaining stores a linked list or small container at each bucket. It handles collisions simply, but each collision can add pointer chasing and separate allocation.',
+        'Plain open addressing stores entries in an array and probes forward after collisions. It improves locality, but a failed lookup in a dense table can inspect many full slots before reaching an empty one.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is the failed lookup. The key is not present, but the table still has to prove absence. In a dense open-addressed table, that proof may inspect several slots before it reaches an empty marker.',
-        'SwissTable changes the question order. Before asking "is this key equal?", it asks "does this slot even have the right short hash tag?" Most slots fail that cheap metadata test, so the full key comparison never runs.',
+        'The wall is proving absence. If a key is not present, the table must search until it reaches evidence that the probe sequence could not have continued.',
+        'At high load, many slots are full, and full key equality checks can dominate cost. Long strings, compound keys, or cache-cold payloads make each unnecessary comparison visible.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Split the hash. H1 chooses where probing starts. H2 is a short tag stored in one byte of metadata for the slot. A lookup scans a group of control bytes, builds a bit mask of candidate H2 matches, and only compares the real keys behind those candidates.',
-        'The control byte is a prefilter, not equality. A matching H2 tag says "this slot might be the key." A nonmatching tag says "this slot cannot be the key." The full key comparison remains the final authority.',
+        'Split the hash into H1 and H2. H1 chooses the probe-group start, while H2 is a short tag stored in a control byte beside each slot.',
+        'A lookup scans a group of control bytes and builds a mask of H2 matches. A nonmatching tag proves the full key cannot be there; a matching tag only says to run the real equality check.',
       ],
     },
     {
@@ -258,116 +263,51 @@ export const article = {
           alt: 'Computer cache hierarchy diagram from CPU registers through memory.',
           caption: 'SwissTable is a cache-locality story: compact metadata lets the CPU reject many slots before loading full key-value payloads. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg.',
         },
-        'A lookup hashes the key into a wide hash value. H1 determines the first probe group. H2 is stored in the metadata for full slots. The table compares the desired H2 against a small group of control bytes, often with SIMD-style operations, and gets a mask of plausible slots.',
-        'For each bit in the candidate mask, the table performs the real equality check. If none match and the group has no empty slot, probing continues. A deleted slot cannot stop probing, because a later insertion may have passed through it. An empty slot can stop a failed lookup, because the key could not have been inserted beyond that empty position in the same probe sequence.',
-        'The flat variant stores values inside the slot array. The node variant keeps element addresses more stable by paying for allocation and indirection. That choice affects correctness of user code that stores pointers or references into the map.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'In the probe-groups view, follow the path from key to hash to H1/H2 split. The important visual move is not the arrow; it is the filter. The control-byte group is searched before the full entries are touched.',
-        'In the 16-byte control group, the repeated H2 tag marks candidate slots. Empty cells matter because they prove absence. Deleted cells matter because they preserve the probe chain. The mask is the reason a dense table can skip most equality checks.',
-        'In the flat-table view, read the comparison as an API audit. The flat layout reduces pointer chasing, but rehash can move elements. The node layout spends memory and extra loads to keep addresses more stable.',
+        'Each slot has a control byte that marks empty, deleted, or full with a short H2 tag. The table probes groups of control bytes, commonly 16 bytes at a time, so one vector-like comparison can test many slots.',
+        'On lookup, a candidate mask points to slots whose H2 matches the searched key. The table checks only those full keys. If the group contains an empty marker and no key matched, absence is proven.',
+        'Insertion follows the same probe sequence and uses an empty or reusable deleted slot. Rehashing grows the table before probe chains become too long, often around a high load factor such as seven eighths.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The H2 tag is allowed to have false positives. Two different keys can share the same short tag. That only costs an equality check. It cannot create a false hit because the actual key comparison still runs.',
-        'The table proves absence with the first empty slot in the probe sequence. If the key had been inserted earlier, insertion would have found the same probe path and would not have skipped an empty slot. Deleted slots are different: they once held entries, so they cannot prove that later entries are absent.',
-        'The performance argument is separate from the correctness argument. Correctness comes from open-addressing probe rules. Speed comes from doing many cheap metadata checks before a few expensive object checks.',
+        'Correctness comes from the open-addressing invariant: every key is stored somewhere on the probe sequence determined by its hash. A lookup follows the same sequence, so it cannot skip a possible location.',
+        'H2 tags are filters with false positives but no false negatives for the stored tag. If the tag differs, the key cannot match that slot; if the tag matches, the full equality test remains the authority.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Suppose a lookup starts at a group whose control bytes contain tags E, 7a, 11, D, 2f, 7a, 80, 01, E, 9c, 7a, 44, D, 32, 10, E. The desired H2 is 7a. The metadata scan returns candidate positions 1, 5, and 10.',
-        'The table compares the lookup key only with the entries at slots 1, 5, and 10. If none are equal, the empty markers in the same group can stop the miss. If the group had no empty marker, probing would continue to the next group.',
-        'That example shows the core trade. The table may scan more metadata bytes than a simple map, but those bytes are compact and cache-friendly. It tries to spend bandwidth on cheap metadata instead of expensive key loads.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The average lookup, insert, and erase story is still O(1) under ordinary hash-table assumptions. The point is the constant factor: one metadata byte per slot, grouped probing, and a high-quality hash can reduce cache misses and full equality checks.',
-        'Abseil documents Swiss-table metadata based on a 64-bit hash split into H1 and a 7-bit H2 tag. Its container guide describes memory as roughly the slot payload plus one metadata byte per bucket, with a maximum load factor of 87.5 percent before growth.',
-        'When the table grows, flat entries can move. That rehash cost is occasional, but it matters for latency-sensitive paths and for code that has kept references into the table.',
+        'Expected lookup, insert, and erase remain O(1) with a good hash and controlled load factor. The practical behavior improves because many failed slots cost one metadata-byte comparison rather than one key load and equality check.',
+        'If a 16-byte group stores 7-bit H2 tags, a random failed lookup expects 16 / 128 = 0.125 accidental tag matches per group. Most groups therefore trigger zero full key comparisons.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'SwissTable-style maps win in hot in-memory indexes: compiler symbol tables, service metadata maps, routing tables, feature maps, dedup tables, and large C++ maps that do not need sorted iteration.',
-        'The broader data-structure lesson is portable. If a small summary can reject most candidates, put that summary where the CPU can scan it cheaply before touching the heavy object.',
+        'SwissTable-style maps fit performance-sensitive C++ and systems code where hash maps are hot paths. Abseil flat_hash_map and related designs use the flat layout to reduce memory traffic.',
+        'They are especially useful for small keys, interned strings, compiler tables, routing maps, and deduplication sets where lookup misses are frequent and cache behavior dominates.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'SwissTable is not an ordered map. It does not give predecessor queries, sorted scans, or deterministic ordering as a semantic contract. Use a tree or a sorted structure when order is the point.',
-        '`flat_hash_map` is not a safe replacement for code that stores long-lived pointers or references into map elements. Rehash can move entries. If address stability matters, use a node-based variant or a different container.',
+        'Flat maps can move elements during rehash, so code that stores pointers or references into the map can break. Node variants trade speed and memory for address stability.',
+        'Bad hash functions still hurt. If H1 clusters keys or H2 tags collide heavily, metadata filtering cannot rescue the table from long probe sequences and excess equality checks.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Worked example',
       paragraphs: [
-        'Poor hash quality can still cluster probes. Adversarial keys can destroy the average-case story if the hash function is weak. Expensive destructors, huge values, and frequent rehashes can also dominate the metadata win.',
-        'Migration bugs often come from accidental contracts in the old container: relying on iteration order, storing element addresses, expecting a particular erase return value, or assuming that a benchmark with integer keys predicts behavior for string-heavy production keys.',
+        'A lookup wants H2 = 0x7a in a 16-slot group. The control bytes contain 0x7a at slots 1, 5, and 10, plus empty markers at slots 0, 8, and 15.',
+        'The mask points to three candidate slots, so only three full keys are compared. If none match and an empty marker appears in the same group, the key is absent; the other occupied slots were rejected by metadata alone.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Prerequisites: Hash Table (open addressing and chaining fundamentals), basic understanding of CPU caches and memory locality, and familiarity with bit manipulation (masks, popcount). If linear probing is unfamiliar, study Hash Table first -- SwissTable optimizes a probe sequence you need to understand before seeing the optimization.',
-        'This topic unlocks several directions. Quotient Filter and Binary Fuse Filter use similar metadata-heavy designs for approximate membership. V8 Hidden Classes and Inline Caches show another case where data layout dominates speed over asymptotic complexity. B-Tree and Database Indexing cover the ordered-access path that hash tables cannot serve.',
+        'Study Abseil Swiss Tables design notes and Google dense hash table history for the production context. Next study hash tables, open addressing, Robin Hood hashing, cache locality, and SIMD-style byte masks.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'SwissTable keeps a maximum load factor of 87.5%. Why not 100%? What happens to probe chain length as the table fills past 80%, and how does the H2 metadata filter change the practical cost curve compared to plain linear probing at the same load?',
-            'Deleted slots use a special control byte that means "skip me but keep probing." Why can a tombstone not simply be marked empty? Construct a three-key insertion sequence where clearing a deleted slot to empty would make a later lookup incorrectly report "not found."',
-            'Linear probing creates clusters: runs of occupied slots that grow because new keys landing anywhere inside the run extend it by one. SwissTable does not eliminate clustering -- it still uses open addressing. How does the H2 prefilter reduce the cost of walking through a cluster, even though the cluster is the same length?',
-            'If you replaced the SwissTable H2 tags with a Bloom-filter-style bit array per group, what would you gain and what would you lose? Think about false-positive rates, memory per slot, and the ability to delete entries.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why SwissTable Hash Map moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Knuth, The Art of Computer Programming, Volume 3, Section 6.4 gives the foundational analysis of linear probing -- expected probe lengths, clustering, and the sensitivity to load factor. Celis (1986) introduced Robin Hood hashing, which equalizes probe distances by displacing entries on insertion. The Abseil Swiss Tables Design Notes (https://abseil.io/about/design/swisstables) document the H1/H2 split, control-byte layout, and SIMD group scanning used in production C++ maps. The Abseil Containers guide (https://abseil.io/docs/cpp/guides/container) covers the flat_hash_map and node_hash_map API and migration considerations.',
-          'Study next by role. Prerequisite: Hash Table (chaining and basic open addressing) to ground the collision model SwissTable improves on. Related structure: Bloom Filter, another hash-based design that trades accuracy for extreme space savings. Alternative collision strategy: Cuckoo Hashing, which guarantees worst-case O(1) lookup by maintaining two tables and displacing entries on collision. Distributed extension: Consistent Hashing, which maps keys to a ring of servers so adding a node moves only a fraction of the data.',
-        ],
-      },
-],
+  ],
 };

@@ -223,124 +223,53 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+    { heading: 'How to read the animation', paragraphs: [
+        'Read the plot as a function from key to rank. Active line segments are approximate models, and the search window shows the bounded repair work after prediction.',
         {type: 'image', src: './assets/gifs/pgm-index-piecewise-geometric-model.gif', alt: 'Animated walkthrough of the pgm index piecewise geometric model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `A learned index is only useful in a database if its guesses come with a repair budget. The PGM-index exists to make that budget explicit. It compresses a sorted key array into line segments, and every segment promises that its predicted rank is within epsilon of the true rank.`,
+      ], },
+    { heading: 'Why this exists', paragraphs: [
+        'A sorted array already maps each key to a rank. PGM exists because that curve is often simpler than a full tree of explicit separators.',
         {type: 'callout', text: `PGM is useful because its model is approximate but its correction window is guaranteed.`},
-        `The result is not a neural network pretending to be an index. It is a geometric data structure. It observes that a sorted array already defines a function from key to rank, approximates that function with bounded error, and then uses ordinary comparison to finish the query exactly.`,
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `The standard solution is a B-tree, a B+ tree, or a sorted array with binary search. These are robust because comparisons decide routing. They handle arbitrary key distributions and do not require a model of the data.`,
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is a B-tree, B+ tree, or binary search over a sorted array. These are reliable because comparisons, not predictions, decide the final position.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
           alt: `Small B-tree diagram with grouped keys in internal nodes`,
           caption: `A B-tree stores explicit separators; PGM replaces many separators with error-bounded line segments over sorted keys. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.`,
         },
-        `They can also store more routing information than the distribution deserves. If keys rise almost linearly with rank, many separators are just a verbose way to describe a line. A page directory, fanout tree, or binary-search structure spends memory and cache misses even when the key-to-rank relationship is simple.`,
-      ],
-    },
-    {
-      heading: 'Where the obvious approach fails',
-      paragraphs: [
-        `A single global line fails when different key ranges have different slopes, gaps, or clusters. Real data often has dense regions, sparse regions, and abrupt jumps. A small model without a bound is unsafe because it can predict a rank far from the truth.`,
-        `An exact model can also fail by becoming the original index in disguise. If the structure stores too many pieces, it loses the memory advantage. PGM sits at this wall: compress the curve, but keep a worst-case correction window that makes every query exact after local verification.`,
-      ],
-    },
-    {
-      heading: 'Core invariant',
-      paragraphs: [
-        `View sorted keys as points (key, rank). Cover that curve with line segments that stay inside an epsilon-wide vertical band. For any key covered by a segment, the line's predicted rank is at most epsilon positions away from the true rank.`,
-        `That is the invariant: prediction narrows the search, comparison preserves exactness. The model is allowed to be approximate only because the data structure keeps a hard correction window around every prediction.`,
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        `Construction scans the sorted points and keeps the current segment while all covered ranks remain within epsilon of some line. When the next key would violate that band, the algorithm emits a segment and starts a new one. The output is a sorted list of segment start keys and linear models.`,
-        `A lookup first finds the segment responsible for the query key. It evaluates the line to predict a rank. It then searches inside the bounded interval around that rank. For predecessor search, the final step is ordinary comparison inside the window. For range search, the index finds the lower-bound position and then scans forward through the sorted array.`,
-      ],
-    },
-    {
-      heading: 'Recursive structure',
-      paragraphs: [
-        `The first-level PGM may still contain many segments. Those segment start keys are sorted, so PGM applies the same idea again: build another PGM over the segment list. The top model predicts which lower-level segment should contain the query.`,
-        `This recursion turns a flat segment table into a compact hierarchy. Each level narrows the next lookup, and the final data-level search remains protected by the epsilon guarantee. The index can model its own routing table because that table is also ordered data.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The guarantee is geometric. Each emitted segment is valid only while every covered key stays within the vertical error band. Therefore the true rank of any covered key lies inside the correction window. Ordinary comparison inside that window restores exact lookup, predecessor, and insertion-position behavior.`,
-        `This is the important difference from vague learned-index claims. PGM does not ask the database to trust a model because it performed well on average. It builds only segments that satisfy a worst-case error bound, then verifies inside that bound. Approximation is used to save memory and cache misses, not to replace correctness.`,
-      ],
-    },
-    {
-      heading: 'Epsilon as the main knob',
-      paragraphs: [
-        `Epsilon controls the memory and search tradeoff. Larger epsilon stores fewer segments and searches a wider local window. Smaller epsilon stores more segments and searches less locally. The right value depends on cache behavior, branch prediction, local-search implementation, and whether point lookups or range scans dominate.`,
-        `The key distribution controls compressibility. Dense linear regions need few segments. Clusters, gaps, and abrupt slope changes need more. The same epsilon can create a tiny index for one table and a much larger one for another, even when both tables have the same row count.`,
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        `A PGM lookup has three costs: find the segment, evaluate the segment line, and search the epsilon window. A recursive PGM reduces segment lookup cost by indexing the segment list. The line evaluation is cheap arithmetic. The final search is bounded by epsilon and can use binary search, linear scan, SIMD search, or a tuned hybrid.`,
-        `Space is often the reason to consider PGM. A segment stores a start key and line parameters instead of many individual separators. When the key-to-rank curve is smooth enough, one segment can replace many comparison-tree boundaries.`,
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        `Keep the sorted array as the source of truth. The PGM should predict positions into that array, not replace it. Clamp predicted windows to array bounds and define duplicate-key behavior carefully: lower bound, upper bound, exact match, and predecessor are different operations.`,
-        `Choose the correction search deliberately. For tiny epsilon, a linear scan can beat binary search because it is branch-light and cache-local. For larger windows, binary search or SIMD-assisted search may win. Measure with the actual key distribution rather than assuming one local search strategy is universal.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Suppose a sorted array stores keys [10, 20, 28, 40, 90, 105, 120, 200, 230, 260]. The key-to-rank curve is not one perfect line: the gap between 40 and 90 changes the slope. PGM covers the curve with separate line segments, each required to stay within epsilon ranks of the true positions.`,
-        `A query for 112 evaluates the segment that covers the 90 to 120 region and predicts a rank near 5. If epsilon is 2, the exact search checks only a small neighborhood around ranks 3 through 7. Even if the model is slightly wrong, the true predecessor or insertion point is inside that window by construction.`,
-      ],
-    },
-    {
-      heading: 'Where it is useful',
-      paragraphs: [
-        `PGM is strongest for huge sorted arrays whose key-to-rank curve is compressible. It fits immutable table runs, read-heavy analytic stores, search structures, compressed indexes, and memory-sensitive systems where a small learned directory can replace a larger comparison directory.`,
-        `It also fits range queries because the sorted array remains intact. The model finds the starting position, then the range scan proceeds in key order. That keeps PGM connected to classic ordered-index behavior instead of making it a point-lookup-only trick.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `If keys look random, the curve needs many segments or wide windows. If writes dominate, dynamic maintenance and rebuilding become the hard problem. PGM is not a neural network dropped into a database; its strength is simple geometry plus explicit verification.`,
-        `It is also not automatically better than a B-tree. B-trees are excellent under mixed writes, pages, latches, recovery, and storage hierarchy constraints. PGM is most compelling when a sorted array or immutable run already exists and the index can trade comparison-heavy navigation for model-guided local search.`,
-      ],
-    },
-    {
-      heading: 'Relationship to learned indexes',
-      paragraphs: [
-        `The original learned-index idea framed an index as a model that predicts where a key should be. PGM keeps the attractive part of that idea but makes the contract sharper. The model is not judged only by average error; it is accepted only where its worst-case rank error is bounded.`,
-        `That makes PGM easier to reason about as a data structure. A database engineer can ask concrete questions: what is epsilon, how many segments were emitted, how wide is the final correction window, how are updates handled, and what happens when the distribution shifts?`,
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        `Primary sources: PGM-index paper at https://arxiv.org/abs/1910.06169, VLDB PDF at https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf, project site at https://pgm.di.unipi.it/, and implementation repository at https://github.com/gvinciguerra/PGM-index.`,
-        `Study Learned Indexes, B-Trees, B+ Tree Leaf Sibling Scan Case Study, Database Indexing, Binary Search, Eytzinger Layout Binary Search, ALEX Adaptive Learned Index Case Study, Packed Memory Array, and Range Tree topics next. They show the surrounding choices: comparison trees, cache-aware arrays, dynamic learned structures, and ordered range search.`,
-      ],
-    },
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'A B-tree stores separators even when the key distribution is almost linear. A single learned line is unsafe, though, because clusters and gaps can make the predicted rank far from the truth.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Cover the key-to-rank curve with line segments whose vertical error is at most epsilon ranks. The model narrows the search, and exact comparison inside the epsilon window preserves correctness.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Construction scans sorted keys and extends a segment while the covered points fit inside the epsilon band. When the next key violates the band, the builder emits the current segment and starts another.',
+        'Lookup finds the segment for the query key, evaluates its line, clamps rank plus or minus epsilon to array bounds, and searches that local window exactly. A recursive PGM builds the same kind of model over the segment start keys.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'A segment is valid only if every covered key has true rank within epsilon of the predicted rank. Therefore the true lower bound or predecessor is inside the correction window, where ordinary comparison returns the exact answer.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Lookup cost is segment lookup plus one line evaluation plus search inside the epsilon window. Larger epsilon means fewer segments and more local search; smaller epsilon means more index memory and less repair work.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'PGM fits read-heavy sorted arrays, immutable table runs, compressed indexes, and analytic stores where memory is tight. It also supports range queries because the source array remains sorted and exact after the starting position is found.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'It fails under heavy writes because maintaining error-bounded segments is harder than updating a mutable tree. It also fails when the key distribution is too irregular to compress at a useful epsilon.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Use keys [10, 20, 28, 40, 90, 105, 120, 200, 230, 260] with ranks 0 through 9. A query for 112 might be predicted near rank 5.3 by the segment covering 90 to 120.',
+        'With epsilon 2, the correction window covers roughly ranks 3 through 7. Exact search there finds predecessor 105 at rank 5, so the model can be wrong by a little without making the index wrong.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources are the PGM-index paper at https://arxiv.org/abs/1910.06169, the VLDB version at https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf, the project site at https://pgm.di.unipi.it/, and the implementation repository at https://github.com/gvinciguerra/PGM-index.',
+        'Study Binary Search, B-Trees, Database Indexing, Learned Indexes, Eytzinger Layout Binary Search, ALEX Adaptive Learned Index, and Packed Memory Array next.',
+      ], },
   ],
 };
+

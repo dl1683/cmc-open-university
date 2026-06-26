@@ -228,119 +228,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Each container holds metadata for a subtree, which means a node and all descendants under the chosen root. The active merge inserts entries from one child container into another.',
         {type: 'image', src: './assets/gifs/small-to-large-merging-dsu-on-tree.gif', alt: 'Animated walkthrough of the small to large merging dsu on tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The safe rule is size direction. When a smaller container moves into a larger one, every moved entry lands in a container at least twice as large as before.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Tree problems often ask for rich metadata at every subtree: distinct colors, frequency maps, sets of labels, pending query ids, or component summaries. The naive answer rebuilds a container for every node and repeats work across overlapping subtrees.',
+        'Tree problems often ask for rich metadata at every subtree: distinct colors, frequency maps, label sets, or offline query ids. A single prefix sum cannot hold that structure.',
         {type: 'callout', text: 'Small-to-large merging is a doubling argument disguised as an implementation detail.'},
-        'Small-to-large merging exists to stop that repeated copying. It keeps the largest child container and folds smaller containers into it, so individual elements are not moved over and over without bound.',
+        'Small-to-large merging exists to stop the same entries from being copied into fresh containers at many ancestors. It reuses the largest child container and folds smaller ones into it.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is postorder DFS where each node allocates a fresh map, copies all child maps into it, adds itself, and records the answer. It is simple and can become quadratic on a chain of large subtrees.',
-        'Another tempting approach is to use Union-Find because the phrase "DSU on tree" suggests it. That name is misleading. Most DSU-on-tree solutions do not call find or union; they reuse the smaller-into-larger amortization idea.',
+        'The obvious approach is postorder DFS where each node creates a fresh map. It copies every child map into that new map, adds the node value, and records the answer.',
+        'That code is easy to understand and correct. It also hides copying cost because each ancestor may copy the same descendant entry again.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is repeated movement. If a large map is copied into fresh parent maps again and again, the same entries pay for many ancestors.',
-        'The second wall is that subtree metadata is often too rich for prefix sums alone. A single counter may be easy, but a map from color to count or label to frequency needs careful container movement.',
+        'The wall is repeated movement. On a path-shaped tree, rebuilding every subtree touches about n + (n - 1) + ... + 1 entries.',
+        'For n = 100,000, that sum is about five billion entry visits before counting hash-map overhead. The algorithm is doing bookkeeping, not new reasoning.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Always move the smaller container into the larger one. If an element moves, its destination container has at least twice as many elements as its previous container.',
-        'That doubling is the proof. An element can live in containers of size 1, 2, 4, 8, and so on only O(log n) times before reaching size n. The total movement becomes manageable.',
-      ],
-    },
-    {
-      heading: 'Data structures',
-      paragraphs: [
-        'The containers can be sets, hash maps, ordered maps, heaps, vectors, or custom frequency tables. The destination pointer matters: reuse the largest child container instead of allocating a fresh one and copying everything.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Dsu_disjoint_sets_final.svg/500px-Dsu_disjoint_sets_final.svg.png', alt: 'Disjoint-set forest after several union operations', caption: 'Union by size is the closest named relative: attach the smaller structure to the larger so future work stays shallow. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_final.svg.'},
-        'For tree queries, the DFS frame typically stores the kept container, temporary child containers, the current node payload, and the answer for the current subtree. If containers are mutable, ownership and reference discipline matter.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The merge-sets view shows the rule that matters: the smaller container is consumed by the larger container. Do not focus on the labels alone. The educational point is that each moved element lands in a container at least twice as large as before.',
-        'The subtree-colors view shows the tree-query pattern. The largest child map stays alive, smaller child maps are folded into it, the current node adds its own color, and the answer is read from the kept map. That is why the method can compute every subtree answer without rebuilding every subtree from scratch.',
+        'Always merge the smaller container into the larger container. If an entry moves, the destination size is at least twice its previous container size.',
+        'An entry can move through container sizes 1, 2, 4, 8, and so on up to n. That gives at most O(log n) moves per entry.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For subtree aggregation, recursively process children. Pick the largest child container as the destination. For each smaller child, iterate through its entries and insert them into the destination. Then add the current node payload and record the answer for this node.',
-        'In the distinct-colors case, each leaf starts with its own color. Each parent keeps the largest child set, inserts colors from smaller child sets, inserts its own color, and records set.size.',
+        'Process children before the parent. Choose the largest child container as the kept container, merge every smaller child into it, add the current node payload, and read the answer for this subtree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Dsu_disjoint_sets_final.svg/500px-Dsu_disjoint_sets_final.svg.png', alt: 'Disjoint-set forest after several union operations', caption: 'Union by size is the closest named relative: attach the smaller structure to the larger so future work stays shallow. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_final.svg.'},
+        'The name DSU on tree is historical. Most implementations do not call find or union; they borrow the smaller-into-larger amortization idea from Union-Find.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Suppose an element is moved from one set into another. Because it came from the smaller set, the destination has size at least as large as its old set, so the element\'s container size at least doubles.',
-        'A size can double from 1 to at most n only O(log n) times. That is why arbitrary-looking merges become efficient when the direction is always smaller into larger.',
-        'This proof is worth learning because it appears far outside tree problems. Whenever work is charged to an item that moves only into a structure at least twice as large, the item can be charged only logarithmically many times. The technique is an amortization pattern, not a trick for one contest problem.',
+        'Correctness is by induction on the tree. Each child container already represents exactly its subtree; merging all child containers and the current node value creates exactly the parent subtree container.',
+        'The cost proof charges work to moved entries. Each charged move at least doubles the container size for that entry. No entry can be charged more than floor(log2 n) + 1 times.',
       ],
     },
     {
-      heading: 'Implementation review',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A good implementation makes ownership explicit. The kept container belongs to the current subtree after the merge. Smaller containers should not be queried afterward unless the code deliberately keeps snapshots. In languages with mutable maps, accidental aliasing can create wrong answers that look like algorithmic mistakes.',
-        'The second review point is update semantics. If the answer needs counts, insert means increment. If it needs distinct values, insert means set membership. If it needs the most frequent color, the merge must update both color counts and a secondary frequency summary. Small-to-large controls movement, but the statistic still has to be maintained correctly.',
-        'The third review point is recursion shape. Deep trees can overflow the call stack in JavaScript, and object-heavy maps can dominate runtime even when the amortized movement proof is correct. Production-style implementations may need iterative DFS, coordinate compression, typed arrays, or explicit pool reuse.',
+        'With O(1) average hash-map updates, total movement is O(n log n). With ordered maps, updates may cost O(log n), giving O(n log squared n).',
+        'The movement bound does not make every implementation fast. JavaScript Map allocation, hashing, object churn, and recursion depth can dominate. Reusing the kept container is part of the algorithm, not polish.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'If inserts into the destination container cost O(log n), subtree set merging often costs O(n log^2 n). With hash maps or integer-frequency arrays, it can be closer to O(n log n) or O(n) for movement plus update costs.',
-        'The exact bound depends on the container, value compression, ordered iteration, and custom statistics. The idea controls movement; the container controls per-entry update cost.',
-        'For teaching, it is useful to separate movement count from update cost. The small-to-large rule bounds how often each element is moved. It does not promise that each move is constant time. A balanced tree, hash table, sorted vector, or frequency array changes the final bound.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It wins for subtree metadata, component metadata, offline tree queries, frequency maps, distinct-value counts, and situations where repeated merge cost dominates the algorithm.',
-        'It is the right mental neighbor of Union-Find union by size, but it also appears in log compaction, segment merging, and any system where rewriting the largest structure repeatedly is the real cost.',
+        'The standard use is computing subtree answers such as distinct colors, most frequent label, or merged query endpoints. It works when an answer can be read from a merged container.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Subtree aggregation is easiest to reason about when ownership flows along directed parent-child edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
+        'The same accounting appears in log compaction, segment merging, union-by-size structures, and offline graph routines where rewriting the largest structure repeatedly is the cost to avoid.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when queries are online, path-oriented, or require updates between answers. Heavy-Light Decomposition, Euler Tour Tree, Link-Cut Tree, or another dynamic structure may fit better.',
-        'It also fails if the implementation merges in arbitrary order or keeps references to discarded small containers after their entries have moved. The destination is now the authoritative container.',
+        'It fails for online updates, dynamic trees, path queries, and rerooted answers. A static postorder merge cannot answer a changing query stream by itself.',
+        'It also fails when the statistic is not mergeable through container updates. Heavy-Light Decomposition, Euler Tour Trees, Link-Cut Trees, Mo on trees, or rerooting DP may be the right tool instead.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Given a tree where every node has a color, compute for every node how many distinct colors appear in its subtree. The naive solution walks the whole subtree for every node. Small-to-large does one postorder DFS and reuses the largest child set at every parent.',
-        'Virtual Tree LCA Compression is the adjacent tool when the query gives a small marked subset and asks for DP only on the induced subtree. Rerooting DP is the adjacent tool when every possible root needs an answer. Small-to-large keeps rich metadata while walking the whole rooted tree.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Subtree aggregation is easiest to reason about when ownership flows along directed parent-child edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        'A complete implementation also has to decide what happens after recording an answer. Some variants keep containers for ancestors; others clear temporary data to save memory. That choice depends on whether later queries need the exact subtree container or only the stored answer.',
+        'Suppose node 1 has children 2 and 3, and node 2 has children 4 and 5. Colors are 1:A, 2:B, 3:A, 4:C, 5:B, and the task is distinct colors per subtree.',
+        'Leaves start as sets: node 3 has {A}, node 4 has {C}, and node 5 has {B}. At node 2, merge one size-1 child set into the other and add B, producing {B, C}; answer[2] = 2.',
+        'At node 1, keep node 2s size-2 set, merge node 3s {A}, and add A again. The set is {A, B, C}, so answer[1] = 3. The entry C moved only through growing containers.',
       ],
     },
     {
-      heading: 'Common mistakes',
+      heading: 'Sources and study next',
       paragraphs: [
-        'The most common mistake is merging large into small because it is more convenient in the code. That destroys the doubling proof. Another mistake is treating the heavy child idea as the same as Heavy-Light Decomposition. Both notice large subtrees, but HLD decomposes paths while DSU-on-tree aggregates subtree data.',
-        'A third mistake is forgetting that root choice changes subtree meaning. Small-to-large answers are for the rooted tree used by the DFS. If the problem asks for rerooted answers, this technique may be only one part of the solution, not the whole algorithm.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: USACO Guide small-to-large merging at https://usaco.guide/plat/merging, CP-Algorithms DSU section on merging sets at https://cp-algorithms.com/data_structures/disjoint_set_union.html, Codeforces DSU on tree explanation at https://codeforces.com/blog/entry/67696, and SOI smaller-to-larger notes at https://soi.ch/wiki/smaller-to-larger/. Study Rerooting DP: All Roots Tree DP, Virtual Tree LCA Compression, Union-Find, Tree Traversals, Heavy-Light Decomposition, Mo\'s Algorithm, and Euler Tour Tree next.',
+        'Study USACO Guide small-to-large merging, CP-Algorithms on DSU union by size, Codeforces DSU-on-tree explanations, and SOI smaller-to-larger notes. Read for the doubling proof, not for one template.',
+        'Next study Tree Traversals, Union-Find, Heavy-Light Decomposition, Rerooting DP, Euler Tour Trees, Virtual Tree LCA Compression, Mo on Trees, and Hash Map costs.',
       ],
     },
   ],

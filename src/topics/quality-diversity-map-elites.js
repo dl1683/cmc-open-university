@@ -225,84 +225,92 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the archive as a table where the row and column are behavior descriptors. A descriptor is a measured behavior feature, such as speed, height, difficulty, or symmetry.',
+        'The value inside a filled cell is the current elite, meaning the best candidate found so far for that niche. Active cells show where a new candidate belongs, and found cells show archive updates.',
         {type: 'image', src: './assets/gifs/quality-diversity-map-elites.gif', alt: 'Animated walkthrough of the quality diversity map elites visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Quality Diversity exists because one best score is often too narrow. A robot may need several gaits for different terrain. A game generator may need many playable styles. A molecule search may need different shapes with similar binding quality. A self-organizing system may need fallback behaviors when conditions change. In these settings, the output should be a repertoire, not one champion.',
+        'Many searches do not need one champion; they need a repertoire. A damaged robot needs backup gaits, a game generator needs many playable styles, and a design tool needs alternatives under different constraints.',
         {type: 'callout', text: 'MAP-Elites makes diversity a storage address and quality a local replacement rule.'},
-        'MAP-Elites is the canonical Quality Diversity algorithm. It builds an archive indexed by behavior descriptors, then stores the best solution found so far in each cell. Diversity is not a post-processing chart. It is represented directly by the data structure that guides search.',
+        'Quality Diversity is the family of algorithms that optimize for good solutions spread across behavior space. MAP-Elites is the cleanest version: store the best solution found in each behavior cell.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is standard evolutionary search, hill climbing, Bayesian optimization, or differential evolution: define one scalar fitness, mutate candidates, and keep the best. That is reasonable when the product truly wants one answer. If the only goal is shortest path length or highest validation accuracy, diversity may be unnecessary overhead.',
-        'The wall appears when the best scalar answer is brittle or incomplete. A robot optimized only for speed may learn one gait that fails after damage. A level generator optimized only for player completion may converge on one dull style. A neural cellular automaton trained only for one target image may never discover nearby forms that would repair better. Single-objective pressure tends to erase alternatives before anyone knows they were useful.',
-        'A second shortcut is random search plus a diversity plot afterward. That shows variety, but it does not protect variety during search. MAP-Elites changes selection pressure while search is happening. Candidates compete locally inside niches, so a medium-speed, high-stability gait does not have to beat the fastest gait in the whole population to survive.',
+        'The obvious approach is single-objective optimization. Define one fitness score, mutate candidates, and keep the best one.',
+        'That is reasonable when the deployment really has one target. If the only goal is highest accuracy under fixed constraints, preserving a repertoire may waste budget.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears when the best score is brittle. A robot optimized only for flat-ground speed can fail on rough terrain or after damage.',
+        'Single-objective pressure also erases alternatives before they can prove useful. A medium-speed but stable gait may disappear because it loses against the fastest gait in the global ranking.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to split quality from behavior. Behavior descriptors choose the address in the archive. Fitness chooses the winner inside that address. A candidate that is fast and low-height goes to one cell. A candidate that is slow and high-height goes to another. They are not forced to compete as if they solved the same problem.',
+        'The core insight is to split behavior from quality. Behavior chooses the archive address, while fitness chooses the winner inside that address.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/54/Euclidean_Voronoi_diagram.svg', alt: 'Colored Voronoi cells partitioning a plane around points', caption: 'A descriptor archive is a designed partition of behavior space; this Voronoi diagram gives the same visual intuition of regions owning candidates. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Euclidean_Voronoi_diagram.svg.'},
-        'This turns diversity into an index. First choose descriptors and divide them into bins. Then generate candidates, evaluate fitness, compute descriptors, and place each candidate into the matching archive cell. If the cell is empty, insert it. If the cell already has an elite, replace it only if the candidate has higher fitness.',
+        'A slow-high solution and a fast-low solution do not compete as if they solve the same niche. They compete only against previous elites with the same descriptor bin.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A MAP-Elites run starts with an archive, usually a grid or sparse map over descriptor bins. The initial archive may be empty or seeded with random candidates. The loop then selects an existing elite, mutates or recombines it, evaluates the child, computes the child behavior descriptor, and maps that descriptor to a cell.',
+        'Start with an empty archive over descriptor bins. Generate or seed candidates, evaluate each candidate\'s fitness, compute its descriptor, and map it to a cell.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/MCTS_Algorithm.png/250px-MCTS_Algorithm.png', alt: 'Monte Carlo tree search phases of selection expansion simulation and backpropagation', caption: 'Quality-diversity search is not MCTS, but both make search pressure visible as a loop over selection, evaluation, and update. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:MCTS_Algorithm.png.'},
-        'The update rule is simple. Empty cell means insert. Filled cell means compare fitness against the current elite in that cell. If the child is better, replace the elite. If not, discard the child. Selection can be uniform over filled cells, biased toward high performers, biased toward underexplored regions, or combined with more advanced variation operators.',
-        'The descriptor is the main design lever. For robot locomotion it might be final position, gait pattern, contact timing, or body height. For generated levels it might be difficulty and style. For molecule or material design it might be shape, charge, stability, or manufacturability. For self-organizing systems it might be size, symmetry, persistence, or repair ability. If the descriptor is meaningless, the archive preserves meaningless diversity.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The archive view proves the data-structure idea. Rows and columns are behavior descriptors. A candidate is addressed by behavior and judged by fitness. The same high score can be irrelevant if it belongs in a different cell. The archive asks "best for this niche," not "best overall."',
-        'The search-loop view proves the algorithmic pressure. Selection comes from the archive, variation creates a candidate, evaluation produces both quality and behavior, and update changes one niche. The coverage plot must be read with both axes. A useful run needs enough filled cells and enough quality inside those cells. One excellent solution is not a repertoire; a huge archive of poor solutions is not useful.',
+        'If the cell is empty, insert the candidate. If the cell already has an elite, replace it only when the candidate\'s fitness is higher.',
+        'The loop then samples elites from the archive, mutates them, evaluates children, and updates cells. The archive is both memory and search guide.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'MAP-Elites works by preserving local optima that a global optimizer would throw away. The invariant is that each filled cell stores the best candidate found so far for that behavior niche. A new child can improve a niche without needing to beat every other niche. That keeps exploration alive while still applying quality pressure.',
-        'This is not a guarantee that the archive covers every useful behavior. It is a guarantee about the archive rule: diversity is protected only along the descriptors that were chosen, and quality is improved only inside the cells that receive evaluated candidates. The method works when those descriptors carve the search space into niches that matter for the downstream use.',
+        'The invariant is local elitism. Each filled cell stores the best candidate seen so far for that behavior niche.',
+        'This protects useful local optima that a global optimizer would discard. The method is correct about its archive rule, but the result is useful only if the chosen descriptors describe behaviors that matter.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The main cost is evaluation budget. MAP-Elites wants many candidates because it is trying to fill and improve many niches, not only chase one optimum. If each candidate requires a physics simulation, game playthrough, molecular docking run, or human rating, runtime is dominated by evaluation. Parallel evaluation helps, but it does not remove the budget question.',
-        'Memory is archive size times solution representation plus metadata. A small two-dimensional grid is cheap. A high-dimensional descriptor space can explode into mostly empty cells. Sparse archives help, but then coverage becomes harder to interpret. Bin resolution is also a tax: coarse bins hide useful differences, while fine bins spread the budget too thin.',
-        'Noisy evaluations add another tradeoff. A lucky candidate can replace a true elite if fitness is noisy. Serious runs often need repeated evaluation, confidence intervals, or conservative replacement rules. Reporting should include coverage, best fitness, average or median elite fitness, descriptor definitions, binning choices, and total evaluation budget.',
+        'The dominant cost is evaluation. If one candidate requires a physics rollout, game playthrough, docking simulation, or human rating, the runtime is the number of candidates times that evaluation cost.',
+        'Memory is archive cells times elite size and metadata. A 50 by 50 grid has 2,500 cells; storing a 2 KB controller per filled cell uses about 5 MB before scores and descriptors.',
+        'Descriptor resolution controls behavior. Coarse bins hide differences, while fine bins spread the same evaluation budget over too many cells.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Quality Diversity is useful when deployment is varied, users need options, or a single objective hides important behavioral differences. Robotics is the classic case: a repertoire of gaits can support adaptation after damage or terrain change. Procedural content generation can use an archive of levels across difficulty and style. Engineering design can search many feasible shapes rather than one peak design.',
+        'MAP-Elites fits robotics, procedural content generation, engineering design, molecule search, material design, controller search, and self-organizing systems. The shared pattern is that deployment values options.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Learned controllers and generative systems often need many viable behaviors, not one isolated optimum. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
-        'The local self-organizing AI connection is natural. NCA-like systems trained for one target may learn one path to one shape. A QD archive can search for many stable, repairable, or symmetric outcomes before deployment. That matters when the environment changes or when the researcher wants to study the space of possible behaviors rather than one trained endpoint.',
+        'It is also useful for analysis. A filled archive shows which regions of behavior space are reachable, which are empty, and which contain high-quality designs.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'MAP-Elites is overkill when one robust scalar objective is enough. If the product wants the cheapest valid route, the most accurate classifier, or the fastest implementation under fixed constraints, a repertoire may waste budget. Quality Diversity is also weak when the descriptors are chosen because they are easy to measure rather than meaningful.',
-        'Poor descriptors, tiny budgets, noisy evaluations, and overbroad bins can produce a decorative archive. The grid may look full while storing behaviors nobody needs. The opposite failure is a beautiful best score with almost no coverage. A QD result is only convincing when the behavior dimensions, quality metric, and evaluation budget match the claim.',
+        'MAP-Elites fails when the descriptors are easy to measure but irrelevant. The archive can look diverse while preserving differences that users do not care about.',
+        'It also fails under tiny budgets or noisy fitness. A lucky evaluation can replace a better elite, and a sparse budget can leave most cells empty.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine a robot gait search with two descriptors: speed bucket and body-height bucket. A 3 by 3 archive has 9 niches.',
+        'Candidate G has behavior fast-mid and fitness 86. The current fast-mid cell stores D with fitness 70, so G replaces D.',
+        'Candidate H has behavior medium-high and fitness 74. If that cell already stores E with fitness 77, H is discarded even though it might beat elites in other cells.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MAP-Elites at https://arxiv.org/abs/1504.04909, Quality Diversity: A New Frontier for Evolutionary Computation at https://arxiv.org/abs/2012.00528, and the GECCO tutorial material at https://quality-diversity.github.io/. Study Evolutionary Search for the variation loop, Differential Evolution for another population optimizer, Novelty Search for diversity pressure without an elite grid, Multi-Armed Bandits for exploration budgets, Hyperparameter Search for black-box optimization, Neural Cellular Automata for self-organizing targets, Self-Organizing AI Design Pattern for repertoire use, and Conformal Prediction for uncertainty-aware deployment decisions.',
+        'Start with Mouret and Clune, "Illuminating Search Spaces by Mapping Elites", and the Quality Diversity survey by Pugh, Soros, and Stanley. Then study evolutionary search, novelty search, differential evolution, multi-armed bandits, hyperparameter search, neural cellular automata, and uncertainty-aware evaluation.',
       ],
     },
   ],

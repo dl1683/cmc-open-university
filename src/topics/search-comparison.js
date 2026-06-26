@@ -178,100 +178,47 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Each frame adds one search method to the chart. The x-axis is input size n. The y-axis is the number of comparisons (or probes) needed to find a key in the worst or average case. Watch the curves separate as n grows: the visual gap IS the performance gap.',
-        'The final frame switches to a space-cost chart showing extra memory each method requires. Speed and space are two axes of the same tradeoff — the animation shows both so you can weigh them together.',
-        'The invariant line beneath each frame gives exact numbers at the current max n. Use these to verify what the curves imply: at n = 128, linear search does 128 comparisons while binary search does 7.',
-        {type: 'callout', text: 'Search speed is purchased with structure: sorted order buys halving, balance buys dynamic order, and hashing buys direct addressing.'},
-      
-        {type: 'image', src: './assets/gifs/search-comparison.gif', alt: 'Animated walkthrough of the search comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Searching is the most common operation in computing. Every database query, dictionary lookup, autocomplete suggestion, and cache check is a search. The choice of search method determines whether the operation takes nanoseconds or seconds, and whether the system scales to a million users or collapses at a thousand.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6a/Binary_Search_Example.png', alt: 'Binary search example narrowing a sorted array by moving low, mid, and high pointers', caption: 'Binary search turns sorted order into proof that half the remaining array can be discarded. Source: Wikimedia Commons, Kurt Kaiser, CC0 1.0.'},
-        'This comparison exists because the methods are easy to learn in isolation but hard to compare without seeing them on the same axes. A student who knows binary search is "O(log n)" and hash lookup is "O(1)" may not feel what those curves mean until they see them drawn side by side at n = 512.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'Scan left to right. Compare each element to the target. If you find it, stop. If you reach the end, it is not there. This is linear search: no preconditions, no setup, no extra memory. It works on any collection, sorted or not.',
-        'For small collections — a dozen items, a short list — this is optimal. The overhead of building a fancier structure costs more than the scan saves. Linear search is the baseline every other method must justify itself against.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'O(n) means a billion items require a billion checks per lookup in the worst case. If the application performs a thousand lookups per second, that is a trillion comparisons per second — far beyond any single machine. Even average-case n/2 only halves the pain.',
-        'The wall is not theoretical. A web server scanning a million-row table per request will choke under load. A search engine scanning every document for every query would take hours. The wall forces the question: can we do better? The answer is yes, but it costs structure.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Linear search: compare target to element 0, then 1, then 2, and so on. Worst case: n comparisons. Average (key present, uniformly distributed): n/2.',
-        'Binary search: requires a sorted array. Compare target to the middle element. If equal, done. If less, recurse into the left half. If greater, the right half. Each step eliminates half the remaining elements. Worst case: ceil(log2(n)) comparisons.',
-        'Balanced BST (AVL, red-black): each node stores a key and two child pointers. Search follows left or right at each level. A balanced tree has height O(log n), so search takes O(log n) comparisons. Supports dynamic inserts and deletes without re-sorting.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/da/Binary_search_tree.svg', alt: 'Binary search tree with each left child smaller and each right child larger', caption: 'A search tree preserves sorted branching while allowing inserts and deletes without rebuilding a flat array. Source: Wikimedia Commons, Derrick Coetzee and Booyabazooka, public domain.'},
-        'Degenerate BST: if keys are inserted in sorted order without balancing, the tree becomes a linked list. Height = n, search = O(n). This is why self-balancing variants exist.',
-        'Hash table: compute a hash of the key, index into a backing array. On average, with a good hash function and load factor under 1, this takes O(1) — roughly 1 to 2 probes regardless of n. Worst case (all keys collide) is O(n), but good hash functions make this vanishingly unlikely.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Binary search works because sorted order lets you eliminate half the candidates with one comparison. Each comparison carries one bit of information ("left or right"), and log2(n) bits are enough to identify any element among n. This is information-theoretically optimal for comparison-based search.',
-        'Hashing works because it bypasses comparison entirely. Instead of asking "is the target here or there," it computes where the target should be and checks directly. The hash function converts the search problem into an addressing problem — O(1) because array indexing is O(1).',
-        'BSTs work because they maintain a dynamic sorted structure. Unlike a sorted array, which requires O(n) shifts to insert, a balanced BST inserts in O(log n) by adjusting a few pointers. The price is pointer overhead and cache-unfriendly memory layout.',
-      ],
-    },
-    {
-      heading: 'Cost',
-      paragraphs: [
-        'Time comparison (worst case for n elements): Linear search: O(n) time, O(1) extra space. Binary search: O(log n) time, O(1) extra space (but requires O(n) sorted data). Balanced BST: O(log n) time, O(n) space (nodes + pointers). Hash table: O(1) average time, O(n) space (backing array + load factor overhead).',
-        'Space overhead matters. A hash table with load factor 0.75 allocates a backing array 33% larger than the number of keys. A BST stores two pointers per node, roughly tripling the per-element memory compared to a flat array. Linear search and binary search on an existing array add zero extra space.',
-        'Preprocessing cost: linear search needs none. Binary search needs O(n log n) to sort once. BST needs O(n log n) to insert all elements (balanced). Hash table needs O(n) to insert all elements. If the data changes frequently, the cost of maintaining the structure matters as much as the search cost.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Linear search wins for tiny collections (under ~20 elements), unsorted data you will only search once, and cases where simplicity and zero setup cost matter more than speed.',
-        'Binary search wins for large static sorted data — a dictionary, a read-only lookup table, a sorted log file. It uses no extra space and has excellent cache locality because it accesses a contiguous array.',
-        'Balanced BSTs win for dynamic data that changes between searches: insert, delete, and search are all O(log n). They also support range queries and ordered iteration, which hash tables cannot.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg/3840px-Hash_table_5_0_1_1_1_1_1_LL.svg.png', alt: 'Hash table with keys mapped into buckets and linked-list collision chains', caption: 'Hashing buys average constant lookup by turning a key into a bucket address, with collision handling as the tax. Source: Wikimedia Commons, Jorge Stolfi, CC BY-SA 3.0.'},
-        'Hash tables win for key-value lookups on large, relatively stable datasets. O(1) average lookup is unbeatable when you need raw speed and can afford the memory overhead. Databases, caches, symbol tables, and routers all rely on hashing.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Linear search fails at scale. Beyond a few thousand elements, it becomes the bottleneck in any hot path.',
-        'Binary search fails on unsorted data (sorting costs O(n log n) upfront), on data that changes frequently (re-sorting after every insert is expensive), and on linked structures (random access is required for the halving step).',
-        'BSTs fail without balancing — degenerate input produces O(n) search. They also have poor cache locality compared to arrays because nodes are scattered in memory. In practice, B-trees (which pack many keys per node) outperform BSTs for on-disk data.',
-        'Hash tables fail when you need ordered access (iteration order is arbitrary), when the hash function is poor (clustering degrades to O(n)), and when memory is tight (the load-factor overhead and pointer chasing are real costs). They also have O(n) worst case, which matters for latency-sensitive systems.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Search for key 42 in a sorted array of 16 elements [1, 3, 5, 8, 12, 17, 23, 29, 31, 35, 38, 42, 45, 50, 61, 78].',
-        'Linear search: compare 42 to elements 0 through 11. Found at index 11 after 12 comparisons. Worst case for 16 elements: 16 comparisons.',
-        'Binary search: compare 42 to index 7 (value 29) — go right. Compare to index 11 (value 42) — found. 2 comparisons. Worst case for 16 elements: ceil(log2(16)) = 4 comparisons.',
-        'Hash table: compute hash(42), index into the backing array. If no collision, found in 1 probe. With load factor 0.75 on 16 keys, the backing array has ~22 slots and the expected probes are ~1.14.',
-        'The ratios: linear took 12 comparisons, binary took 2, hash took ~1. At n = 1,000,000 the gap becomes linear = 1,000,000, binary = 20, hash = 1. That is the chart in one sentence.',
-      ],
-    },
-    {
-      heading: 'Sources and further reading',
-      paragraphs: [
-        'Knuth, D. (1998). The Art of Computer Programming, Volume 3: Sorting and Searching, 2nd edition — the definitive treatment of search algorithms, hashing, and tree search. Cormen, Leiserson, Rivest, and Stein (2009). Introduction to Algorithms, 3rd edition, chapters 11-13 — hash tables, BSTs, red-black trees.',
-        'Related topics on this site: Linear Search for the step-by-step scan. Binary Search for the halving strategy in detail. Hash Table for open addressing and chaining. Binary Search Tree for dynamic ordered search. AVL Tree and Red-Black Tree for self-balancing. Big-O Growth Rates for the general complexity framework that underlies this comparison.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Each frame adds a search method to the same chart. The x-axis is input size n, and the y-axis is comparisons or probes, so curve separation is actual work saved.',
+      {type: 'callout', text: 'Search speed is purchased with structure: sorted order buys halving, balance buys dynamic order, and hashing buys direct addressing.'},
+      {type: 'image', src: './assets/gifs/search-comparison.gif', alt: 'Animated walkthrough of the search comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+    ]},
+    { heading: 'Why this exists', paragraphs: [
+      'Search is behind dictionaries, caches, database indexes, routers, symbol tables, autocomplete, and configuration lookup. The structure chosen before the query determines whether lookup scans, halves, branches, or addresses directly.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6a/Binary_Search_Example.png', alt: 'Binary search example narrowing a sorted array by moving low, mid, and high pointers', caption: 'Binary search turns sorted order into proof that half the remaining array can be discarded. Source: Wikimedia Commons, Kurt Kaiser, CC0 1.0.'},
+    ]},
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is linear search: check one item, then the next, until the key is found or the collection ends. It needs no sorting, no hash function, no tree, and no extra memory.',
+    ]},
+    { heading: 'The wall', paragraphs: [
+      'Linear search cannot rule out unseen elements. At 1,000,000 items, worst-case lookup means 1,000,000 comparisons, and doubling n doubles the worst-case work.',
+    ]},
+    { heading: 'The core insight', paragraphs: [
+      'Search improves when stored structure lets one operation discard many candidates. Sorted order buys halving, tree balance buys dynamic ordered branching, and hashing turns a key into a predicted address.',
+    ]},
+    { heading: 'How it works', paragraphs: [
+      'Binary search compares the target with the middle of a sorted array and discards the impossible half. A balanced search tree branches left or right by key order, while a hash table computes a bucket and resolves collisions.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/da/Binary_search_tree.svg', alt: 'Binary search tree with each left child smaller and each right child larger', caption: 'A search tree preserves sorted branching while allowing inserts and deletes without rebuilding a flat array. Source: Wikimedia Commons, Derrick Coetzee and Booyabazooka, public domain.'},
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg/3840px-Hash_table_5_0_1_1_1_1_1_LL.svg.png', alt: 'Hash table with keys mapped into buckets and linked-list collision chains', caption: 'Hashing buys average constant lookup by turning a key into a bucket address, with collision handling as the tax. Source: Wikimedia Commons, Jorge Stolfi, CC BY-SA 3.0.'},
+    ]},
+    { heading: 'Why it works', paragraphs: [
+      'Binary search is correct because sorted order makes a whole half impossible after one comparison. A balanced tree is correct because each node partitions keys into smaller and larger subranges, and a hash table is correct because insertion and lookup follow the same hash and collision rule.',
+    ]},
+    { heading: 'Cost and complexity', paragraphs: [
+      'Linear search is O(n): doubling n doubles worst-case checks. Binary search and balanced trees are O(log n): doubling n adds about one comparison level, while hash tables are O(1) average under a good hash function and controlled load factor.',
+    ]},
+    { heading: 'Real-world uses', paragraphs: [
+      'Linear search fits tiny or one-time collections. Binary search fits static sorted arrays, balanced trees fit dynamic ordered maps and range queries, and hash tables fit caches, dictionaries, symbol tables, and exact key lookup.',
+    ]},
+    { heading: 'Where it fails', paragraphs: [
+      'Binary search fails without sorted random-access data. Trees fail without balance or when pointer chasing dominates, and hash tables fail when order matters, memory is tight, or adversarial keys cause collisions.',
+    ]},
+    { heading: 'Worked example', paragraphs: [
+      'Search for 42 in 16 sorted values: [1, 3, 5, 8, 12, 17, 23, 29, 31, 35, 38, 42, 45, 50, 61, 78]. Linear search finds it after 12 comparisons.',
+      'Binary search checks index 7 with value 29, then index 11 with value 42, so it stops after 2 comparisons. A hash table at load factor 0.75 stores 16 keys in about 22 slots and often finds the key in 1 or 2 probes.',
+    ]},
+    { heading: 'Sources and study next', paragraphs: [
+      'Study Knuth Volume 3 and CLRS chapters on hashing and search trees. Then read Linear Search, Binary Search, Hash Table, Binary Search Tree, AVL Tree, Red-Black Tree, and Big-O Growth Rates.',
+    ]},
   ],
 };

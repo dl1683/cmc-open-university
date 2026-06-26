@@ -176,180 +176,110 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Gradient Boosting. Each tree fits the previous ensemble's mistakes — gradient descent in function space, and the king of tabular data..",
+        'The animation builds a gradient-boosted model one tree at a time. The first frame shows the baseline prediction: the mean of all target values, drawn as a flat line. Every subsequent frame fits a new decision stump to the residuals (the gaps between the current prediction and the true values), then adds that stump\'s output to the running prediction. Watch the prediction curve bend closer to the data points with each round.',
         {type: "callout", text: "Gradient boosting turns residuals into the next training set, so every weak learner has one repair job."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/gradient-boosting.gif', alt: 'Animated walkthrough of the gradient boosting visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Active markers highlight the data points or model curve being updated in the current round. Visited markers show corrections from previous rounds that are already baked into the ensemble. Found markers indicate the final converged prediction after all rounds complete. The residual plot, when it appears, shows the same data reframed as errors: those errors become the literal training targets for the next stump.',
+        'The second view compares learning rates. Two MSE curves descend at different speeds because one ensemble takes full-sized steps (eta = 1.0) and the other takes shrunk steps (eta = 0.3). The comparison makes visible why smaller steps need more rounds but resist overfitting on noisy data. A third frame contrasts bagging and boosting side by side so you can see the structural difference: parallel independence versus sequential repair.',
+        {type: 'image', src: './assets/gifs/gradient-boosting.gif', alt: 'Animated walkthrough of the gradient boosting visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
-      heading: `Why gradient boosting exists`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Gradient boosting exists because many real prediction problems are too irregular for one simple model but too structured to ignore. Tabular data often contains thresholds, interactions, missing values, and feature effects that change across ranges. A linear model may miss those shapes. A single decision tree can find them, but it tends to overfit unless it is heavily constrained. The goal is to build a strong predictor from many small, controlled corrections rather than trust one large tree to discover everything at once.`,
-        `The central move is sequence. Random forests train many trees independently and average them. Gradient boosting trains trees in order. Each new tree studies what the current ensemble still gets wrong. If the current model underprices large houses, the next tree is asked to correct that error. If the next round exposes a smaller pattern among mid-size houses, another tree corrects that. The final model is an additive function: a base prediction plus many learned corrections.`,
+        'Prediction problems on structured, tabular data (rows of features with a numeric or categorical target) are everywhere: pricing, fraud scoring, medical risk, demand forecasting, ad ranking. The data contains thresholds, interactions, missing values, and nonlinear effects that shift across feature ranges. A linear model misses those shapes. A single decision tree can capture them, but it tends to memorize noise unless you prune it heavily, at which point it may be too weak to capture the real structure.',
+        'The goal is a model that can learn complex nonlinear patterns without memorizing accidents in the training set. One approach is to combine many models. Random forests do this by averaging independent trees, which reduces variance (the tendency to overfit). But averaging independent models does not systematically fix bias (the tendency to underfit). If every tree in the forest makes the same systematic error, averaging a thousand of them still makes that error.',
+        'Gradient boosting solves a different equation. Instead of training many models on the same problem and averaging, it trains models in sequence, and each new model is trained on the mistakes of the current ensemble. The result is an additive function: a base prediction plus a series of learned corrections, each one targeted at what the ensemble still gets wrong.',
         {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_adaboost_regression_001.png`, alt: `AdaBoost regression example with weak learners correcting prior errors`, caption: `The staged-regression picture shows the same ensemble repair idea: later weak learners focus on what the current predictor still misses. Source: scikit-learn examples, https://scikit-learn.org/stable/auto_examples/ensemble/plot_adaboost_regression.html`},
       ],
     },
     {
-      heading: `Where it fails`,
-      paragraphs: [
-        `The first naive alternative is to fit one deep tree. That can drive training error down, but it often memorizes accidents in the sample: rare categories, outliers, leakage, or noise in the labels. The tree becomes a list of brittle exceptions. It may look excellent on the training set and disappoint on new rows. Pruning helps, but then the tree may be too weak to capture the real nonlinear structure.`,
-        `The second naive alternative is to average many independent trees, as a random forest does. That is often strong, and it reduces variance, but averaging does not create a sequence of targeted repairs. If every tree is trying to solve the whole problem from scratch, the ensemble may still keep the same bias. Boosting attacks bias directly. It asks, after each round, "what part of the target remains unexplained?" That question is the reason boosted trees can be very strong with shallow learners.`,
-      ],
-    },
-    {
-      heading: `The core insight`,
-      paragraphs: [
-        `The core insight is that a model can improve by fitting its own errors. Start with a crude function F0, such as the mean label. For each training example, compute the residual y - F0(x). That residual is a new target: positive if the model predicted too low, negative if it predicted too high. Fit a weak tree to those residuals, scale the tree by a learning rate, and add it to the model. Then recompute residuals and repeat.`,
-        `For squared error, this is not just a metaphor. The residual is the negative gradient of the loss with respect to the current prediction. Ordinary gradient descent updates a vector of weights. Gradient boosting updates a function. The tree is the step direction in function space, and the learning rate controls how far the function moves in that direction. For logistic loss, ranking losses, and other objectives, modern boosting libraries fit trees to the appropriate gradients and often use second-order curvature information to choose better leaf values.`,
-      ],
-    },
-    {
-      heading: `Why it works`,
-      paragraphs: [
-        `Gradient boosting works because each stage optimizes the current loss surface instead of restarting the same problem. For squared error, the residual is the negative gradient, so a tree fitted to residuals is a function-shaped descent step. The model improves when that step points toward lower error on the training examples and is small enough not to chase every accident in the data.`,
-        `The correctness intuition is additive repair under control. A weak learner does not need to solve the whole task. It only needs to capture one useful pattern in the remaining error. Shrinkage, shallow trees, validation, early stopping, and regularized leaf values keep those repairs from becoming brittle memorization. The ensemble succeeds when many small corrections reduce bias while the control system keeps variance from taking over.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The demo uses ten house sizes and prices. The initial model predicts the same price for every house: the mean. That model is intentionally dull, so the residuals show clear structure. Small houses sit below the mean, large houses sit above it, and a one-split stump can learn a useful correction. The stump searches possible split points, sends rows left or right, and predicts the average residual on each side.`,
-        `After the first stump is added, the target changes. The second stump is not trying to fit original house prices. It is trying to fit the remaining errors after the first correction. That distinction matters. Boosting keeps changing the problem it gives to the next learner. In the plotted example, four one-split stumps recover the three price plateaus because each stump handles a different part of the remaining pattern. No individual stump is expressive enough to represent the full function. The sum is expressive because every stump is placed where the previous sum still fails.`,
-      ],
-    },
-    {
-      heading: `How it works (2)`,
-      paragraphs: [
-        `The first visual proves that boosting begins from an error, not from a finished idea of the target function. The mean line is bad in a useful way: the gaps between data points and the line are organized. The residual plot turns those gaps into a dataset. Once the errors are visible as targets, the purpose of the next tree becomes concrete. It is not another independent opinion. It is a correction with a job.`,
-        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_gradient_boosting_regression_001.png`, alt: `Gradient boosting regression example with prediction curves over training iterations`, caption: `scikit-learn shows gradient boosting as staged function improvement: each round moves the predictor toward the target surface. Source: https://scikit-learn.org/stable/auto_examples/ensemble/plot_gradient_boosting_regression.html`},
-        `The learning-rate view proves the main regularization tradeoff. A full-size correction can reduce training error quickly on a clean toy problem. On noisy data, that same greed can memorize label noise. Shrinkage multiplies each tree by a value such as 0.1 or 0.03, forcing the ensemble to move in smaller steps. Smaller steps usually need more trees, but they give validation error more chances to reveal when the model has started chasing noise. Early stopping is therefore not an accessory. It is part of the algorithm's practical control system.`,
-      ],
-    },
-    {
-      heading: `Cost and behavior`,
-      paragraphs: [
-        `Training cost is roughly the number of rounds times the cost of fitting one tree. Real libraries reduce that cost with histogram bins, sorted feature blocks, column sampling, row sampling, and parallel split search. Prediction is usually cheap: evaluate each tree, add its leaf value, and return the sum. The cost grows with tree count and tree depth, so a model with thousands of deep trees can become heavy for low-latency systems even if it trains well.`,
-        `The tradeoffs are mostly about control. More trees reduce bias but can raise variance. Deeper trees capture interactions but can memorize small groups. A smaller learning rate is safer but requires more rounds. Subsampling adds noise that can improve generalization but also increases run-to-run variation. Regularization on leaf weights and tree structure keeps corrections from becoming too sharp. Compared with neural networks, boosted trees often need less feature scaling and less training infrastructure, but they are less natural for raw images, audio, long text, and representation learning.`,
-        `There is also an operations tradeoff. A boosted tree model is easy to ship as a list of splits, but it is harder to update incrementally than a simple linear model. New data often means retraining the ensemble, rechecking calibration, and comparing feature distributions against the training window. Fast prediction does not remove the need for monitoring. A stale boosted model can keep making confident corrections for patterns that no longer exist.`,
-      ],
-    },
-    {
-      heading: `Where it fails (2)`,
-      paragraphs: [
-        `Gradient boosting is a default baseline for tabular machine learning. It is used in fraud detection, credit risk, churn prediction, pricing, demand forecasting, ad ranking, insurance, medical risk scoring, and many Kaggle-style competitions. It handles mixed numeric and categorical features after encoding, nonlinear thresholds, missing values, and feature interactions. XGBoost, LightGBM, and CatBoost are production forms of the same idea with careful engineering around split search, missing values, categorical handling, regularization, and distributed training.`,
-        `The failure modes are direct consequences of the algorithm's strength. Because every round attacks the remaining error, leakage is rewarded aggressively. A feature that accidentally contains the answer will look like the perfect correction. Noisy labels can be chased round after round unless validation and early stopping are honest. Time-series problems fail if rows are randomly split and future information leaks into training. Categorical encodings can leak target statistics if they are computed outside the validation fold. Boosting also gives feature importance numbers that can be misleading when features are correlated or when leakage is present.`,
-        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_forest_importances_001.png`, alt: `Feature importance chart from a tree ensemble`, caption: `Feature-importance bars are useful diagnostics, but correlated features and leakage can make them overconfident. Source: scikit-learn examples, https://scikit-learn.org/stable/auto_examples/ensemble/plot_forest_importances.html`},
-        `For classification, the raw score is not the final product. A fraud team, lender, or medical workflow usually needs a calibrated probability and a threshold chosen against real costs. Boosting can produce excellent rankings while still being miscalibrated. Calibration curves, threshold analysis, and post-deployment drift checks turn the model from a leaderboard score into a decision system.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study decision trees first, because every boosted tree is still made of splits and leaves. Then study random forests to understand the difference between averaging independent models and adding sequential corrections. Study gradient descent to make the function-space update precise. Study cross-validation, leakage, and early stopping before trusting a boosted model's score. Finally, study regularization and calibration. A boosted classifier gives scores, but a real system must decide thresholds, costs, monitoring, and retraining policy after the score is produced.`,
-      ],
-    },
-      {
-      heading: 'Why this exists',
-      paragraphs: [
-        "State the real constraint this topic fixes before introducing the mechanism.",
-        "A good opening says what gets too slow, too fragile, or too hard to reason about under baseline behavior.",
-        "Without that, every optimization appears decorative.",
-      ],
-    },
-
-    {
       heading: 'The obvious approach',
       paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
+        'The reasonable first attempt is a single decision tree. Trees handle mixed feature types naturally, require no feature scaling, and produce interpretable splits. A depth-10 tree on 10,000 training rows can fit complex boundaries and interactions. Teams reach for trees because they work out of the box on messy tabular data with missing values and categorical columns.',
+        'The second reasonable attempt is a random forest: grow many deep trees on bootstrap samples of the data, randomize the feature subset at each split, and average the predictions. This works well because averaging independent high-variance estimators reduces variance without increasing bias. Random forests are hard to overfit in practice, require minimal tuning, and parallelize trivially because every tree is independent.',
+        'Both approaches are strong baselines. A single tree is interpretable but fragile. A random forest is stable but limited: because every tree independently attacks the full problem from scratch, the average inherits whatever systematic bias each tree shares. If all trees consistently underpredict houses in a certain price range, the average still underpredicts there. The forest reduces noise but does not steer toward the remaining error.',
       ],
     },
-
     {
       heading: 'The wall',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        'The wall is bias that averaging cannot remove. Consider a dataset with three price plateaus: small houses around $30k, mid-size houses around $80k, and large houses around $120k. A shallow tree (say, one split) can separate two groups but not three. Average a thousand one-split trees trained on bootstrap samples: each tree draws a line between two groups, and the average still approximates two groups, not three. More trees do not fix this because the stumps lack the capacity to represent three plateaus, and averaging does not add capacity.',
+        'Making the trees deeper helps a random forest capture the third plateau, but then each tree memorizes finer noise in the training set. The forest trades bias for variance. The fundamental issue is that independent averaging can only reduce variance; it cannot systematically reduce bias without changing the capacity of the individual learners. A forest of stumps has low variance but high bias. A forest of deep trees has low bias but higher variance. There is no independent-averaging trick that gets both.',
+        'Gradient boosting breaks through the wall by making the trees sequential and giving each one a different problem. The first stump separates two groups. The second stump is not asked to solve the original problem; it is asked to fit the errors left after the first stump. Those errors reveal the third plateau that the first stump missed. By chaining weak learners, each one focused on the residual error, boosting builds capacity additively without making any individual learner deep enough to memorize noise.',
       ],
     },
-
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that fitting residuals is gradient descent in function space. Start with a constant prediction F0 (the mean of the targets). Compute the residual for each training example: r_i = y_i - F0(x_i). That residual is the direction in which the prediction needs to move for that example. Fit a weak learner (a shallow tree) to those residuals. The tree\'s output is an approximation of the optimal correction. Add a scaled version of that correction to the current model: F1(x) = F0(x) + eta * tree1(x), where eta (the learning rate) controls step size. Recompute residuals against F1 and repeat.',
+        'For squared-error loss L = (1/2)(y - F(x))^2, the negative gradient of the loss with respect to the prediction F(x) is exactly the residual: -dL/dF = y - F(x). So when you fit a tree to residuals, you are fitting a tree to the negative gradient of the loss. Adding that tree to the model is a gradient-descent step, except instead of updating a vector of weights in parameter space, you are updating a function. The tree is the step direction. The learning rate is the step size. The loss decreases because you moved the function in the direction of steepest descent.',
+        'This insight generalizes beyond squared error. For logistic loss (classification), the negative gradient is y - sigmoid(F(x)), which is no longer a simple residual but still a direction of improvement. For ranking losses, quantile losses, or Huber loss, the gradient takes a different form. In every case, gradient boosting fits a tree to the negative gradient of the chosen loss function and adds it to the ensemble. The residual-fitting picture for squared error is the special case where the gradient happens to equal the residual.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The animation uses 10 house sizes (1 through 10, in hundreds of square feet) and 10 prices that form three plateaus: around $30k for small houses, $80k for mid-size, and $120k for large. The initial model F0 predicts the mean price (~$7.83 in the scaled units) for every house. MSE starts high because a flat line ignores all structure in the data.',
+        'Round 1: compute residuals r_i = y_i - F0(x_i). Small houses have negative residuals (the mean overpredicts them), large houses have positive residuals (the mean underpredicts them). A decision stump searches all possible split points and finds the one that minimizes squared error on the residuals. It splits the data into two groups, predicts the mean residual on each side, and the ensemble becomes F1(x) = F0(x) + eta * stump1(x). With eta = 1, the stump\'s full correction is added.',
+        'Round 2: residuals are recomputed against F1. The first stump fixed the coarsest error, so the remaining residuals reveal finer structure. The second stump finds a different split point because the error landscape has changed. This is the mechanism: each round changes the target by subtracting what has already been learned, so the next stump always works on a different problem than the last one.',
+        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_gradient_boosting_regression_001.png`, alt: `Gradient boosting regression example with prediction curves over training iterations`, caption: `scikit-learn shows gradient boosting as staged function improvement: each round moves the predictor toward the target surface. Source: https://scikit-learn.org/stable/auto_examples/ensemble/plot_gradient_boosting_regression.html`},
+        'After four rounds of stumps, the additive model has recovered all three plateaus. No individual stump can represent three plateaus (a stump has only one split and two output values). But the sum of four stumps can, because each stump was placed where the previous sum still had error. The ensemble\'s capacity grows with the number of rounds, not with the depth of any single tree.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness follows from the gradient-descent analogy. At each round, the tree approximates the negative gradient of the loss function evaluated at the current predictions. Adding a scaled version of that tree to the model moves predictions in the direction of steepest loss decrease. As long as the step size (learning rate) is small enough and the tree captures some useful gradient signal, the training loss decreases monotonically. This is the same convergence guarantee that makes gradient descent work on smooth functions, extended to function space.',
+        'The weak-learner requirement is central. Each tree does not need to solve the full problem. It only needs to correlate with the gradient better than random chance. A single decision stump that correctly separates high-residual examples from low-residual examples provides a useful descent direction even if its fit is crude. Over many rounds, the sum of many crude corrections converges to a precise function. This is the boosting guarantee: combining weak learners into a strong learner through sequential, targeted fitting.',
+        'Regularization prevents the descent from chasing noise. The learning rate shrinks each tree\'s contribution, so the model moves slowly and many rounds are needed. Early stopping halts training when validation error stops improving, even if training error could still decrease. Subsampling rows or columns at each round adds stochasticity that smooths the gradient estimate. Leaf-weight regularization (L2 penalties on leaf values, as in XGBoost) prevents any single leaf from making an extreme correction. Together, these controls keep the additive repair from becoming memorization.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Training cost is O(T * n * d) in the naive case, where T is the number of boosting rounds, n is the number of training examples, and d is the number of features. Each round fits one tree, and fitting a tree requires scanning features to find the best split at each node. For a tree of depth D, each round has up to 2^D leaf nodes, and each split candidate requires examining n examples across d features.',
+        'Production libraries cut this cost. XGBoost pre-sorts features and uses a column-block structure. LightGBM bins continuous features into 256 histogram buckets and finds splits in O(bins) instead of O(n), reducing per-round cost from O(n * d) to O(bins * d). Both libraries support row and column subsampling, which reduces the data scanned per round and adds regularizing noise. Distributed training splits the data across machines and merges histogram counts.',
+        'Prediction cost is O(T * D) per example: walk each of T trees from root to leaf (D comparisons per tree), sum the leaf values. A model with 500 trees of depth 6 requires about 3,000 comparisons per prediction. This is fast on CPUs but slower than a single neural-network forward pass on a GPU when batched. For latency-sensitive serving, tree count and depth are the knobs that trade accuracy for speed.',
+        'Memory cost is proportional to the total number of nodes across all trees. Each node stores a feature index, a threshold, and child pointers; each leaf stores a value. A model with 500 trees of depth 6 has at most 500 * (2^7 - 1) = 63,500 nodes. At 32 bytes per node, that is about 2 MB. Training memory is dominated by the feature matrix and histogram buffers, not the model itself.',
+      ],
+    },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
+        'Fraud detection systems score each transaction with a boosted model because the workload is tabular (transaction amount, merchant category, time since last purchase, device fingerprint), has nonlinear thresholds (a $5,000 charge is suspicious for one user but normal for another), and needs sub-millisecond prediction latency. Tree ensembles handle mixed types, missing features, and categorical encodings natively, and prediction is a sequence of comparisons that fits in CPU cache.',
+        'Ad click-through-rate (CTR) prediction uses gradient boosting or its descendants at scale. The features are a mix of dense numerics (bid amount, historical CTR) and sparse categoricals (ad ID, publisher, user segment). LightGBM and CatBoost handle this mixture directly. The model must retrain frequently (daily or hourly) as user behavior shifts, and boosted trees retrain faster than deep networks on tabular features of this shape.',
+        'Medical risk scoring (readmission prediction, mortality risk, disease progression) uses boosted trees because the feature set is tabular (lab values, vital signs, demographics, diagnosis codes), the dataset is mid-sized (thousands to low millions of patients), and interpretability matters. Tree-based feature importance and SHAP values give clinicians a ranked list of contributing factors for each prediction, which regulatory and clinical review processes require.',
+        'Kaggle competitions on tabular data have been dominated by XGBoost, LightGBM, and CatBoost for over a decade. The pattern holds for structured data with under ~100 features and under ~10 million rows. Beyond that scale, or when the data is images, audio, or long text, neural networks take over because they learn representations from raw inputs rather than requiring hand-engineered features.',
       ],
     },
-
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Overfitting through label noise is the primary failure mode. Because each round explicitly attacks the remaining error, noisy labels get chased: a mislabeled example creates a residual that grows across rounds until some tree memorizes it. Without early stopping on a held-out validation set, training error drops to near zero while test error rises. The fix is honest validation: hold out data that the boosting procedure never sees during training, monitor validation loss, and stop when it plateaus.',
+        'Data leakage is amplified by boosting. A feature that accidentally encodes the target (a future value leaking into a historical row, or a target-encoded categorical computed on the full dataset) provides a near-perfect correction in the first round. The model locks onto it, scores look excellent in cross-validation if the leak contaminates folds, and the model fails on genuinely unseen data. Time-series problems are especially vulnerable: random train/test splits let future information leak into training rows.',
+        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_forest_importances_001.png`, alt: `Feature importance chart from a tree ensemble`, caption: `Feature-importance bars are useful diagnostics, but correlated features and leakage can make them overconfident. Source: scikit-learn examples, https://scikit-learn.org/stable/auto_examples/ensemble/plot_forest_importances.html`},
+        'Gradient boosting struggles with data types that need learned representations. Images, audio waveforms, long text sequences, and graph structures require the model to discover useful features from raw inputs. Trees split on individual feature values; they cannot learn convolutions, attention patterns, or embeddings. On unstructured data, neural networks dominate because the architecture itself learns the feature extraction. Boosted trees remain strong only when the features are already engineered or naturally tabular.',
+        'Calibration is a hidden failure. A boosted classifier may rank examples well (high AUC) while producing poorly calibrated probabilities. The raw output is a sum of tree leaf values, not a probability. Applying a sigmoid gives a number between 0 and 1, but that number may not match the true event frequency. Medical, lending, and insurance applications need calibrated probabilities, so post-hoc calibration (Platt scaling or isotonic regression on a held-out set) is often necessary after training.',
+      ],
+    },
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Data: 4 houses with sizes [2, 4, 7, 9] and prices [30, 80, 80, 120] (in $k). Step 0: F0 predicts the mean for all houses: (30 + 80 + 80 + 120) / 4 = 77.5. Residuals: [30 - 77.5, 80 - 77.5, 80 - 77.5, 120 - 77.5] = [-47.5, 2.5, 2.5, 42.5]. MSE = (47.5^2 + 2.5^2 + 2.5^2 + 42.5^2) / 4 = (2256.25 + 6.25 + 6.25 + 1806.25) / 4 = 1018.75.',
+        'Step 1: fit a stump to the residuals. Try splitting at x = 3: left group {x=2} has mean residual -47.5, right group {x=4, 7, 9} has mean residual (2.5 + 2.5 + 42.5)/3 = 15.83. SSE = (0)^2 + (2.5 - 15.83)^2 + (2.5 - 15.83)^2 + (42.5 - 15.83)^2 = 0 + 177.89 + 177.89 + 711.11 = 1066.89. Try splitting at x = 5.5: left {2, 4} mean = (-47.5 + 2.5)/2 = -22.5, right {7, 9} mean = (2.5 + 42.5)/2 = 22.5. SSE = (-47.5 + 22.5)^2 + (2.5 + 22.5)^2 + (2.5 - 22.5)^2 + (42.5 - 22.5)^2 = 625 + 625 + 400 + 400 = 2050. The split at x = 3 gives lower SSE, so the stump picks it.',
+        'With eta = 1, update: F1(2) = 77.5 + (-47.5) = 30, F1(4) = 77.5 + 15.83 = 93.33, F1(7) = 77.5 + 15.83 = 93.33, F1(9) = 77.5 + 15.83 = 93.33. New residuals: [0, -13.33, -13.33, 26.67]. The first stump perfectly corrected the small-house error and partially corrected the large-house error. MSE dropped from 1018.75 to (0 + 177.69 + 177.69 + 711.29)/4 = 266.67.',
+        'Step 2: fit a stump to residuals [0, -13.33, -13.33, 26.67]. The best split is now at x = 8 (or similar), separating the large house from the rest. Left mean = (0 - 13.33 - 13.33)/3 = -8.89, right mean = 26.67. After adding this correction: F2(9) = 93.33 + 26.67 = 120, and the mid-size houses get pulled closer to 80. Each round fixes a different part of the error because the target changes after every correction.',
+        'With eta = 0.3 instead, step 1 adds only 30% of the stump: F1(2) = 77.5 + 0.3*(-47.5) = 63.25. The correction is smaller, so more rounds are needed. But on noisy data, those smaller steps prevent any single tree from over-correcting a mislabeled point. This is the learning-rate tradeoff: smaller eta needs more trees (higher compute) but generalizes better because each correction is tentative.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'The original formulation is Jerome Friedman\'s "Greedy Function Approximation: A Gradient Boosting Machine" (Annals of Statistics, 2001). This paper defines the gradient-descent-in-function-space framework, derives the algorithm for arbitrary differentiable loss functions, and introduces shrinkage (the learning rate). It is the primary source for understanding why fitting residuals is gradient descent.',
+        'XGBoost (Tianqi Chen and Carlos Guestrin, KDD 2016, "XGBoost: A Scalable Tree Boosting System") adds second-order gradient information (Newton boosting), L1/L2 regularization on leaf weights, column subsampling, and a systems-level design with cache-aware block structure. LightGBM (Ke et al., NeurIPS 2017) introduces histogram-based splits and leaf-wise tree growth for faster training. CatBoost (Prokhorenkova et al., NeurIPS 2018) adds ordered target statistics for categorical features.',
+        'Study decision trees first: every boosted model is a sum of trees, so understanding splits, leaves, and overfitting in a single tree is prerequisite. Then study random forests to understand the contrast between parallel averaging (variance reduction) and sequential correction (bias reduction). Study gradient descent to make the function-space analogy precise. Study cross-validation and early stopping before trusting any boosted model\'s reported accuracy. Finally, study SHAP values for model interpretation: they provide theoretically grounded feature attributions for tree ensembles, replacing the simpler but less reliable feature-importance bars.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Gradient Boosting moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

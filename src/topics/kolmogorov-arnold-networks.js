@@ -243,134 +243,103 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. "Edge functions vs neurons" shows the architectural difference between MLPs and KANs: where nonlinearity lives, what the graph looks like, and how one scalar weight becomes a learnable curve. "Training and interpretability" shows how spline coefficients are trained, how KANs compare to MLPs on smooth fitting tasks, and the interpretability workflow from dense network to candidate law.',
+        'Read the MLP view and KAN view as a relocation of nonlinearity. In an MLP, edges hold scalar weights and nodes apply fixed activations; in a KAN, edges hold learnable one-dimensional functions and nodes mostly sum.',
         {
           type: 'callout',
           text: 'A KAN teaches each edge to be a small function, so interpretability starts at the connection rather than the node.',
         },
-        'Active highlights mark the current decision point -- the edge function being evaluated or the coefficient being updated. Found markers show quantities that are now determined: a sum node that has collected its inputs, or a symbolic form that survived pruning. Compare markers contrast the MLP baseline against the KAN approach so you can see exactly what moved.',
-        'At each frame, ask: what changed, what is the learned object on this edge, and would a scalar weight have captured the same shape?',
-      
+        'Active edges are the learned functions currently being evaluated, and compare marks the scalar-weight baseline. The safe inference rule is that a plotted edge curve is evidence about one learned connection, not automatic proof of a scientific law.',
         {type: 'image', src: './assets/gifs/kolmogorov-arnold-networks.gif', alt: 'Animated walkthrough of the kolmogorov arnold networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A standard multilayer perceptron learns one scalar weight per connection. The node applies a fixed nonlinearity -- ReLU, GELU, tanh -- and the learned structure disappears into a dense weight matrix. This design is fast, general, and supported by decades of optimized kernels. It is also opaque. If a physicist trains an MLP to predict drag force from airfoil geometry, the weight matrix rarely reveals which input feature matters through which functional relationship. The model predicts; it does not explain.',
+        'A standard multilayer perceptron, or MLP, learns scalar weights and uses fixed activation functions such as ReLU or GELU. That is fast and general, but the learned behavior is buried inside dense matrices.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg',
           alt: 'Layered neural network diagram with colored nodes and weighted connections',
           caption: 'A standard neural network hides learned behavior inside many scalar edge weights and node activations. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.',
         },
-        'Kolmogorov-Arnold Networks (KANs) relocate the nonlinearity from nodes to edges. Each connection learns its own one-dimensional function -- typically a B-spline -- instead of a single number. The receiving node sums the transformed inputs. A connection is no longer "multiply by 0.7." It is "evaluate this learned curve at the incoming value." That curve can be plotted, regularized, pruned, and sometimes matched to a symbolic expression like sin(x) or x^2.',
-        'The motivation is not raw accuracy on large-scale benchmarks. It is interpretability and parameter efficiency on problems where the target function has smooth, low-dimensional structure that edge functions can capture directly.',
+        'KANs exist for settings where the shape of a relationship matters, not only prediction accuracy. A scientist may want to see that one input behaves like a square, sine wave, threshold, or saturation curve.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is a larger MLP. If the model underfits, add width, depth, better activations, more data, or stronger optimization. MLPs are universal approximators. They batch efficiently. Modern GPUs are built around dense matrix multiplication, and the software ecosystem -- cuBLAS, cuDNN, compiler fusion -- makes MLP layers nearly free to accelerate. For most production workloads, a tuned MLP is the baseline any new architecture must beat.',
-        'For interpretability, the standard toolkit is post-hoc: SHAP values, integrated gradients, attention maps, probing classifiers. These methods explain an existing model without changing its architecture. They work, within limits, and they do not require giving up the speed advantages of dense layers.',
+        'The obvious approach is to make the MLP wider or deeper. More hidden units can approximate more functions, and dense matrix multiplication is exactly what current accelerators run well.',
+        'For interpretation, the obvious approach is post-hoc analysis such as feature importance, gradients, or SHAP values. These methods can say which inputs matter, but they often do not recover a clean functional form.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall has two faces. First, MLPs approximate smooth univariate relationships by combining many scalar-weighted features through fixed activations. A function that is naturally "a curve of x1 plus a different curve of x2" must be reconstructed from many ReLU kinks spread across hidden units. The approximation works, but it can require far more parameters than the underlying structure demands.',
-        'Second, post-hoc interpretability methods tell you which features matter and roughly how much, but they rarely recover the functional form. SHAP says "x1 matters more than x2." It does not say "the effect of x1 is roughly sin(x1)." For scientific machine learning -- where the goal is not just prediction but discovery of governing equations -- knowing the shape of each input-output relationship is the entire point. That is what MLPs hide and KANs expose.',
+        'The wall is that scalar weights are blunt objects for smooth local shape. A curve that naturally bends differently in different input ranges may require many hidden units when each edge can only multiply by one number.',
+        'Post-hoc explanations also have a ceiling. They may show that x1 matters, but not that the learned effect of x1 looks like sin(x1) or x1 squared over the range that matters.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Move the learnable nonlinear function onto each edge. Instead of y = w * x flowing across a connection, a KAN edge computes y = phi(x), where phi is a learned univariate function.',
+        'This is inspired by the Kolmogorov-Arnold representation theorem, which says continuous multivariate functions can be represented using univariate functions and addition. KANs do not implement the theorem literally; they use it as an inductive bias.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A KAN layer replaces the weight matrix W with a matrix of univariate functions. For input dimension i and output unit j, the edge carries a learnable function phi_ij. The forward pass evaluates every phi_ij on the corresponding input scalar, then sums the results at each output node. A two-layer KAN composes two such layers: the first layer learns inner functions phi, the second learns outer functions psi, and the output is a sum of compositions.',
-        {
-          type: 'diagram',
-          label: 'MLP vs KAN: where the learned object lives',
-          text: 'MLP:   x --[w * x]--> node --[ReLU]--> output\n            ^                  ^\n        scalar weight     fixed activation\n\nKAN:   x --[phi(x)]--> node --[sum]--> output\n            ^\n    learned spline (the activation IS the edge)',
-        },
-        'In the default implementation, each phi is a B-spline defined by a grid of knot points and a vector of learned coefficients. The spline is a weighted sum of basis functions, each of which is nonzero only over a local interval. This locality means a coefficient update changes the curve shape in one region without disturbing distant parts -- finer control than a single scalar weight provides.',
+        'A KAN layer contains a matrix of functions instead of a matrix of numbers. For each input coordinate i and output node j, the edge function phi_ij transforms the scalar input before the output node sums incoming values.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/B-spline_curve.svg/500px-B-spline_curve.svg.png',
           alt: 'B-spline curve controlled by local control points',
           caption: 'A B-spline curve shows the local-control idea behind many KAN edge functions: coefficients bend regions of the curve rather than the whole function at once. Source: Wikimedia Commons, File:B-spline curve.svg.',
         },
-        {
-          type: 'code',
-          language: 'python',
-          text: '# B-spline basis activation (simplified)\nimport torch\n\ndef b_spline_basis(x, grid, degree=3):\n    """Evaluate B-spline basis functions at x.\n    grid: tensor of knot positions, shape (num_knots,)\n    Returns: basis values, shape (*x.shape, num_basis)\n    """\n    x = x.unsqueeze(-1)          # (..., 1)\n    g = grid.unsqueeze(0)         # (1, num_knots)\n    # degree-0 bases: indicator functions between knots\n    bases = ((x >= g[:, :-1]) & (x < g[:, 1:])).float()\n    # Cox-de Boor recursion for higher degrees\n    for d in range(1, degree + 1):\n        left  = (x - g[:, :-(d+1)]) / (g[:, d:-1] - g[:, :-(d+1)] + 1e-8)\n        right = (g[:, d+1:] - x)    / (g[:, d+1:] - g[:, 1:-d]    + 1e-8)\n        bases = left * bases[:, :-1] + right * bases[:, 1:]\n    return bases  # shape: (*x.shape, num_coefficients)\n\n# Edge activation: dot product of basis values and learned coefficients\n# phi(x) = sum_k  c_k * B_k(x)\ncoeffs = torch.randn(num_basis)   # learned parameters\nphi_x  = (b_spline_basis(x, grid) * coeffs).sum(-1)',
-        },
-        'Backpropagation works unchanged. The loss gradient flows through the sum node into each edge function, then into the coefficients of that function. A gradient step on coefficient c_k changes the curve only in the region where basis function B_k is nonzero. This is more expressive than updating a scalar weight, and also more expensive: every edge requires a basis evaluation, coefficient lookup, and weighted sum instead of a single multiply.',
+        'Most implementations parameterize phi with B-splines. A spline uses local basis functions and learned coefficients, so changing one coefficient bends one region of the curve more than distant regions.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The theoretical foundation is the Kolmogorov-Arnold representation theorem (1957). It states that any continuous function of n variables on a bounded domain can be written as a finite composition of continuous functions of one variable and addition. Formally: f(x1, ..., xn) = sum over q of Phi_q( sum over p of phi_{q,p}(x_p) ). The inner functions phi and outer functions Phi are all univariate.',
-        'The theorem is an existence result, not a constructive algorithm. The original univariate functions can be highly irregular -- nowhere-differentiable, fractal-like. KANs do not implement the theorem literally. They use the theorem as architectural inspiration: if multivariate functions decompose into univariate pieces in principle, then parameterizing each edge as a learnable univariate function is a reasonable inductive bias. The practical question is whether smooth, trainable splines can approximate the useful univariate components for a given task.',
-        'KANs work well when the answer is yes -- when the target function has low-dimensional structure aligned with the input coordinates. A physical law like F = G * m1 * m2 / r^2 decomposes cleanly into univariate factors. A function that depends on complex interactions between many coordinates may not decompose so neatly, and a KAN offers no advantage over an MLP.',
+        'Backpropagation still applies because spline evaluation is differentiable almost everywhere. The loss gradient flows into each edge function and updates the coefficients that shape that curve.',
+        'KANs work best when the target function has low-dimensional smooth structure aligned with the inputs. In that case, one learned edge curve can replace many scalar-weighted hidden units.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The cost difference between MLPs and KANs is paid on every edge, every forward pass.',
-        {
-          type: 'bullets',
-          items: [
-            'Learned object: an MLP stores one scalar per edge; a KAN stores spline coefficients, usually G plus k values per edge.',
-            'Node operation: an MLP bends at the node with a fixed activation; a KAN mostly sums values after edge functions have already bent them.',
-            'Forward cost: an MLP edge is one multiply-add; a KAN edge needs basis evaluation and a weighted sum over local coefficients.',
-            'Kernel maturity: MLPs ride decades of dense-matrix optimization; KANs need specialized kernels before their parameter efficiency becomes wall-clock efficiency.',
-            'Interpretability: MLP explanations are usually post-hoc; KAN edge curves can be plotted, pruned, and fit to candidate symbolic forms.',
-            'Scaling risk: MLPs are proven at transformer scale; KANs remain a research path, especially for large batched GPU workloads.',
-          ],
-        },
-        'A KAN with G grid intervals per edge and spline degree k stores (G + k) coefficients per edge instead of 1. For a layer connecting n_in inputs to n_out outputs, that is n_in * n_out * (G + k) parameters versus n_in * n_out for an MLP. The parameter count per layer grows linearly with grid resolution. More importantly, the forward pass replaces one fused multiply-add with a basis evaluation loop, which is harder to vectorize on current GPU architectures.',
-        'A smaller KAN can match a larger MLP on smooth fitting tasks because each edge carries more local shape. But "fewer parameters" does not mean "faster." Wall-clock time depends on kernel efficiency, memory access patterns, and batch size. As of 2024-2025, KAN inference is significantly slower per parameter than MLP inference on GPU hardware.',
+        'An MLP edge stores one scalar and costs one multiply-add. A KAN edge stores several spline coefficients and costs basis evaluation plus a weighted sum.',
+        'For a layer with n_in inputs, n_out outputs, and G spline coefficients per edge, parameter count is roughly n_in * n_out * G instead of n_in * n_out. Fewer nodes can sometimes offset that, but per-parameter GPU efficiency is usually worse than dense MLP kernels.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'KANs are strongest in scientific machine learning, symbolic regression, and low-dimensional function fitting where interpretability matters as much as accuracy.',
-        {
-          type: 'bullets',
-          items: [
-            'Physics-informed regression: fitting drag coefficients, material stress curves, or thermodynamic potentials where the scientist needs the functional form, not just predictions.',
-            'Symbolic discovery: train a dense KAN, prune weak edges, inspect surviving curves, fit symbolic candidates (sin, exp, x^2), and test the proposed formula on held-out data. KANs make the first step -- inspection -- trivial.',
-            'Differential equation surrogates: replacing expensive PDE solvers with learned approximations where each input-output channel has interpretable physics.',
-            'Tabular data with smooth features: small datasets where feature effects are monotone or smoothly curved, and the analyst wants to see each effect plotted.',
-          ],
-        },
-        'In each case, the advantage is not raw speed. It is that the learned object -- a one-dimensional curve on each edge -- is human-readable. A plotted edge function can reveal a threshold, a saturation, a periodic component, or an approximate power law that would be buried inside an MLP weight matrix.',
+        'KANs are most natural in scientific machine learning, symbolic regression, low-dimensional tabular modeling, and smooth function fitting. The access pattern is small enough that inspecting curves is feasible and valuable.',
+        'A practical workflow trains a dense KAN, plots edge functions, prunes weak edges, fits candidate symbolic forms, and tests those forms on held-out data. The model helps propose structure; the validation decides whether the structure is real.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'KANs are a poor choice when hardware efficiency dominates and interpretability is not needed. Large language model feed-forward blocks, vision transformer patches, high-throughput inference systems, and massive batched training pipelines depend on dense kernels that are already highly optimized. Replacing scalar weights with per-edge spline evaluations loses more in throughput than it gains in expressiveness at that scale.',
-        'They also fail when the curves are overread. A plotted edge function is easier to inspect than a weight matrix, but easy inspection is not automatic truth. The curve may reflect correlated inputs, insufficient regularization, a local optimum, or training noise. Symbolic fitting can turn noise into a neat formula if the validation discipline is weak. The interpretability workflow -- inspect, prune, fit, test on held-out data -- is necessary. Skipping the last step produces plausible nonsense.',
-        {
-          type: 'note',
-          text: 'KANs do not scale to transformer-class models as of 2025. The architecture is a research tool for low-dimensional scientific problems, not a drop-in replacement for MLPs in large models.',
-        },
+        'KANs are a poor fit when throughput dominates and interpretability is not needed. Large transformers, high-throughput vision models, and batched production inference depend on dense kernels that spline-heavy edges do not yet match.',
+        'They also fail when curves are overread. A neat plotted edge can reflect correlation, noise, or a local optimum, so symbolic interpretation needs pruning, held-out tests, and domain checks.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the target is f(x1, x2) = x1^2 + sin(x2). An MLP can learn this, but it must assemble the square and sine behavior from many weighted activations.',
+        'A small KAN can put a curve resembling x^2 on the edge from x1 and a curve resembling sin(x) on the edge from x2. The sum node then adds those transformed values directly.',
+        'With x1 = 3 and x2 = 1.57, the target is 9 + 1 = 10. If the learned edge curves output 8.9 and 0.98, the KAN predicts 9.88 before later-layer corrections.',
+        'The interpretability value is visible: the edge plots can suggest square and sine components. The correctness test is whether those components keep predicting well on held-out points, not whether the curves look familiar.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Primary source: Liu et al., "KAN: Kolmogorov-Arnold Networks" (arXiv 2404.19756, 2024). Introduces the architecture, spline parameterization, grid extension, and symbolic regression workflow.',
-            'Theorem background: Kolmogorov, "On the representation of continuous functions of many variables by superposition of continuous functions of one variable and addition" (1957). The existence result that inspired the architecture.',
-            'Implementation: pykan (github.com/KindXiaoming/pykan). Reference codebase with spline layers, pruning, symbolic fitting, and visualization.',
-          ],
-        },
-        'Study Neural Network Forward Pass and Activation Functions to understand the MLP baseline that KANs modify. Study Backpropagation to see how gradient descent trains spline coefficients with the same chain rule. Study Regularization to understand why flexible edge functions can overfit and how L1 penalties on coefficients enable pruning. For a contrasting approach to structured parameterization, study SVD and Low-Rank Approximation -- another way to put mathematical structure into a weight matrix for efficiency and interpretability.',
+        'Primary source: Liu et al., KAN: Kolmogorov-Arnold Networks, 2024, https://arxiv.org/abs/2404.19756. The paper introduces edge spline functions, grid extension, pruning, and symbolic-regression workflows.',
+        'Study MLP forward passes and activation functions first, then backpropagation and B-splines. After that, study regularization, symbolic regression, and low-rank approximation as other ways to add structure to learned functions.',
       ],
     },
   ],

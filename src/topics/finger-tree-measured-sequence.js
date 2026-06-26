@@ -286,92 +286,102 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The animation builds a finger tree step by step, showing how elements enter through the prefix and suffix digits, how overflow pushes nodes into the recursive middle spine, and how a measured split descends through cached summaries to find a target index. Each frame labels the current operation and highlights the nodes being touched.',
         {type: 'image', src: './assets/gifs/finger-tree-measured-sequence.gif', alt: 'Animated walkthrough of the finger tree measured sequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Watch the digit arrays at the left and right ends first. Most push and pop operations only change these small arrays. When a digit grows past four elements, the animation shows three of them bundled into a node and pushed into the middle spine -- that is the key structural event.',
       ],
     },
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A finger tree is a persistent sequence data structure built from a small set of cases: Empty, Single, and Deep. A Deep node has a prefix digit, a recursive middle tree, and a suffix digit. The digits keep the two ends close, while the middle stores groups of two or three elements to preserve balance.',
+        'A linked list gives you a fast front but O(n) indexing and O(n) concatenation. A balanced binary search tree gives you O(log n) access everywhere but makes deque-style push and pop heavier than necessary. A flat array copies the whole thing on every persistent update. Each structure solves part of the problem and fails the rest.',
         {type: 'callout', text: 'The measure is the index: once every subtree carries a monoidal summary, split and search become guided descent.'},
-        'The obvious persistent sequence choices each miss something. A linked list has a fast front but slow indexing and concatenation. A balanced tree has logarithmic access but can make deque operations feel heavier than they should. A flat array is cache-friendly but expensive to edit immutably. Finger trees exist to combine fast ends, persistence, split, concat, and searchable summaries in one general shape.',
-        'The Hinze and Paterson version is a 2-3 finger tree with a second idea layered on top: every element has a measure, and measures combine through an associative operation. That makes the same tree shape support indexed sequences, priority queues, interval searches, ordered splits, and other structures.',
+        'Finger trees exist because Ralf Hinze and Ross Paterson wanted one shape that handles fast ends (amortized O(1) push/pop), efficient split and concatenation (O(log n)), full persistence (old versions survive), and summary-guided search -- all at once. The price is pointer overhead and implementation complexity, but the generality is real.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The most natural persistent sequence is a balanced tree -- an AVL tree or a 2-3 tree keyed by position. You get O(log n) access, split, and concat. Push to either end is also O(log n) because you walk to a leaf, insert, and rebalance along the path.',
+        'That O(log n) per push feels wasteful when your workload is dominated by deque operations -- add to front, remove from back, peek at either end. A purely functional deque (like Okasaki\'s) can do those in amortized O(1), but it gives up efficient indexing and splitting. You want both.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The conflict is between two shapes. A flat deque keeps the ends close but cannot split or index without scanning. A balanced tree can split and index but buries the ends under O(log n) layers of nodes. Making one structure do both means somehow keeping the ends exposed while maintaining balanced depth.',
+        'There is a second, subtler wall. Even if you solve the structural problem, you still need the tree to answer queries like "where is index 42?" or "where is the minimum priority?" without scanning every element. That requires some kind of cached summary at every internal node, and that summary must survive rebalancing without corruption.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Start with a 2-3 tree. Now peel off the leftmost and rightmost few elements and hold them in small arrays called digits (one to four elements each). The rest of the tree becomes the middle spine, but here is the recursive trick: the spine is itself a finger tree whose elements are not raw values but nodes of two or three values from the level below.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Finger-tree_from_2-3_tree.jpg/330px-Finger-tree_from_2-3_tree.jpg', alt: 'Transformation from a 2-3 tree into a finger tree with exposed ends', caption: 'A finger tree pulls the ends of a balanced tree close to the top while keeping the middle recursive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Finger-tree_from_2-3_tree.jpg.'},
+        'This gives you two things at once. The digits at the ends make push and pop touch only a small array most of the time -- amortized O(1). The recursive spine preserves balanced depth, so split and concat stay O(log n). The shape is a 2-3 tree that has been turned inside out: the ends are pulled to the surface while the middle stays deep.',
+        'The second insight is the measure. Attach a value to every element. Define a way to combine two values into one that is associative and has an identity element -- this combination is called a monoid. (Associative means (a + b) + c = a + (b + c); the identity element e satisfies e + a = a + e = a.) Cache the combined measure at every internal node. Now the tree can answer "where does this predicate first become true?" by descending through cached summaries instead of scanning elements.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Pushing or popping at either end usually edits only a small digit of one to four items. When a digit overflows or underflows, a small Node2 or Node3 packet is moved into or out of the recursive middle. Because the middle stores nodes rather than raw elements, the tree stays balanced without global rebuilding.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Finger-tree_from_2-3_tree.jpg/330px-Finger-tree_from_2-3_tree.jpg', alt: 'Transformation from a 2-3 tree into a finger tree with exposed ends', caption: 'A finger tree pulls the ends of a balanced tree close to the top while keeping the middle recursive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Finger-tree_from_2-3_tree.jpg.'},
-        'For indexed sequences, the measure is size. Internal nodes cache the total size below them. To split at index k, walk down the tree while accumulating sizes until the predicate "past k" becomes true, then rebuild the left and right sides around the split point. Other measures route other questions in the same way.',
-        'Why it works: the 2-3 shape bounds height, and the measure is a monoid. Associativity means cached summaries can be regrouped when the tree is rebalanced without changing their meaning. The split predicate can descend using summaries because each summary faithfully represents the whole subtree below it.',
+        'A finger tree has three cases. Empty holds nothing. Single holds one element. Deep holds a prefix digit (1-4 elements), a middle spine (a finger tree of 2-3 nodes), and a suffix digit (1-4 elements).',
+        'To push an element onto the left: if the prefix has fewer than four elements, just prepend it. If the prefix already has four elements, take three of them, bundle them into a Node3, push that node into the middle spine recursively, and keep the new element plus the remaining one as the new two-element prefix. The recursive push into the spine is rare -- it happens at most once per three pushes -- so the amortized cost is O(1). Pop works symmetrically.',
+        'To split at a position guided by a predicate on the measure: start at the root. The prefix, spine, and suffix each carry a cached measure. Accumulate measures left to right. If the predicate triggers within the prefix, split the prefix digit. If it triggers within the spine, recursively split the spine to find the target node, then split that node. If it triggers in the suffix, split the suffix. Rebuild the left and right trees from the pieces.',
+        'Concatenation takes two trees and a list of middle elements. It dismantles the suffix of the left tree and the prefix of the right tree, groups the combined elements into 2-3 nodes, and pushes those nodes into the merged spine. The grouping into nodes is always possible because the total count is between 2 and 12, and any count in that range can be partitioned into groups of 2 and 3.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'Why it works',
       paragraphs: [
-        'Watch the digits at the ends first. They explain why push and pop near either end are cheap: most updates touch a tiny prefix or suffix before the recursive middle gets involved.',
-        'When the measured split view runs, treat the cached measure as a routing summary. The tree is not scanning every element to find the split point; it descends through summaries until the predicate crosses the boundary. The correctness hinge is that the measure combines associatively, so cached summaries still mean the same thing after regrouping.',
+        'The amortized O(1) for push and pop follows from a debit argument. Each element in a full four-element digit carries one unit of debit for the future recursive push. When the digit overflows, the three bundled elements pay for the recursive call. Since each push adds at most one debit and each overflow spends exactly three, the debits never accumulate.',
+        'The O(log n) for split holds because the spine is a finger tree of nodes, each node groups 2 or 3 elements, and the spine of the spine groups 2-3 nodes of 2-3 elements (so 4-9 elements per spine-of-spine element). The depth grows as O(log n). Split walks down and back up once, doing O(1) work per level.',
+        'The measure stays correct through rebalancing because the monoid is associative. When you bundle three elements into a Node3, the node\'s measure is the combination of those three element measures. When you split a node back apart, the pieces recombine to the same total regardless of grouping order. This is exactly the property that associativity guarantees.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Access, push, and pop at either end are amortized O(1). Concatenation and split are logarithmic, with concat depending on the size of the smaller side. Indexing through a size measure is O(log n). Updates allocate along the edited path and share the untouched structure, so previous versions remain available.',
-        'The tradeoff is constant factors and locality. A finger tree is elegant and flexible, but it is pointer-rich and more complex than an array, deque, or plain rope. It earns its keep when persistence, ends, split, concat, or measured search matter at the same time.',
-        'When n doubles, tree height grows logarithmically, but the number of small objects also grows. That object overhead is the tax paid for structural sharing and general measured routing.',
+        'Push/pop at either end: amortized O(1). Each operation touches at most one digit and occasionally triggers a recursive push that is paid for by earlier cheap operations.',
+        'Indexing (via size measure and split): O(log n). The tree descends through cached sizes, doing O(1) comparisons at each level, across O(log n) levels.',
+        'Split: O(log n). Walk down the spine guided by the measure, then rebuild the two halves on the way back up.',
+        'Concatenation: O(log(min(n, m))). The work is proportional to the depth of the smaller tree, because the dismantled digits from both sides get grouped into at most 4 nodes per level.',
+        'Space: O(n) total. Each element appears once. Internal nodes add O(n) overhead for cached measures and pointers. Persistence is free in the sense that old versions share untouched subtrees with new versions, so an update allocates O(log n) new nodes while keeping the rest.',
       ],
     },
     {
-      heading: 'Complete case studies',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The canonical library case study is Haskell Data.Sequence, which exposes a persistent finite sequence API with fast operations at both ends and logarithmic indexed operations. Its value is not that every operation is faster than a specialized mutable container; it is that a functional program can keep old versions, build new versions, and still use a serious sequence abstraction.',
-        'A second case study is a text editor or structured document store. Store text chunks in a measured finger tree where the measure is character count. Split at cursor, insert a chunk, concatenate the two sides, and keep old roots for undo. Compare this route with Text Rope Data Structure, Piece Table Text Buffer, RRB Tree Persistent Vector, and Zipper Focused Tree: all solve versioned editing, but each chooses a different invariant.',
+        'Haskell\'s Data.Sequence is a finger tree measured by size. It is the standard persistent sequence in the Haskell ecosystem, used whenever a program needs indexed access, efficient ends, and the ability to keep old versions.',
+        'Text editors built on persistent data structures often use finger trees measured by character count. Split at the cursor position, insert new text, concatenate the halves. Old versions become undo history for free. Alternatives like ropes and piece tables solve similar problems but lack the general measure mechanism.',
+        'Priority queues can be built from finger trees measured by minimum priority. The leftmost element with the smallest priority is always accessible via the cached measure at the root. This is less common in practice because specialized heap structures are simpler and faster, but it demonstrates the generality.',
+        'Interval trees can use a finger tree measured by maximum endpoint. Ordered insertion plus the max-endpoint measure lets you find all intervals overlapping a query point by splitting at the query value and checking the measure.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        'The key misconception is that finger trees are one magic replacement for every collection. The structure is general because measures are general, not because it beats specialized layouts on every workload. Flat arrays win on tight numeric loops. B-trees win when page locality dominates. RRB vectors often feel more array-like for random indexed sequences.',
-        'Another pitfall is using a non-associative measure. Cached summaries are only valid if combining left-to-right pieces gives the same result regardless of grouping. If the measure cannot be updated locally after an edit, the split/search machinery loses its correctness argument.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Choose the measure before choosing the operations. Size supports indexing. Minimum priority supports priority search. Maximum interval endpoint supports overlap queries. A vague measure usually means the structure will not answer the intended question cleanly.',
-        'Keep measure recomputation local and automatic. Constructors for digits, nodes, and deep trees should compute cached measures consistently so edits cannot leave stale summaries behind.',
-        'Test persistence explicitly. After an update, old roots should still produce old results. Structural sharing is a feature only if the program never mutates shared pieces accidentally.',
+        'Cache locality is poor. A finger tree is a web of small heap-allocated nodes connected by pointers. On workloads where a flat array or a B-tree would keep data in a few cache lines, a finger tree scatters it across memory. For tight numeric loops or sequential scans, arrays win by a large constant factor.',
+        'Implementation complexity is high. The three cases (Empty, Single, Deep), the digit overflow/underflow logic, the recursive spine of nodes-of-nodes, and the measure bookkeeping add up to a structure that is difficult to implement correctly and difficult to debug. Most languages outside Haskell lack mature finger tree libraries.',
+        'The monoid law is a hard requirement. If you choose a combine operation that is not associative, cached summaries will silently give wrong answers after rebalancing. There is no runtime check for associativity -- the programmer must prove it.',
+        'For mutable workloads where persistence is not needed, the allocation overhead of path copying is pure waste. A mutable deque or dynamic array will be faster and simpler.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'For a text sequence split into chunks, let each chunk measure be its character length. Internal measures store total length below each subtree. To split at character offset 10, the tree descends through cached lengths until it finds the chunk containing that offset, then rebuilds the left and right sequences around the split.',
-        'The same tree shape can become a priority queue if the measure is minimum priority instead of length. That is the deep idea: the structure is not tied to one query. The measure gives the tree a searchable meaning.',
-      ],
-    },
-    {
-      heading: 'Rule of thumb',
-      paragraphs: [
-        'Use a finger tree when you need persistence, efficient ends, split or concat, and a summary that can guide search. If you only need a mutable deque or a flat numeric array, simpler structures will be faster and easier.',
-        'The measure must be associative and cheap enough to maintain. If maintaining the measure costs more than the query saves, the abstraction is working against you.',
-        'The fastest way to misuse a finger tree is to choose it for elegance alone. It should earn its keep by combining operations that would otherwise require several separate structures.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'Watch allocation rate and cache behavior. Persistent trees create new path nodes instead of mutating in place, and that is exactly the feature that enables old versions. It can also pressure garbage collection if the workload is update-heavy.',
-        'Watch measure size. A small numeric measure is cheap. A large object measure copied through every internal node can dominate the cost of updates. The measure is part of the performance model, not just an annotation.',
-        'Finally, document the measure law. Future maintainers need to know why the combine operation is associative and what query the cached summary supports. Without that, a clever general structure becomes fragile infrastructure.',
+        'Build a finger tree from the sequence [10, 20, 30, 40, 50, 60, 70, 80] with the size measure (each element has measure 1, combined by addition, identity 0). Push 10: the tree is Single(10). Push 20 onto the left: Deep(prefix=[20], middle=Empty, suffix=[10]). Push 30 onto the left: Deep(prefix=[30, 20], middle=Empty, suffix=[10]). Continue pushing 40, 50 onto the left: Deep(prefix=[50, 40, 30, 20], middle=Empty, suffix=[10]). The prefix now has four elements.',
+        'Push 60 onto the left. The prefix overflows: bundle [40, 30, 20] into Node3(40, 30, 20) with cached measure 3, push that node into the middle spine, and set the new prefix to [60, 50]. The tree is now Deep(prefix=[60, 50], middle=Single(Node3(40,30,20)), suffix=[10]). The root\'s cached measure is 6 (two prefix elements + three in the spine node + one suffix element).',
+        'Now split at index 4 (find the 5th element, 0-indexed). The prefix measure is 2, the spine measure is 3, the suffix measure is 1. Accumulate: prefix gives 2 (not past 4), prefix + spine gives 5 (past 4). So the target is inside the spine. Descend into the spine: the single Node3(40, 30, 20) has measure 3. Accumulated from the prefix, we need index 4 - 2 = 2 within this node. Element 0 is 40, element 1 is 30, element 2 is 20. The split point is at element 20. Left tree gets [60, 50, 40, 30], right tree gets [20, 10].',
+        'Change the measure to "minimum value" with combine = Math.min and identity = Infinity. The same tree caches the minimum in each subtree. The root\'s measure becomes 10, immediately telling you the global minimum without scanning. Split where the predicate "measure <= 10" first becomes true, and you find element 10 directly. Same structure, different measure, different query.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Ralf Hinze and Ross Paterson, "Finger Trees: A Simple General-purpose Data Structure", PDF at https://www.cs.ox.ac.uk/ralf.hinze/publications/FingerTrees.pdf and DOI page at https://dl.acm.org/doi/10.1017/S0956796805005769. Practical documentation: Haskell Data.Sequence at https://hackage.haskell.org/package/containers/docs/Data-Sequence.html. A useful explanatory source is Monoids and Finger Trees at https://apfelmus.nfshost.com/articles/monoid-fingertree.html. Study Implicit Treap Sequence Editor, RRB Tree Persistent Vector, Zipper Focused Tree, Text Rope Data Structure, Piece Table Text Buffer, Persistent Segment Tree, and Data Structure Design Patterns Primer next.',
+        'Primary source: Ralf Hinze and Ross Paterson, "Finger Trees: A Simple General-purpose Data Structure," Journal of Functional Programming 16(2), 2006. PDF at https://www.cs.ox.ac.uk/ralf.hinze/publications/FingerTrees.pdf, DOI at https://dl.acm.org/doi/10.1017/S0956796805005769.',
+        'For a gentler introduction to the measure mechanism: "Monoids and Finger Trees" by Heinrich Apfelmus, https://apfelmus.nfshost.com/articles/monoid-fingertree.html. For the canonical library implementation: Haskell Data.Sequence documentation at https://hackage.haskell.org/package/containers/docs/Data-Sequence.html.',
+        'Study next: Implicit Treap Sequence Editor for a simpler randomized alternative, RRB Tree Persistent Vector for an array-like persistent sequence, Text Rope Data Structure and Piece Table Text Buffer for text-editing applications, Zipper Focused Tree for cursor-based traversal, and Persistent Segment Tree for another measured persistent structure.',
       ],
     },
   ],

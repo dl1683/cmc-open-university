@@ -148,23 +148,39 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/symbolic-execution-path-constraints.gif', alt: 'Animated walkthrough of the symbolic execution path constraints visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Read the input node as a symbolic value, meaning an unknown variable that stands for many possible concrete inputs. Each branch creates a new execution state with its own path condition.',
+        'A path condition is the conjunction of branch facts required to reach the current program point. The solver node turns that formula into either a concrete test input or a proof that the path is impossible.',
+        {
+          type: 'image',
+          src: './assets/gifs/symbolic-execution-path-constraints.gif',
+          alt: 'Animated walkthrough of the symbolic execution path constraints visualization',
+          caption: 'Animation preview: the full visualization plays through each step at reading pace.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        { type: 'callout', text: 'Symbolic execution converts branch history into a formula, then asks a solver for the input that makes the path real.' },
-        'Ordinary tests answer a narrow question: what happened for these inputs? That is useful, but many important bugs live behind conditions a tester did not guess. A parser may require a magic byte, a matching length field, and a checksum before it reaches the vulnerable code. Random inputs almost never satisfy that chain.',
-        'Symbolic execution exists for the moments when guessing inputs is the wrong job. It runs the program with symbols in place of concrete bytes, records the conditions needed to reach each branch, and asks a solver to produce real inputs for the paths that matter.',
+        {
+          type: 'callout',
+          text: 'Symbolic execution converts branch history into a formula, then asks a solver for the input that makes the path real.',
+        },
+        'Testing with concrete inputs only explores the paths those inputs happen to take. Bugs often hide behind narrow checks, such as magic bytes, length fields, checksums, or combinations of flags.',
+        'Symbolic execution exists to make the branch conditions themselves drive input generation. Instead of guessing x, it records constraints on x and asks a solver for a value that satisfies them.',
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to write more tests or run a fuzzer longer. That is often the right starting point. Fuzzers are fast, easy to parallelize, and excellent at finding shallow crashes in input-handling code.',
-        'The wall appears when a branch is guarded by a precise relationship instead of a broad shape. If the program checks `len == payload.length + 4`, then `kind == 7`, then `checksum(payload) == header.sum`, a mutational fuzzer may spend most of its time breaking earlier checks. A human can reverse engineer the format, but symbolic execution tries to make the path condition itself do that work.',
+        'The obvious approach is to write more unit tests or run a fuzzer longer. That is often the correct first move because concrete execution is fast and simple.',
+        'The approach breaks down when valid inputs must satisfy precise relationships. A fuzzer may mutate toward a branch and then destroy an earlier checksum or length constraint that was required to reach it.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is path specificity. Some paths are guarded by formulas, not just by broad input shapes, and random mutation may almost never satisfy the formula.',
+        'A second wall is coverage evidence. A test can show one path was taken, but it does not explain which nearby paths are impossible and which only need a different input.',
       ],
     },
     {
@@ -176,15 +192,8 @@ export const article = {
           alt: 'Several control-flow graph shapes including if-then-else and loop examples.',
           caption: 'Control-flow graphs make path forking concrete: each branch edge becomes a constraint choice for symbolic execution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.',
         },
-        'Treat each input byte or variable as an unknown, not as a value chosen in advance. When execution reaches `if (x > 0)`, create two states. The true state carries the constraint `x > 0`; the false state carries `x <= 0`.',
-        'After several branches, the path condition is a formula for reaching one exact path. A satisfiability solver can then answer the question that testing was only guessing at: is there any concrete input that satisfies all of these constraints? If yes, the solver returns a test. If no, the path was never real.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the path-forking view, read each split as a new execution state with its own path condition. The important object is not the branch alone; it is the growing conjunction of branch facts that explains why that state exists.',
-        'In the test-generation view, the solver is the bridge from reasoning to evidence. A satisfiable path becomes a concrete input you can replay. An unsatisfiable path is removed because its constraints contradict each other. A path that reaches an assertion, unsafe memory access, or crash site becomes a bug witness only if the solver can produce input for it.',
+        'Run the program over expressions rather than only values. At if x > 0, the true state records x > 0 and the false state records x <= 0.',
+        'The accumulated formula describes exactly what must be true for that path. A satisfiability solver can then produce a concrete input, such as x = 7, or report that the constraints contradict each other.',
       ],
     },
     {
@@ -196,48 +205,50 @@ export const article = {
           alt: 'Rust MIR control-flow graph with blocks and branch edges.',
           caption: 'A compiler IR control-flow graph is close to what a symbolic executor walks: basic blocks, branch edges, and state at each program point. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rust_MIR_CFG.svg.',
         },
-        'A symbolic executor is an interpreter with extra state. Each execution state stores the program counter, call stack, memory model, symbolic input objects, and the path condition collected so far. Assignments transform symbolic expressions. Branches fork states. Assertions and memory checks ask whether a bad condition is reachable.',
-        'The solver is usually queried at pressure points: should this fork be explored, can this assertion fail, can this pointer alias that object, can this path produce a test case? If a later constraint contradicts an earlier one, the state is pruned. If a path reaches normal exit, the path condition can be solved into a regression test. If it reaches an error, the model becomes a reproducer.',
-        'Most practical engines mix symbolic and concrete execution. Concolic execution runs the program on a concrete input while collecting symbolic constraints along the taken path, then negates one branch condition to generate the next input. This keeps execution grounded in real behavior while still using the solver to cross narrow gates.',
+        'A symbolic executor is an interpreter with extra state: program counter, stack, memory model, and path condition. Assignments build symbolic expressions, and branches fork states with different constraints.',
+        'At important points, the engine asks an SMT solver whether a formula is satisfiable. SMT means satisfiability modulo theories, a solver that understands arithmetic, arrays, bit-vectors, and other structured domains.',
+        'Concolic execution mixes concrete and symbolic execution. It runs one real input, records symbolic constraints on that path, then negates one branch condition to generate the next input.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The reasoning is local and checkable. If the engine models a branch correctly, then every concrete input satisfying the true-state condition will take the true branch, and every input satisfying the false-state condition will take the false branch. Repeating that logic across the path turns the path condition into an executable explanation.',
-        'A generated test is trustworthy because it can be replayed. If the solver says `x = 7` satisfies the collected constraints, the real program should take the same path until the executor reaches something it did not model correctly.',
-        'That last caveat matters. Symbolic execution is only as sound as its models of arithmetic, memory, libraries, system calls, undefined behavior, threads, files, clocks, and the language runtime. The mathematical idea is clean; the engineering boundary is where mistakes enter.',
+        'The correctness argument is path equivalence. If the engine models each operation correctly, then any concrete input satisfying the path condition will follow the same branch sequence in the real program.',
+        'Unsatisfiable constraints can be removed safely because no input can take that path. Satisfiable error paths produce replayable witnesses, so a crash is not just reported but accompanied by the input that triggers it.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The main cost is path explosion. Each independent branch can double the number of states, so 30 binary branches can imply over one billion possible paths.',
+        'Solver calls are also expensive. Bit-vector arithmetic, symbolic memory addresses, loops, strings, system calls, and floating point can turn a small program into a hard solver workload.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Security tools use symbolic execution to generate exploit witnesses and reach parser states that fuzzing misses. Compiler and VM teams use it to validate instruction semantics and corner-case arithmetic.',
+        'It also helps test generation. A generated input for each feasible branch can become a regression suite that documents which code paths the engine proved reachable.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the environment model is wrong. Files, clocks, network calls, threads, undefined behavior, and library functions can all make the symbolic path diverge from real execution.',
+        'It also fails when the search space is too large. Engines need heuristics, summaries, state merging, and timeouts, and those choices can miss paths.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider a toy handler: read an unsigned byte `n`; require `n < len`; require `n == 7`; then copy `n + 8` bytes into an eight-byte buffer. A normal test might try `n = 0`, `n = 1`, or random bytes and never reach the dangerous copy.',
-        'A symbolic run starts with `n` and `len` unknown. The interesting path collects `n < len` and `n == 7`. At the copy, the bug condition is `n + 8 > 8`. The full query is `n < len && n == 7 && n + 8 > 8`, which is satisfiable. The solver can return `n = 7, len = 8`, giving a concrete crashing input.',
-        'A different path might collect `n < 0` for the same unsigned byte. That query is unsatisfiable under the byte model, so the engine can discard it. The key difference from fuzzing is that both decisions are explained by constraints, not luck.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The main cost is path explosion. Every symbolic branch can double the number of states, and loops can generate an unbounded family of path conditions. Even when the number of paths is manageable, each solver query can become expensive if it contains nonlinear arithmetic, arrays, bit-vector tricks, or symbolic memory.',
-        'Search strategy changes the tool you get. Depth-first search reaches deep states quickly but can starve siblings. Breadth-first search improves coverage but stores more states. Coverage-guided search, random-path search, state merging, function summaries, constraint caching, and timeouts are practical compromises.',
-        'Precision is also a cost. Model every library call precisely and the analysis may drown. Stub too aggressively and the engine may miss bugs or report impossible ones. A useful symbolic executor usually has a carefully chosen target, not a heroic model of the whole machine.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'It wins on narrow, branch-heavy interfaces: parsers, protocol handlers, codecs, arithmetic validators, file-format checks, smart-contract functions, and security-sensitive input validation. The output is especially useful because it is concrete. A failing input can be saved as a regression test.',
-        'It struggles on large applications with uncontrolled I/O, huge libraries, clocks, network calls, concurrency, opaque native dependencies, floating-point-heavy code, cryptographic hashes, or solver-hostile arithmetic. These are not moral failures of the technique. They are places where the path formula stops being a compact guide.',
-        'It is strongest as part of a workflow. Abstract Interpretation & Interval Domain can cheaply point at suspicious regions. Taint Analysis Source-to-Sink Case Study can identify dangerous sinks. Fuzzing can cover broad shallow input space. Symbolic execution can then spend solver time where a concrete witness is worth the price.',
+        'Consider code with if x > 0, then y = x + 2, then if y == 7 crash. The crash path condition is x > 0 and x + 2 == 7.',
+        'The solver simplifies x + 2 == 7 to x = 5, and x = 5 also satisfies x > 0. The generated test input x = 5 reaches the crash; the alternate path x > 0 and x + 2 != 7 is also satisfiable, while x > 0 and x < 0 would be pruned.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: KLEE intrinsics docs at https://klee-se.org/docs/intrinsics/, KLEE USENIX paper page at https://www.usenix.org/legacyurl/klee-unassisted-and-automatic-generation-high-coverage-tests-complex-systems-programs-0, KLEE 2019 overview at https://link.springer.com/article/10.1007/s10009-020-00570-3, and Imperial KLEE symbolic-execution slides at https://srg.doc.ic.ac.uk/files/slides/symex-tarot-18.pdf.',
-        'Study Tree Traversals and Recursion for path explosion intuition, Control Flow Graph & Dominator Tree for program paths, Abstract Interpretation & Interval Domain for sound over-approximation, Taint Analysis Source-to-Sink Case Study for target selection, and Data-Flow Worklist Analysis for static-analysis contrast.',
+        'Study King 1976 for symbolic execution, Cadar et al. on KLEE, and SMT solver documentation such as Z3. Next study control-flow graphs, abstract interpretation, fuzzing, SAT solving, and compiler intermediate representations.',
       ],
     },
   ],

@@ -248,110 +248,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each box as a render pass, which is a unit of GPU work such as a shadow pass, lighting pass, or postprocess pass. Read each named texture or buffer as a resource. An arrow means one pass writes a resource that a later pass reads.',
+        'The lifetime bars show when a resource must exist. Once the last reader finishes, the memory can be reused by a later resource that does not overlap. The safe inference is that non-overlapping lifetimes can share memory without changing the frame output.',
         {type: 'image', src: './assets/gifs/render-graph-framegraph-resource-lifetimes.gif', alt: 'Animated walkthrough of the render graph framegraph resource lifetimes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'Why render graphs exist',
+      heading: 'Why this exists',
       paragraphs: [
-        'A modern rendered frame is not one draw loop. It may include depth, G-buffer, shadows, lighting, SSAO, bloom, temporal history, compute passes, UI, and presentation. Each pass reads and writes GPU resources, and the order is constrained by dataflow.',
-        'The hard problem is not only drawing pixels. It is knowing which pass produces each resource, which pass consumes it, which state the resource must be in, when temporary memory can be reused, and which passes can be skipped because their outputs are unused.',
-        'A render graph, or frame graph, makes that implicit dependency structure explicit. It turns a frame into a compiler problem over a DAG of passes and resources.',
+        'Modern frames are built from many GPU passes. One pass writes a depth texture, another reads it for shadows, and another writes a postprocess target. Manual ordering and manual resource cleanup become fragile as the frame grows.',
+        'A render graph exists to make those dependencies explicit. Passes declare what they read and write, then the graph derives order, barriers, lifetimes, and safe memory reuse.',
         {type: 'callout', text: 'A render graph makes the frame compiler-visible: passes declare resource reads and writes, and the graph derives order, barriers, lifetimes, and safe memory reuse.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is hand-written pass order: create textures, run GBuffer, run lighting, run post-processing, draw UI, present. For a tiny renderer, this is clear and fast to write.',
-        'The wall arrives when features multiply. Optional post effects, dynamic resolution, temporal buffers, editor overlays, async compute, platform-specific barriers, and hot-reloaded materials all change the frame shape.',
-        'At that point the frame is already a graph. If the code does not model it as one, the graph is scattered across pass order comments, manual resource lifetimes, and fragile barrier calls.',
+        'The obvious approach is to hand-code the pass order and allocate every intermediate texture directly. This is clear for a toy renderer with a few passes. The programmer knows that G-buffer runs before lighting and lighting runs before tone mapping.',
+        'That approach also feels controllable. Each texture has an owner, and each barrier can be placed near the API call that needs it. Small engines often start this way because the frame is still easy to hold in memory.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is hidden dependency state. Adding one pass can require new barriers, a new allocation, and a new cleanup point in distant code. A missing barrier can produce flicker or stale reads, while an over-conservative barrier can waste GPU parallelism.',
+        'Memory also grows quietly. If every intermediate texture keeps its own allocation for the whole frame, peak memory becomes the sum of resources that were never alive at the same time. The renderer pays for lifetime overlap that does not exist.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A render graph models the frame as passes that read and write resources. Edges come from dataflow: a pass that reads a texture must run after the pass that writes it, and the resource must transition into the required state.',
+        'A frame is a dependency graph. Passes are nodes, and resource reads or writes create edges. Once the graph is explicit, the renderer can topologically order passes, insert transitions, and compute the first and last use of each resource.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A frame graph is a directed dependency graph: producer passes must precede consumer passes before barriers and lifetimes can be planned. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        'The graph is both a data structure and a compiler pass. It derives ordering, barriers, pass culling, transient lifetimes, and aliasing opportunities from declarations.',
-      ],
-    },
-    {
-      heading: 'What the views teach',
-      paragraphs: [
-        'In the pass-dependency view, follow the edges as resource dependencies. Lighting cannot run before GBuffer and Depth because it reads their outputs. Present cannot run before UI because the swapchain image is not final yet.',
-        'The important shift is declarative. Passes declare reads and writes; the graph compiler derives order, barriers, and sometimes pass culling. That keeps individual passes from manually knowing the whole frame.',
-        'In the resource-lifetime view, read the graph like register allocation. A transient texture is live from first write to last read. If two resources are never live at the same time and have compatible requirements, they can share memory.',
-        'The highlighted lifetime boundary is the safety rule behind aliasing. A logical resource can disappear after its last consumer even though the physical heap allocation remains. The next logical resource may reuse that heap only if no later pass can still read the old contents.',
+        'Resource lifetime is the important second graph. Two textures with disjoint lifetimes can alias the same memory. The output stays correct because no pass can read both allocations at the same time.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Each pass declares the resources it reads, the resources it writes, and the usage required for each resource. The graph builder connects producers to consumers, checks for cycles, topologically sorts passes, and emits a command-recording plan.',
-        'Explicit graphics APIs require resource state transitions. A texture written as a render target may later be sampled by a shader. The render graph can centralize those transitions instead of relying on every pass author to remember them.',
-        'Transient resources have live intervals from first write to last read. If two resources are never live at the same time and have compatible size, format, alignment, and usage, the allocator can place them in the same heap memory.',
-        'External resources are treated differently. Swapchain images, imported textures, history buffers, readback buffers, and resources visible to another queue or frame usually have lifetimes that extend beyond one graph build. A good graph marks those boundaries so transient aliasing cannot cross them by accident.',
+        'Each pass declares resources it reads and resources it writes. The graph connects writers to readers and rejects cycles because a frame cannot execute pass A before pass B and pass B before pass A. The topological order gives a legal schedule.',
+        'The compiler then walks the ordered passes. It records first use and last use for every resource, inserts state transitions before reads or writes, and assigns physical memory to logical resources whose live intervals do not overlap.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness invariant is dependency satisfaction. A pass can run only after every resource it reads has been produced and transitioned into the required state.',
-        'The scheduling step works because the graph is acyclic within a frame. A topological order respects producer-consumer edges. If a cycle appears, the declarations are missing a temporal boundary such as previous-frame history.',
-        'Lifetime aliasing is safe only when live intervals do not overlap. That is the same interval reasoning used by register allocation, applied to GPU memory.',
+        'Correctness comes from the dependency edges. If pass B reads a resource written by pass A, the graph forces A before B. A topological order of an acyclic graph satisfies every producer-before-consumer constraint.',
+        'Aliasing is correct because the live interval guards reuse. A physical allocation is reused only after the previous logical resource has passed its last read. Since no later pass can observe the old resource, reusing that memory cannot change the rendered frame.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A deferred renderer writes albedo, normals, material data, and depth in the GBuffer pass. Lighting reads those textures and writes lit color. Bloom reads lit color and writes blur temporaries. Composition reads lighting, SSAO, and bloom. UI writes over the final image. Present hands the swapchain image to the display.',
-        'The graph can infer that bloom temporaries are dead before later unrelated effects begin, so their memory can be reused. It can also drop a disabled SSAO pass and remove the resources that existed only to feed it.',
+        'Graph compilation is usually O(P + E), where P is the number of passes and E is the number of dependency edges. Lifetime analysis adds a scan over resource uses. This CPU work is small compared with heavy GPU passes, but it happens every frame if the graph is rebuilt dynamically.',
+        'The behavioral payoff is lower peak memory and fewer accidental stalls. Doubling the number of passes roughly doubles graph work, but memory depends on overlap, not pass count alone. A well-compiled graph can run a larger frame inside the same budget by aliasing short-lived render targets.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The graph build cost includes pass declaration, dependency analysis, topological sorting, barrier planning, pass culling, and allocation planning. Engines may rebuild the graph when settings change and cache stable plans when possible.',
-        'Overly conservative barriers waste performance. Missing barriers create GPU hazards. Incorrect aliasing corrupts frames. The benefit is that these risks become centralized and inspectable instead of scattered through every pass.',
-        'Debuggability matters. A good graph can print why a pass exists, who produced a resource, when it dies, and which barrier was inserted. Without that tooling, the abstraction can hide the very bugs it was meant to control.',
-        'Async compute and multiple queues complicate the model. The graph may need queue ownership transfers, timeline semaphores, split barriers, and scheduling rules that balance overlap against synchronization cost. The simple DAG remains the base, but queue assignment becomes another physical property to track.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Render graphs win in deferred renderers, post-processing pipelines, temporal effects, VR or multi-view rendering, editor viewports, and engines with optional features that change frame shape.',
-        'They are strongest when many transient textures exist for only part of the frame and when explicit graphics APIs make resource states visible.',
+        'Render graphs are used in game engines and real-time graphics frameworks where frames contain many dependent passes. They help engines manage shadow maps, depth prepasses, lighting, temporal effects, postprocessing, and presentation.',
+        'The same idea appears in GPU compute pipelines. When kernels exchange intermediate buffers, explicit reads and writes let the runtime plan order and reuse memory instead of relying on scattered manual bookkeeping.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A render graph can be overkill for a tiny renderer with one or two fixed passes. It also adds abstraction cost if pass declarations hide too much or make debugging harder.',
-        'The graph does not choose the artistic pipeline for you. It schedules declared work; bad pass design, oversized G-buffers, and unnecessary effects remain bad after being graphed.',
-        'It also fails when declarations are incomplete. If a pass writes through an untracked descriptor, reads a previous-frame resource without declaring it, or depends on global state hidden outside the graph, the compiler cannot insert the right barrier or lifetime edge. The model is only as honest as the pass API.',
+        'A render graph fails when pass declarations lie. If a pass reads a texture but does not declare it, the compiler cannot insert the required edge or barrier. The graph is only as correct as the resource contract.',
+        'It can also be overkill for small fixed pipelines. The abstraction adds compile code, debugging tools, and naming discipline. Very dynamic feedback loops or external API side effects may need escape hatches that reduce the graph benefits.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Start with a strict pass builder API: a pass may only access resources it declares, and each declaration names read or write usage. Make graph validation loud during development. Cycles, missing producers, unused outputs, read-after-write hazards, and external-resource lifetime mistakes should be visible before GPU debugging is required.',
-        'Expose the compiled graph. Engineers need a frame debugger view that shows pass order, resource versions, barriers, live intervals, aliased heap regions, and culling decisions. Without that output, a render graph becomes another hidden scheduler rather than a tool for understanding the frame.',
+        'Suppose a frame has four passes. GBuffer writes Albedo and Depth. Lighting reads both and writes Lit. Bloom reads Lit and writes BloomTmp. Present reads Lit and BloomTmp.',
+        'Depth is live from pass 1 to pass 2. Albedo is also live from pass 1 to pass 2. BloomTmp is live from pass 3 to pass 4. If Depth uses 16 MB and BloomTmp uses 16 MB, they can share one 16 MB allocation because their lifetimes do not overlap.',
+        'The schedule GBuffer, Lighting, Bloom, Present satisfies every read-after-write edge. Running Bloom before Lighting would be illegal because Bloom needs Lit, and Lit does not exist until Lighting writes it.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A deferred renderer has a GBuffer pass, depth pass, lighting pass, SSAO pass, bloom passes, composition, UI, and present. Without a graph, each pass must know when textures are ready, which layout they are in, and who owns transient memory. With a graph, each pass declares inputs and outputs, and the frame compiler schedules the rest.',
-        'Deferred G-Buffer expands that renderer into per-pixel records: albedo, normals, material parameters, motion, and depth. Bind groups describe resource slots inside one pipeline. The render graph describes resources across the entire frame. Dirty rectangles can further constrain which passes or tiles need work in UI-heavy renderers.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Sources: Unreal Engine Render Dependency Graph documentation, https://docs.unrealengine.com/5.3/en-US/render-dependency-graph-in-unreal-engine/; WebGPU specification, https://www.w3.org/TR/webgpu/; Vulkan synchronization overview, https://docs.vulkan.org/spec/latest/chapters/synchronization.html; and Frostbite FrameGraph presentation, https://www.gdcvault.com/play/1024612/FrameGraph-Extensible-Rendering-Architecture-in. Study Deferred G-Buffer, WebGPU Swapchain Frame Pacing, Texture Atlas & Mipmaps, Depth Buffer Z-Test, WebGPU Buffer & Bind Group Case Study, Topological Sort, Dirty Rectangle Damage Tracking, Scene Graph Transform Hierarchy, and Cache Invalidation next.',
+        'Study Frostbite FrameGraph presentations, Granite render graph material, and modern Direct3D 12 or Vulkan resource-barrier documentation for production context. The common pattern is explicit pass-resource declarations plus graph compilation.',
+        'Study next: topological sort for dependency order, graph representation for edges, GPU synchronization for barriers, and memory allocation for resource aliasing behavior.',
       ],
     },
   ],

@@ -81,89 +81,98 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization builds a deterministic finite automaton (DFA) for the pattern ab*c, then feeds it several test strings one character at a time. Watch the highlighted node: it is the machine\'s entire memory. Each frame reads one input character, follows the matching arrow, and lands on the next state. When the input runs out, the machine checks whether it stopped on an accepting state (match) or anywhere else (reject).',
+        'Pay attention to the trap state labeled R. Once the machine enters R, every future character loops back to R. That is how the machine encodes permanent failure without needing a separate error path for every bad prefix.',
         {type: 'image', src: './assets/gifs/finite-state-machine.gif', alt: 'Animated walkthrough of the finite state machine visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Finite state machines exist for systems that should only occupy one legal situation at a time. A regex matcher is either before the first character, inside the repeating section, accepted, or rejected. A protocol is listening, handshaking, established, closing, or failed. A checkout flow is collecting shipping, collecting payment, confirming, complete, or canceled. The common structure is not the domain. It is the finite set of legal states and the finite set of events that move between them.',
+        'Software systems constantly need to track "where am I in a process." A network connection is listening, handshaking, established, or closing. A checkout flow is collecting shipping, collecting payment, confirming, or complete. A regex matcher is before the first character, inside a repeating section, accepted, or rejected. All of these share the same skeleton: a finite set of legal situations and a finite set of events that move between them. A finite state machine (FSM) is the name for that skeleton.',
         {type: 'callout', text: 'An FSM replaces scattered flags with one legal state and one explicit transition rule per event.'},
-        'This model is valuable because it makes control visible. Instead of scattering behavior across conditionals, booleans, callbacks, and implicit flags, an FSM names each state and names each legal transition. That gives readers a table they can audit: from this state, on this input, what happens next? If a transition is absent, the move is illegal. That single idea prevents a large class of bugs.',
-        'FSMs are also the smallest useful model of computation. They remember exactly one thing: the current state. That limitation is severe, but it is also the source of their speed and clarity. If the job fits inside finite memory, an FSM is hard to beat.',
+        'The value is visibility. Instead of spreading behavior across nested if-else chains, boolean flags, and callbacks, an FSM names every state and every legal transition in one place. You can audit it as a table: from state X, on event Y, go to state Z. If a transition is absent, the move is illegal. That single rule prevents entire classes of bugs where a system ends up in a combination of flags that should never exist.',
+        'FSMs are also the smallest useful model of computation. They remember exactly one thing: the current state. That limitation is severe, but it is also why they are fast and easy to reason about. If the job fits inside a fixed amount of memory, an FSM is hard to beat.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is imperative control flow. You write if statements, set flags like isOpen and hasStarted, and hope every handler checks the right combination. This works for tiny examples, but it does not scale. Illegal combinations become possible: a connection can look open and closed, a UI can look loading and submitted, a parser can look both inside and outside a quoted string.',
-        'The second tempting approach is backtracking. For pattern matching, you can try one interpretation, rewind if it fails, and try another. That feels flexible, but it can become catastrophically expensive when many choices overlap. A deterministic finite automaton takes the opposite bet: compile the choices into states so runtime matching is one transition per character.',
-        'The FSM move is to make the hidden control state explicit. You stop asking many booleans what the system might be doing and instead ask one state variable where the system is. That is a simpler question with a smaller answer space.',
+        'The obvious approach to tracking process state is imperative control flow. You declare boolean flags like isOpen, hasStarted, and isAuthenticated, then scatter if-checks across every handler that cares. For two or three flags this works. At five flags you have 32 possible combinations, most of which are illegal, and nobody can enumerate which ones are reachable.',
+        'For pattern matching specifically, another tempting approach is backtracking: try one interpretation of the input, and if it fails, rewind and try another. This feels flexible, but the cost can explode when many choices overlap. Some regex engines have been crashed by carefully crafted inputs that force exponential backtracking.',
+        'The FSM move is different. You make the hidden control state explicit by replacing all of those flags with a single state variable drawn from a known, finite set. You stop asking "which combination of booleans describes the system right now" and start asking "which named state is the system in." The second question has a smaller, auditable answer space.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that a deterministic finite machine has one next state for each pair of current state and input symbol. The transition table is the program. Running the program means repeatedly doing a table lookup: state plus character gives next state. There is no stack, no recursive call, no remembered history except whatever the current state already summarizes.',
+        'The flag approach hits a wall when processes grow. A parser with 6 boolean flags has 64 combinations, and you need to verify that every handler transitions between valid ones. Adding one flag doubles the space. Bugs hide in the combinations you forgot to test, and they manifest as impossible states: a connection that is simultaneously open and closed, a form that is both loading and submitted.',
+        'Backtracking hits a different wall. For the pattern (a|a)*b, a naive backtracking engine on a string of 25 a\'s without a trailing b will explore 2^25 paths, over 33 million, before giving up. The problem is that the engine cannot tell early that no path will work because it has no compiled summary of what the pattern actually requires.',
+        'Both approaches fail for the same deep reason: they defer the work of understanding the structure to runtime. The FSM approach front-loads it. You compile the structure into a graph of states and transitions once, then runtime execution is a simple walk through that graph.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A deterministic finite automaton has exactly one next state for every combination of current state and input symbol. The transition table is the entire program. Running the program means one table lookup per input character: look up the row for the current state, find the column for the current character, read off the next state. There is no stack, no recursion, no memory beyond which state the machine currently occupies.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/DFAexample.svg/250px-DFAexample.svg.png', alt: 'Deterministic finite automaton accepting binary strings with an even number of zeros', caption: 'A DFA diagram makes the one-state-at-a-time rule visible through labeled transitions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:DFAexample.svg.'},
-        'That summary is the trick. In the regex ab*c, state S1 does not remember how many b characters have appeared. It only remembers that the input has already seen the required a and is still allowed to consume b characters before the final c. The exact count does not matter for the language, so the machine throws it away.',
-        'The trap state matters because not every bad prefix deserves special handling. Once a string begins with b for this pattern, no future suffix can repair it. The trap state represents all irrecoverable histories in one place. That compression is why finite automata can be tiny even when they summarize many possible prefixes.',
+        'The power comes from compression. In the pattern ab*c, state S1 does not remember how many b characters have appeared. It only remembers that the required a has already been seen and that the machine is still allowed to consume more b characters before the final c. The exact count of b\'s is irrelevant to whether the string matches, so the machine discards it. Every state is a summary of all the histories that still have the same future behavior.',
+        'The trap state is the ultimate compression. Once a string starts with b for this pattern, no future suffix can rescue it. Rather than tracking every distinct bad prefix, the machine collapses them all into one rejecting state R. That is why a DFA can be tiny even when the set of possible inputs is enormous.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A deterministic finite automaton is defined by an alphabet, a set of states, one start state, a set of accepting states, and a transition function. The transition function is often written as a table. For every current state and input symbol, it returns the next state. After consuming the full input, the machine accepts if it is in an accepting state and rejects otherwise.',
-        'The animation uses a DFA for ab*c over the alphabet a, b, c. S0 is the start. Reading a moves to S1. S1 has a self-loop on b because b* means any number of b characters. Reading c from S1 moves to S2, the accepting state. Anything that violates the pattern moves to R, the trap state. Once in R, every later character stays in R.',
-        'This is exactly why DFA execution is predictable. The machine never asks "what if I had chosen differently?" because there was no choice at runtime. If nondeterminism exists in a higher-level regex or NFA, it can often be compiled away through subset construction, where a DFA state represents a set of possible NFA states.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The visual proves that pattern matching can be a fixed-cost state walk. Each frame consumes one character and follows one transition. The graph is not an illustration next to the algorithm; it is the compiled algorithm. The current node is all the memory the machine has.',
-        'The accepting state proves that matching is about the entire consumed input, not just reaching a promising intermediate point. A string like abca reaches the accept state after abc, then the extra a pushes it into rejection. That is correct because ab*c describes complete strings in this demo, not substrings inside a larger string.',
-        'The trap state proves the value of irreversible failure. Instead of carrying many different bad prefixes, the machine collapses them into one rejecting state. That is the same engineering pattern used in validators, scanners, and protocol implementations: summarize histories by what future behavior is still possible.',
+        'A DFA is defined by five components: an alphabet (the set of input symbols), a set of states, one designated start state, a set of accepting states, and a transition function. The transition function maps every (state, symbol) pair to exactly one next state. After consuming the entire input string, the machine accepts if it ends in an accepting state and rejects otherwise.',
+        'The animation\'s DFA recognizes the language ab*c over the alphabet {a, b, c}. State S0 is the start. Reading a from S0 moves to S1. From S1, reading b loops back to S1 (the b* part, meaning zero or more b\'s). Reading c from S1 moves to S2, the sole accepting state. Any character that violates the expected sequence sends the machine to R, the trap state, where it stays forever.',
+        'Consider the input "abbc". The machine starts at S0, reads a and moves to S1, reads b and stays at S1, reads another b and stays at S1, reads c and moves to S2. The input is exhausted and S2 is accepting, so the string matches. Now consider "abba". After the same first three steps the machine is at S1. It reads a, which has no valid transition from S1 in the pattern, so it goes to R. Result: reject.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'FSMs work when the future only depends on a finite summary of the past. For ab*c, the only questions that matter are whether the required a has appeared, whether the machine is still reading the b* region, whether the final c has closed the pattern, or whether the prefix is already impossible. Those four summaries are the states.',
-        'This is the same reason lexers work. A lexer does not need to remember every character of a number while deciding whether the next character is still part of the number. It needs a state such as inNumber, inIdentifier, inString, or error. The state carries the information needed for the next transition, while token text can be accumulated separately.',
-        'The method also works socially. A state diagram gives programmers, reviewers, and operators a shared object to inspect. That matters in production systems where behavior is often wrong not because one condition is hard, but because nobody knows which combinations of conditions are legal.',
+        'FSMs work whenever the future behavior of a system depends only on a finite summary of the past, not on the full history. For ab*c, there are exactly four situations that matter: the machine has not yet seen the leading a (S0), it has seen the a and is in the b* region (S1), it has completed the full pattern (S2), or the prefix is already irrecoverable (R). No finer distinction changes what should happen next.',
+        'This property is called the Myhill-Nerode equivalence. Two input histories are equivalent if, for every possible future continuation, both histories give the same accept/reject answer. If the number of equivalence classes is finite, a DFA exists. If it is infinite, no DFA can do the job. That is a precise boundary, not a judgment call.',
+        'The same logic explains why lexers work. A lexer scanning source code does not need to remember every character of a number literal to decide whether the next character extends it. It needs a state like inNumber, inIdentifier, or inString. The state carries the information needed for the next transition. The actual text can be accumulated in a separate buffer.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Running a DFA over n input symbols costs O(n). Each step is one transition lookup. With a dense table, memory costs O(states * alphabet). With sparse maps and default transitions, memory can be much smaller. For byte-oriented machines, the table may be large but cache-friendly; for token-oriented machines, a map or switch can be easier to maintain.',
-        'The tradeoff is expressiveness. A plain finite machine cannot count arbitrary nesting, match balanced parentheses, remember unbounded identifiers, or enforce cross-field equality. It can remember a bounded amount by adding more states, but if the required memory grows with input length, the model is wrong. Pushdown automata, parsers, or richer program state are needed.',
-        'Another tradeoff is state explosion. Combining several independent concerns into one machine can multiply the number of states. Sometimes the right design is one product machine. Sometimes it is several smaller machines coordinated by explicit events. The goal is inspectable control, not a giant diagram nobody can reason about.',
+        'Running a DFA on an input of length n costs O(n) time. Each character triggers exactly one transition lookup. If the transition table is stored as a two-dimensional array indexed by state and symbol, each lookup is O(1). Total: n lookups, no backtracking, no branching that depends on input content.',
+        'Memory for the table is O(S * A) where S is the number of states and A is the alphabet size. For the ab*c machine, that is 4 states times 3 symbols, 12 entries. For a byte-oriented scanner with 256 possible input values and 50 states, the table is 12,800 entries. At one byte each, that is about 12.5 KB, which fits comfortably in L1 cache.',
+        'The cost that hides is construction. Converting a nondeterministic finite automaton (NFA) to a DFA via subset construction can produce up to 2^n states where n is the NFA state count. In practice this worst case is rare, but it means you should measure the compiled DFA size, not just the regex length, when evaluating whether the approach is viable.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'FSMs win in lexers, byte validators, CSV scanners, protocol handshakes, device controllers, traffic lights, UI workflows, animation controllers, retry lifecycles, and game behavior. They are strongest when the legal state space is small and when illegal transitions should be impossible or obvious.',
-        'They also form the base vocabulary for regular expressions. Thompson NFAs, subset construction, DFA minimization, and safe regex engines all build on this idea. The safe engines are predictable precisely because they stay inside automata semantics rather than adding features that require backtracking over unbounded history.',
-        'In application code, FSMs are useful even when no formal automata theory appears. A checkout reducer, WebSocket lifecycle, OAuth device flow, or upload state can be much safer when written as states and transitions rather than as scattered booleans.',
+        'Every regex engine compiles patterns into automata. The safe ones (RE2, Rust\'s regex crate) build DFAs or lazily construct DFA states on demand, guaranteeing linear-time matching. Your text editor\'s syntax highlighter runs a lexer DFA to color keywords, strings, and comments. The TCP protocol\'s connection lifecycle (LISTEN, SYN_SENT, ESTABLISHED, FIN_WAIT, CLOSED) is a state machine defined in RFC 793.',
+        'In UI engineering, libraries like XState model checkout flows, form wizards, and authentication sequences as explicit state machines. The benefit is that illegal screens become unrepresentable: you cannot show a payment form before shipping is complete because the transition does not exist. Game AI uses FSMs for enemy behavior, patrol/chase/flee, where each state has clear entry and exit conditions.',
+        'At the hardware level, every digital circuit is a finite state machine. A traffic light controller cycles through green, yellow, red with timed transitions. A USB controller negotiates connection states. The FSM is not just a software pattern; it is the fundamental abstraction for any system with a finite number of configurations.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The most common failure is using an FSM where the problem needs richer memory. Nested JSON, balanced parentheses, arbitrary recursion, indentation-sensitive languages, and regex backreferences all need more than one finite state unless the input size is artificially bounded.',
-        'Another failure is hiding the machine. Many codebases have state machines implemented as scattered conditionals, but no transition table, no diagram, and no test that enumerates legal moves. That loses the main benefit. If reviewers cannot answer what events are legal from each state, the FSM is only implied.',
-        'A subtler failure is overgeneralizing the trap state. Some errors really are terminal. Others are recoverable, especially in editors and network protocols. A good machine distinguishes terminal rejection, recoverable error, timeout, retry, and resynchronization instead of collapsing all bad events into one bucket.',
+        'FSMs cannot count without bound. Matching balanced parentheses like ((())), where nesting depth is unlimited, requires remembering the current depth. A DFA with k states can only count up to k, so for unbounded nesting you need a pushdown automaton (a state machine plus a stack). This is why HTML and JSON cannot be parsed by regular expressions alone.',
+        'FSMs also fail when the machine is hidden. Many codebases contain implicit state machines: scattered booleans and conditionals that collectively implement state transitions, but with no transition table, no diagram, and no test that enumerates legal moves. That loses the main benefit. If a reviewer cannot answer "from this state, which events are legal," the FSM is only accidental, not intentional.',
+        'A subtler failure is collapsing all errors into one trap state. In a text editor or network protocol, some errors are recoverable. A good machine distinguishes permanent rejection, recoverable error, timeout, and resynchronization as separate states. Lumping them together makes the machine simpler but throws away information the system needs to respond correctly.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Trie for character-labeled state graphs, Thompson NFA Regex Engine for nondeterministic execution, Subset Construction for compiling NFA state sets into DFA states, Regex Backtracking Catastrophic Case Study for the unsafe contrast, UTF-8 Decoder DFA for a production-grade byte validator, and CSV Parser State Machine for a small real parser.',
-        'Then compare FSMs with Pushdown Automata and parser stacks, UI State Machine Workflow for product flows, TCP Handshake for protocol states, and Raft Leader Election for a distributed system where the state machine idea becomes part of correctness.',
+        'Build a DFA that accepts binary strings containing an even number of 0s. The alphabet is {0, 1}. You need two states: E (even count of 0s seen so far, including zero) and O (odd count). E is the start state and the only accepting state.',
+        'Transition table: from E on input 1, stay at E (1 does not change the count). From E on input 0, move to O (count goes from even to odd). From O on input 1, stay at O. From O on input 0, move to E (count goes from odd back to even). That is the complete machine: 2 states, 4 transitions.',
+        'Test it on the string "1001". Start at E. Read 1: stay at E. Read 0: move to O. Read 0: move to E. Read 1: stay at E. Final state is E, which is accepting. The string has two 0s (even), so the answer is correct. Now test "100". Start at E, read 1 (E), read 0 (O), read 0 (E). Accept. Three characters, one 0-pair, even count. Test "10": E, read 1 (E), read 0 (O). Reject. One zero is odd. Each test costs exactly n steps where n is the string length.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The canonical reference is Sipser\'s Introduction to the Theory of Computation, chapters 1 and 2, which proves the equivalence of DFAs, NFAs, and regular expressions. Hopcroft, Motwani, and Ullman\'s Introduction to Automata Theory covers DFA minimization and the Myhill-Nerode theorem. For practical regex engines, Cox\'s "Regular Expression Matching Can Be Simple And Fast" (2007, https://swtch.com/~rsc/regexp/regexp1.html) explains why DFA-based engines avoid catastrophic backtracking.',
+        'On this site, study Trie (Prefix Tree) for character-labeled state graphs, Thompson NFA Regex Engine for nondeterministic execution, Subset Construction for compiling NFA state sets into DFA states, and CSV Parser State Machine for a small applied parser. For the broader computation hierarchy, compare with Pushdown Automata (FSM plus a stack) and Turing Machine (FSM plus an infinite tape).',
       ],
     },
   ],

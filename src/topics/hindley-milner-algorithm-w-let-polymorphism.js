@@ -146,96 +146,79 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read a type variable such as a as an unknown type. A substitution records a solved equation for an unknown. A scheme such as forall a. a -> a is a reusable polymorphic type, not one fixed type.',
         {type: 'image', src: './assets/gifs/hindley-milner-algorithm-w-let-polymorphism.gif', alt: 'Animated walkthrough of the hindley milner algorithm w let polymorphism visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A typed language has to answer a practical question: how much type information should programmers write by hand? Full annotations make the compiler simple but make ordinary functional code noisy. No static types make many mistakes appear only when the program runs.',
+        'A typed language wants static safety without forcing programmers to annotate every expression. Hindley-Milner inference gives ML-style languages principal types for variables, lambdas, applications, and let-bindings. Principal means every other valid type is a specialization.',
         {type: 'callout', text: 'Algorithm W separates discovery from reuse: infer one principal type, generalize safe variables, then instantiate fresh copies at each use.'},
-        'Hindley-Milner gives a strong middle ground for an ML-like core. It infers a principal type for expressions made from variables, lambdas, application, and let-binding. Principal means most general: every other valid type for the expression is a specialization of the one inferred.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Abstract_syntax_tree_for_Euclidean_algorithm.svg/500px-Abstract_syntax_tree_for_Euclidean_algorithm.svg.png', alt: 'Abstract syntax tree diagram for the Euclidean algorithm', caption: 'Algorithm W walks syntax-tree structure while accumulating type information. Source: Wikimedia Commons, Abstract syntax tree for Euclidean algorithm.'},
-        'Algorithm W is the constructive version of that idea. It is not just a checker. It walks the expression, manufactures unknown type variables, gathers equations from how values are used, solves those equations with unification, and decides where polymorphism may safely enter the environment.',
       ],
     },
     {
-      heading: 'The problem with one type per name',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A simple checker can store one type for each name. If x has type int, every later use of x has type int. If f is applied to x, f must have a function type whose input matches the type of x. This handles many local mistakes.',
-        'It breaks on a basic ML idiom: let id = fun x -> x in (id 1, id true). The source name id must behave like int -> int in the first call and bool -> bool in the second call. A monomorphic environment would force both calls to share one type variable and would eventually try to equate int with bool.',
-        'The language feature is not ad hoc overloading. The definition of id is genuinely uniform. It works for any type because it never inspects its argument. The compiler needs a representation for that uniformity.',
+        'The obvious checker stores one type per name. If x is int, every x must be int. Function application just checks that the function input type matches the argument type.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is let id = fun x -> x in (id 1, id true). The definition of id works for any type, but one shared unknown would force int and bool to become the same type. The checker needs safe reuse, not ad hoc overloading.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A let-bound value is stored as a type scheme, not as a raw type. The scheme forall a. a -> a says that a is quantified by the binding and may be replaced with a fresh type variable each time the name is used.',
+        'A let-bound value is stored as a type scheme. Generalization quantifies variables that are free in the inferred type but not free in the surrounding environment. Instantiation replaces those quantified variables with fresh unknowns at each use.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between labeled nodes', caption: 'Inference constraints form directional dependencies between expression nodes and type variables. Source: Wikimedia Commons, Directed graph.'},
-        'That freshening step is instantiation. The reverse step is generalization. After inferring the type of a let-bound expression, Algorithm W quantifies the type variables that are free in the inferred type but not free in the surrounding environment.',
-        'Everything else is unification. Application forces equations such as functionType = argumentType -> resultType. Unification solves those equations while preserving the weakest substitution that makes them true.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'The environment maps names to schemes. A fresh variable counter creates unknowns such as a, b, and c. The unifier maintains a substitution from unknowns to concrete types or larger type expressions.',
-        'For a variable, look up its scheme and instantiate quantified variables with fresh unknowns. For a lambda, assign the parameter a fresh type, infer the body under the extended environment, and return parameterType -> bodyType. For an application, infer the function, infer the argument, create a fresh result type, and unify the function with argumentType -> resultType.',
-        'For a let-binding, infer the bound expression first. Apply the current substitution to the environment and the inferred type. Then generalize only the variables that do not appear free in the environment. Store that scheme while inferring the body.',
-      ],
-    },
-    {
-      heading: 'Invariant and proof sketch',
-      paragraphs: [
-        'Each recursive call returns a substitution and a type. The invariant is that, after applying the returned substitution, the expression has the returned type under the returned environment assumptions.',
-        'Application preserves the invariant because the unifier proves that the inferred function type can be viewed as argumentType -> resultType. If the equation cannot be solved, the program has no HM type. If it can be solved, the result type is justified by the application rule.',
-        'Let-polymorphism is safe because generalization does not quantify variables that are already constrained by the surrounding environment. Instantiation is safe because each use receives fresh variables, so one use cannot accidentally rewrite the assumptions of another use.',
-      ],
-    },
-    {
-      heading: 'Occurs check and failure modes',
-      paragraphs: [
-        'The occurs check prevents infinite types. If unification tries to solve a = a -> b, accepting the equation would require a type that contains itself. HM rejects that shape unless the language has explicit recursive types.',
+        'For a variable, instantiate its scheme. For a lambda, give the parameter a fresh unknown and infer the body. For an application, infer function and argument, create a result unknown, and unify functionType with argumentType -> resultType.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt: 'Directed acyclic graph with multiple dependency paths', caption: 'The occurs check protects the inferred type graph from cycles that would imply infinite types. Source: Wikimedia Commons, Directed acyclic graph.'},
-        'A common implementation bug is over-generalization. Quantifying a variable that came from the surrounding environment lets a later lookup treat an externally fixed type as polymorphic. Another bug is under-instantiation, where two uses of a scheme share the same unknown and falsely constrain each other.',
-        'Effects add a language-level failure mode. In ML-family languages, mutable references and similar effects interact badly with unrestricted polymorphism. The value restriction limits generalization so a polymorphic cell cannot be written at one type and read at another.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Why it works',
       paragraphs: [
-        'The AST traversal is linear in the number of expression nodes. The real cost is the size and shape of the generated type terms and unification work. With sharing and union-find-style representatives, common programs behave close to linear in practice.',
-        'Naive implementations can repeatedly copy large type trees when applying substitutions. They can also produce poor errors if they forget which source expression generated each equation. Production checkers keep source spans on constraints, compress representatives, and delay pretty-printing until the final type is known.',
-        'The inferred type can be larger than the source expression when nested tuples, records, or generated functions duplicate structure. HM is elegant, but it is not free of engineering pressure.',
+        'Each recursive call returns a type plus substitutions that make the expression well typed. Application is sound because unification proves the function can accept the argument. Let-polymorphism is sound because only environment-independent variables are generalized, and each use gets fresh copies.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'HM works well for functional languages with algebraic data types, pattern matching, lexical scope, and many small let-bound helpers. Users get strong static guarantees while writing code that often looks unannotated.',
-        'It is also a good compiler architecture lesson. The algorithm has visible data structures: a map from names to schemes, a fresh-variable supply, type constructors, substitutions, and a unifier. Each part has a narrow responsibility.',
+        'The syntax-tree walk is linear in expression count, but unification cost depends on type-term size and substitution sharing. Good implementations use representatives and avoid repeatedly copying large types. Poor ones can be slow and produce errors far from the bad expression.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'HM inference is the core model behind ML-family languages and many typed functional cores. It works well with lexical scope, algebraic data types, pattern matching, and many small helpers. It is also a clean compiler architecture lesson.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Pure Algorithm W is not a universal inference engine. Subtyping, overloaded methods, type classes, higher-rank polymorphism, GADTs, dependent types, row polymorphism, object systems, and gradual typing all require extra machinery or different inference boundaries.',
-        'It also gives less guidance when error localization matters more than acceptance. A single bad equation can surface far from the expression a programmer thinks is wrong. Modern compilers layer constraint explanation and bidirectional checking on top of the core idea.',
+        'Pure Algorithm W does not cover subtyping, type classes, overloaded methods, higher-rank polymorphism, GADTs, dependent types, objects, or gradual typing. Effects also require restrictions; mutable references motivate the ML value restriction.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Worked example',
       paragraphs: [
-        'In the algorithm-w view, follow the path from AST to environment, fresh variables, rules, unification, and final type. The important edge is the application rule feeding unification: this is where ordinary function calls become equations over unknown types.',
-        'In the let-polymorphism view, watch the split between generalize and instantiate. The let id row shows the single scheme. The later id 1 and id true rows show two independent instantiations. If those rows shared one unknown, the example would fail.',
-        'Treat the final mutation frame as a warning about the boundary of the model. The animation is showing the sound HM core first, then the reason real ML implementations restrict generalization around effects.',
+        'Infer let id = fun x -> x in (id 1, id true). The lambda gives x fresh type a and returns a -> a. At the let, a is not fixed by the environment, so generalize to forall a. a -> a.',
+        'For id 1, instantiate with fresh b and unify b with int, producing int. For id true, instantiate again with fresh c and unify c with bool, producing bool. Two fresh instantiations give pair type (int, bool) without forcing int = bool.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Damas and Milner principal type-schemes PDF at https://people.eecs.berkeley.edu/~necula/Papers/DamasMilnerAlgoW.pdf, Cornell inference notes at https://www.cs.cornell.edu/courses/cs3110/2016fa/l/17-inference/notes.html, Cornell let-polymorphism notes at https://courses.cs.cornell.edu/cs3110/2021sp/textbook/interp/letpoly.html, and OCaml polymorphism manual at https://ocaml.org/manual/polymorphism.html. Study Pratt Parser Expression AST, Unification Union-Find Type Constraints, Bidirectional Type Checking: Synthesis & Checking, and Gradual Typing Boundaries & Blame Guards next.',
+        'Read Damas and Milner on principal type-schemes, Cornell inference notes, Cornell let-polymorphism notes, and OCaml polymorphism documentation. Study abstract syntax trees, lambda calculus, unification, union-find, bidirectional checking, gradual typing, and type classes next.',
       ],
     },
   ],

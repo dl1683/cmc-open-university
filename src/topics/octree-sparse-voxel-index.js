@@ -237,99 +237,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The split-cubes view starts with one cube and divides it into eight octants. Empty octants are removed, solid octants stop, and mixed octants split again. The safe inference is geometric: if a query cannot intersect a cube, nothing inside that cube can affect the answer.',
+        'The sparse-voxel view shows the production version. A huge volume turns into active tiles, dense leaves, a sparse tree, query traversal, and hot-leaf caching. Watch which regions disappear from work, because skipped space is the reason the structure exists.',
         {type: 'image', src: './assets/gifs/octree-sparse-voxel-index.gif', alt: 'Animated walkthrough of the octree sparse voxel index visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'Problem',
+      heading: 'Why this exists',
       paragraphs: [
-        'Three-dimensional data gets large faster than intuition expects. A 2D image with width and height grows by four times when both dimensions double. A 3D voxel grid grows by eight times when x, y, and z resolution double. A dense grid is easy to address, but it charges memory for every cell whether that cell contains smoke, a surface, a point, or empty air.',
-        'Real 3D workloads are often sparse. A medical scan contains a body inside a bounding box. A robot occupancy map contains walls and obstacles but also unknown or empty space. A game or renderer may have detailed geometry in a few regions and nothing in most of the world. A LiDAR point cloud samples surfaces, not every cubic millimeter of volume. The octree exists to stop paying dense-grid prices for empty or uniform regions.',
         {type: 'callout', text: 'An octree is a proof that most of a 3D volume is irrelevant: each empty or uniform cube removes all smaller cells beneath it.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/20/Octree2.svg', alt: 'Recursive cube subdivision beside the corresponding octree', caption: 'Cube subdivision and tree structure side by side show the octree invariant: each internal region splits into eight smaller regions. Source: Wikimedia Commons, public domain.'},
+        'Three-dimensional grids grow by a factor of eight when resolution doubles in x, y, and z. A 1024 by 1024 by 1024 voxel grid has more than one billion cells. Dense storage is easy to address, but it charges memory and bandwidth for empty air.',
+        'Real 3D data is often sparse or locally uniform. A robot map contains obstacles and unknown regions, not useful detail in every cubic centimeter. A renderer, simulation, or point cloud usually needs detail near surfaces and active regions, not across the whole bounding box.',
       ],
     },
     {
-      heading: 'Naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive representation is a dense 3D array. Given integer coordinates, address math is simple: index = x + width * (y + height * z), or a similar layout. Point lookup is O(1), neighborhood loops are predictable, and GPU kernels can be straightforward. Dense grids are excellent when the data really is dense and the resolution is modest.',
-        'The wall arrives when the domain is large and mostly empty. A 1024 by 1024 by 1024 grid has more than one billion cells. If most cells are empty, a dense grid wastes memory and cache bandwidth before any algorithm starts. Queries also do unnecessary work. A ray, collision test, or range search can spend most of its time crossing cells that contain no useful payload.',
+        'The obvious representation is a dense 3D array. Given integer coordinates, index math can be constant time, and local neighborhoods are easy to scan. This is the right baseline for small dense volumes.',
+        'Another reasonable approach is a flat list of occupied voxels or points. It saves memory when data is sparse, but queries become expensive because the list has weak spatial structure. A ray, box query, or nearest-neighbor search needs a way to reject whole regions at once.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'An octree recursively partitions a cube into eight smaller cubes. Each split cuts the parent by the x midpoint, y midpoint, and z midpoint. The eight children are disjoint and together cover the parent. If a child region is empty, the tree can omit it or store a compact empty leaf. If a child region is uniform, the tree can stop. If a child region is mixed, the tree can split again.',
-        'The core insight is hierarchical proof of irrelevance. A query can skip an entire subtree once the subtree cube is known to be empty, outside the query bounds, or uniform enough for the requested answer. The tree does not make exact work disappear. It makes exact work local. It replaces scanning the whole volume with descending into the small subset of space that might matter.',
+        'The dense grid wall is memory and bandwidth. If only 1 percent of a billion cells matter, 990 million empty cells still occupy addresses and cache lines. A query can spend most of its time proving that empty cells are empty.',
+        'The flat sparse list wall is lack of hierarchy. It stores only useful payloads, but it cannot quickly prove that a query region has no relevant payloads. The missing object is a spatial certificate: a region-level statement that says empty, uniform, mixed, or outside the query.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is recursive spatial proof. Split a cube by x, y, and z midpoints into eight disjoint children that exactly cover the parent. If a child is empty, omit it; if it is uniform, store one leaf; if it is mixed, recurse.',
+        'The tree makes exact work local. It does not avoid checking surfaces, occupied voxels, or candidate points that really matter. It avoids descending into space that has already been proved irrelevant by its parent cube.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Construction starts with a root cube that covers the coordinate domain. The builder classifies that cube. If it contains no occupied voxels or points, it can be absent or marked empty. If it contains one material, one value class, or an acceptable aggregate, it becomes a leaf. If it contains mixed data and depth remains, it splits into eight octants and repeats the classification.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Simple tree diagram with parent and child nodes', caption: 'The diagram is binary, but the lesson transfers: traversal follows a hierarchy of regions and skips whole subtrees once a region is irrelevant. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
-        'A child can be identified by three bits: one bit for low or high x, one for low or high y, and one for low or high z. A path from the root is a sequence of those octant codes. Packed together, the path resembles a 3D version of a quadkey and is closely related to Morton codes and Z-order curves. Pointer octrees store child references. Linear octrees store keys in sorted arrays or maps. Sparse voxel structures often add dense leaf blocks so local operations remain fast once traversal reaches an active region.',
-        'Queries are bounding-volume tests plus recursion. A point lookup chooses one child at each level. A box query visits children whose cubes intersect the box. A ray traversal visits cubes along the ray and skips cubes that the ray never enters. A nearest-neighbor search uses distance bounds to avoid subtrees that cannot contain a better candidate. In every case the tree is a broad-phase filter before exact work on voxels, points, or primitives.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider a robot mapping a warehouse. The root cube covers the building. Large empty air regions are marked empty. Walls, shelves, and obstacles occupy a small fraction of the volume. Unknown regions may be represented separately because "not observed" is different from "observed empty." When a new depth scan arrives, the map updates the cubes along sensor rays: free space along the ray, occupied space near the hit, and unknown space elsewhere.',
-        'A collision query for the robot body does not scan the entire warehouse grid. It asks which octree leaves intersect the swept box of the robot. Empty subtrees are skipped. Occupied or unknown leaves become candidates for more careful checking. If the robot moves locally, a cache of recently touched leaves can avoid repeating traversal from the root for every small edit or query.',
-        'A renderer uses a similar idea with a different payload. A sparse voxel octree can store scene occupancy, colors, or material summaries. A ray descends through cubes it intersects, skipping empty space and refining only near surfaces. The final hit still needs precise traversal rules, but the hierarchy prevents the ray from stepping one tiny voxel at a time through a huge empty scene.',
-      ],
-    },
-    {
-      heading: 'Animation lesson',
-      paragraphs: [
-        'The split-cubes view shows one root cube and eight octants labeled by bit patterns. Empty octants can disappear from later work. Solid octants can stop as leaves. Mixed octants split again. The highlighted mixed nodes are where the algorithm spends more detail. The removed empty nodes are where the hierarchy earns its memory and traversal savings.',
-        'The sparse-voxel case-study view adds a production-shaped pipeline. A huge volume feeds active tiles and dense leaves into a sparse tree. Queries descend through the tree, and hot leaves may be cached because nearby rays and local edits tend to touch nearby cells. The layout frame compares pointer trees, linear octrees, block leaves, and DAG merging. That comparison is the practical lesson: an octree is a concept, but performance comes from the physical representation.',
+        'Construction starts with a root cube covering the coordinate domain. Each node is classified as empty, solid or uniform, mixed, or max-depth leaf. Mixed nodes allocate up to eight children, commonly identified by three bits: low or high x, low or high y, low or high z.',
+        'Point lookup follows one child per level. A box query visits children whose cubes intersect the box. A ray traversal visits cubes along the ray and skips cubes the ray cannot enter. A nearest-neighbor search uses distance bounds to ignore cubes that cannot contain a better answer.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is geometric. Each split partitions the parent cube into disjoint children whose union is the parent. If a query region does not intersect a child cube, none of the points or voxels inside that child can affect the query. If a child cube is known empty, it cannot produce a hit. If a child cube is uniform and the query only needs the uniform value or aggregate, recursion can stop safely.',
-        'The efficiency argument depends on sparsity and coherence. Sparse data means many cubes become empty or uniform at high levels. Coherent queries mean nearby operations reuse paths or leaves. A ray through mostly empty space can skip large cubes. A point-cloud neighbor search can reject distant cubes by distance bounds. A simulation can update dense leaf blocks locally while keeping empty space cheap.',
+        'Correctness follows from partitioning. The eight children of an internal node are disjoint, and their union is the parent cube. If the query excludes a child cube, every voxel or point inside that cube is also excluded.',
+        'Stopping at empty or uniform leaves is safe because the leaf stores a claim about the whole region. If the claim is empty, no hit can exist there. If the claim is uniform and the query only needs that aggregate, deeper cells cannot change the result.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Point lookup is O(depth), where depth is the number of spatial refinement levels. Range, ray, and neighbor queries cost the number of nodes they visit plus the exact work at candidate leaves. A sparse octree can be much smaller than a dense grid, but a fully detailed dense volume can make the tree large. In the worst case, hierarchy overhead can become a tax rather than a saving.',
-        'Memory layout matters. Explicit eight-child pointers are simple to update but pointer-heavy and cache-unfriendly. Child masks reduce empty-child overhead. Linear octrees pack octant paths into sortable keys, improving compactness and batch processing but making incremental updates harder. Dense leaf blocks improve local access but impose a fixed block size. DAG-compressed sparse voxel octrees can deduplicate repeated subtrees, but updates become difficult because shared structure must be preserved.',
-        'Resolution policy is just as important. Finer voxels preserve detail and reduce false positives, but they increase depth and memory. Coarser voxels are cheaper, but they blur geometry and force later stages to inspect larger candidate regions. Boundary rules must be deterministic. Points on midplanes, floating-point quantization, root bounds, and coordinate transforms all need stable definitions or the same object can move between cells unpredictably.',
+        'A point lookup costs O(depth), where depth is the number of refinement levels. Range, ray, and neighbor queries cost the number of visited nodes plus exact work at candidate leaves. If the data is sparse, visited nodes can be far fewer than dense-grid cells.',
+        'The hidden cost is layout. Pointer octrees are easy to update but cache-unfriendly. Linear octrees store sorted keys and batch well but update less easily. Dense leaf blocks improve local scans but impose a block-size choice. When the data is dense everywhere, the hierarchy can become overhead.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Octrees win when the domain is large, 3D, and sparse or locally uniform. Sparse volumes, occupancy grids, voxel terrain, LiDAR point clouds, collision broad phases, visibility tests, and level-of-detail systems are natural fits. The tree lets the system spend detail only where the data or query requires detail.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt: 'Sparse matrix pattern with black nonzero entries on a mostly empty grid', caption: 'Sparse patterns make the same economic point as sparse voxels: store and traverse the active regions, not the full dense universe. Source: Wikimedia Commons, Oleg Alexandrov and Vojtak, public domain.'},
-        'OpenVDB is a production example of the idea adapted for visual effects and scientific volumes. It uses a hierarchical sparse tree with dense leaf buffers, so smoke, fire, clouds, level sets, and other volumes can be mostly empty while active regions still support fast local access. Point-cloud libraries use octrees for another payload: group points into cubes, accelerate neighbor search, detect changes between scans, and produce candidates for exact geometry checks.',
+        'Octrees fit sparse volumes, voxel terrain, occupancy maps, LiDAR point clouds, collision broad phases, visibility tests, and level-of-detail systems. OpenVDB uses a hierarchical sparse tree with dense leaf buffers for visual effects and scientific volumes. Point-cloud libraries use octree partitioning to accelerate neighbor search and change detection.',
+        'The access pattern is the key. Octrees win when queries can reject large regions before touching detailed payloads. They are less about storing a tree and more about making emptiness cheap to prove.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'An octree is weak when data is dense everywhere or when queries need to touch most of the volume anyway. A dense array can outperform the tree because it has predictable memory access and no branch overhead. A BVH may be better for arbitrary triangle geometry because it groups primitives by fitted bounding boxes rather than forcing them into a regular spatial grid. A k-d tree may be better for certain point-neighbor workloads because it can split by data distribution rather than fixed octants.',
-        'Dynamic scenes can also be difficult. Moving objects may require repeated reinsertion. Small edits in a compressed or linear layout can trigger expensive rebuilds. Highly unbalanced data can create deep paths unless the implementation uses depth limits, loose octrees, or rebalancing policies. If the coordinate system is poorly chosen, precision problems can dominate the algorithmic design.',
+        'Octrees fail on dense data and all-volume scans. A dense array can be faster because it has predictable contiguous access and no branch overhead. A BVH can beat an octree for arbitrary triangle geometry because it groups primitives by fitted boxes instead of fixed grid octants.',
+        'Dynamic scenes are also hard. Moving objects may require reinsertion, compressed DAG layouts make updates expensive, and bad coordinate policy can cause boundary flicker. Unknown space in robot maps must not be treated as empty unless the application has explicitly made that risk decision.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Common failure modes include off-by-one boundary classification, inconsistent root bounds between producer and consumer, treating unknown space as empty in robot maps, using too fine a depth for noisy data, and returning too many false candidates because leaf blocks are too coarse. Another failure is designing for memory compression while ignoring traversal cost. A tiny structure that causes random memory access can be slower than a larger cache-friendly one.',
-        'A good implementation records its coordinate policy, max depth, voxel size, child ordering, empty and unknown semantics, and serialization format. It also measures the actual query mix. A renderer, simulator, robot map, and point-cloud neighbor index may all use octree-like partitioning, but their best leaf size, layout, cache strategy, and update policy can be very different.',
+        'Suppose a 256 by 256 by 256 warehouse grid has 16,777,216 possible voxels, but only 120,000 are occupied or unknown near shelves and walls. A dense boolean grid stores every voxel. An octree can mark large empty air cubes as single empty leaves and store dense blocks only around obstacles.',
+        'A robot collision box intersects 30 high-level cubes. If 22 are empty, they are skipped immediately. If 5 are unknown and 3 are occupied or mixed, only those 8 regions become exact candidates. The query pays for the spatial region that could matter, not the full 16 million-cell universe.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: OpenVDB documentation at https://www.openvdb.org/documentation/doxygen/overview.html, OpenVDB tree architecture notes at https://www.openvdb.org/documentation/doxygen/tree.html, PCL octree tutorial at https://pcl.readthedocs.io/projects/tutorials/en/latest/octree.html, and sparse voxel octree ray-casting paper at https://research.nvidia.com/publication/2010-02_efficient-sparse-voxel-octrees.',
-        'After this, study Quadtree Spatial Index & Map Tiles for the 2D ancestor, Morton Codes & Z-Order Curves for linear spatial keys, Bounding Volume Hierarchy for geometry-driven grouping, R-Tree Spatial Index for disk and rectangle indexing, k-d Tree for point-neighbor queries, and spatial hashing for fixed-grid alternatives. The useful comparison question is always the same: does the structure skip enough irrelevant space to repay its own overhead?',
+        'Primary sources and references: OpenVDB documentation, PCL octree tutorials, sparse voxel octree ray-casting literature, and robotics occupancy-map references that distinguish free, occupied, and unknown space.',
+        'Study Quadtrees, Morton Codes, Bounding Volume Hierarchies, R-Trees, k-d Trees, spatial hashing, and sparse matrix storage next. The comparison question is whether the structure skips enough irrelevant space to repay its own traversal and memory overhead.',
       ],
     },
   ],

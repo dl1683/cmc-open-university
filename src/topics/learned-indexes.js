@@ -247,190 +247,72 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The first view shows a traditional page-table index and a learned CDF model side by side. The page table maps key ranges to pointers. The CDF plot maps every key to its rank in sorted order, with the learned model drawn as an approximation of the true curve. The query marker shows where the model predicts key 58 should live, and the gap between that prediction and the true position is the error the system must correct.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The CDF-model view compares a traditional page index with a learned model that predicts the rank of a key in sorted data. The query marker for key 58 shows the predicted slot, and the correction window shows how far the model may be wrong.',
         {
           type: 'callout',
           text: 'A learned index is a fast position guess wrapped by an exact bounded search.',
         },
-        'The second view focuses on failure modes and the correction machinery. Active highlights mark the current prediction or decision. Found highlights mark results that are now confirmed correct. Compare highlights mark the baseline or fallback that would handle the same query without learning.',
-        'Watch the error bound step carefully. The model guesses a slot; the bound defines a search window; the local search inside that window recovers the exact answer. That three-step sequence -- predict, bound, search -- is the entire mechanism. If the window is small, the model saved work. If the window is large, the model is overhead.',
+        'The error-bounds view is the important one. Active marks show a prediction, compare marks show the true curve or fallback, and found marks show the exact answer after local search.',
+        'Read the sequence as predict, bound, search. If the bound is small, the model saved work; if the bound is large, the model became overhead.',
       
-        {type: 'image', src: './assets/gifs/learned-indexes.gif', alt: 'Animated walkthrough of the learned indexes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Every database index answers the same question: given a key, where does it live in sorted data? B-trees answer by walking separator keys through a tree of pointers. Binary search answers by halving an array. Both are general -- they work on any key distribution, any data shape, any insert pattern. That generality is the product.',
-        {
-          type: 'quote',
-          text: 'Indexes are models. A B-tree-Index can be seen as a model to map a key to the position of a record within a sorted array, a Hash-Index as a model to map a key to a position of a record within an unsorted array, and a BitMap-Index as a model to indicate if a data record exists or not.',
-          attribution: 'Tim Kraska et al., "The Case for Learned Index Structures" (2018)',
-        },
-        'Kraska observed that most real key sets are not adversarial. Timestamps increase roughly linearly. User IDs cluster. Auto-incremented primary keys are nearly uniform. If 80% of the lookup work is navigating a pattern the data already contains, a model that learns the pattern can skip most of that navigation. The learned index exists because statistical regularity is free information that traditional indexes ignore.',
-        'The important promise is modest. The model is not the database. It is a fast first guess. The sorted array, the page layout, or a fallback structure still holds the data and still answers the query. The model just gets you closer to the answer before comparison begins.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is a B-tree. It stores separator keys at internal nodes, child pointers that partition the key space, and sorted records at the leaves. Lookup walks from root to leaf in O(log_B n) I/Os, where B is the node fanout. It handles inserts, deletes, and range scans. It is cache-friendly when nodes are sized to fit cache lines or disk pages. Every serious database engine ships one.',
+        {type: 'image', src: './assets/gifs/learned-indexes.gif', alt: 'Animated walkthrough of the learned indexes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},], },
+    { heading: 'Why this exists', paragraphs: [
+        'An index maps a key to where that key should be found. A B-tree stores separators and pointers explicitly, but on smooth key distributions those separators can be a verbose encoding of a simple pattern.',
+        'A learned index exists because many sorted key sets have structure: timestamps increase, IDs are nearly linear, and strings share prefixes. A model can predict approximate position, while exact search preserves the database contract.',
+      ], },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is a B-tree. It stores wide nodes of separator keys and child pointers, walks from root to leaf, and supports lookup, range scan, insert, and delete.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
           alt: 'B-tree diagram with keys grouped into wide nodes',
           caption: 'A B-tree stores separator keys and child pointers explicitly; a learned index asks whether a model can compress that navigation. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.',
         },
-        'B-trees earn their place because they make no assumption about the data. Uniform keys, skewed keys, adversarial keys, keys arriving in any order -- the tree rebalances and the contract holds. That is why they survived fifty years of competition.',
-        'The cost of that generality is structural. Every internal node stores separators that describe the key distribution, but it stores them as literal values and pointers, not as a compressed model. A B-tree over 200 million uniformly spaced 64-bit keys still builds millions of internal nodes even though the rank function is almost a straight line. The separators are doing real work, but they are also a verbose encoding of a simple pattern.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall has two faces. The first is memory. B-tree internal nodes consume space proportional to the number of separators. For read-heavy analytic workloads on hundreds of millions of keys, the index can be several gigabytes. Those bytes compete with data pages for cache and RAM. Pointer chasing through tree levels produces cache misses that dominate lookup latency on modern hardware, where a cache miss costs 50-100x more than an arithmetic operation.',
-        'The second face is waste. If the key distribution follows a pattern -- nearly linear, piecewise smooth, or clusterable into a few segments -- the B-tree is storing millions of separators to describe something a handful of model parameters could capture. The tree does not know the pattern exists. It cannot exploit it. Every lookup still walks log_B(n) levels regardless of how predictable the next separator is.',
-        'There is a third constraint that makes the problem harder: the index has a semantic contract. A lookup for key k must return the exact position of k if it exists, or the insertion point where k would go. A model that predicts "roughly slot 5000" is not an index. It is a guess. The wall is not just about speed -- it is about how to make a guess exact without losing the speed gain.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A learned index treats the sorted key array as defining a cumulative distribution function (CDF). For every key k, CDF(k) = rank(k) / n, a value between 0 and 1 that says what fraction of keys are less than or equal to k. Multiply by n and you get the array position. A model that approximates this CDF can predict the position of any key in one evaluation.',
+        'B-trees are strong because they make few assumptions. Uniform keys, skewed keys, inserts, deletes, and adversarial orderings all preserve the contract through rebalancing.',
+      ], },
+    { heading: 'The wall', paragraphs: [
+        'The wall is memory and pointer chasing. A B-tree over hundreds of millions of sorted keys can spend gigabytes on internal pages, and each lookup may pay multiple cache misses before reaching data.',
+        'If the key-rank function is almost a straight line, those internal pages are describing a pattern that a few parameters could approximate. The challenge is that approximate position is not enough for an exact index.',
+      ], },
+    { heading: 'The core insight', paragraphs: [
+        'Sorted keys define an empirical cumulative distribution function, or CDF. For key k, the CDF tells what fraction of keys are less than or equal to k, and multiplying by n gives an approximate rank.',
+        'The model is allowed to be wrong only inside a known error window. Correctness comes from searching that window, not from trusting the model.',
+      ], },
+    { heading: 'How it works', paragraphs: [
+        'Train a model to map key to position in a sorted array. At lookup, evaluate the model, clamp the predicted position to array bounds, and search from predicted minus maxError to predicted plus maxError.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Empirical_CDF%2C_CDF_and_Confidence_Interval_plots_for_various_sample_sizes_of_Normal_Distribution.png/250px-Empirical_CDF%2C_CDF_and_Confidence_Interval_plots_for_various_sample_sizes_of_Normal_Distribution.png',
           alt: 'Empirical CDF step plots approaching a smooth cumulative distribution curve',
           caption: 'A learned index models the key CDF: key values on x, sorted rank on y, with exact search correcting the prediction error. Source: Wikimedia Commons, File:Empirical CDF CDF and confidence interval plots for normal distribution.',
         },
-        {
-          type: 'diagram',
-          label: 'Recursive Model Index (RMI) architecture',
-          text: [
-            '              query key',
-            '                 |',
-            '          +------v------+',
-            '          | Root Model  |   Stage 0: routes to submodel',
-            '          +--+---+---+--+',
-            '             |   |   |',
-            '       +-----+   |   +-----+',
-            '       v         v         v',
-            '  +--------+ +--------+ +--------+',
-            '  |Model 0 | |Model 1 | |Model 2 |  Stage 1: predicts local CDF',
-            '  +---+----+ +---+----+ +---+----+',
-            '      |          |          |',
-            '      v          v          v',
-            '  [keys 0..k] [keys k..m] [keys m..n]  Sorted data segments',
-            '      |          |          |',
-            '      v          v          v',
-            '  error-bounded binary search on segment',
-          ].join('\n'),
-        },
-        'The Recursive Model Index (RMI) from Kraska et al. organizes this into stages. The root model takes a key and predicts which submodel should handle it -- effectively routing the key to a specialist for its range. The leaf-level submodel predicts the position within its segment. Each submodel can be a simple linear regression, a small neural network, or a spline. After prediction, the system performs a local search within the model error bound to find the exact answer.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: [
-            '// Learned CDF lookup with error-bounded binary search',
-            'function learnedLookup(key, models, data, maxErrors) {',
-            '  // Stage 0: root model routes to submodel',
-            '  let modelIdx = Math.min(',
-            '    Math.floor(models[0].predict(key) * models.length),',
-            '    models.length - 1',
-            '  );',
-            '',
-            '  // Stage 1: submodel predicts position in sorted array',
-            '  let predicted = Math.round(models[modelIdx].predict(key));',
-            '  predicted = Math.max(0, Math.min(predicted, data.length - 1));',
-            '',
-            '  // Error-bounded binary search',
-            '  let lo = Math.max(0, predicted - maxErrors[modelIdx]);',
-            '  let hi = Math.min(data.length - 1, predicted + maxErrors[modelIdx]);',
-            '  while (lo < hi) {',
-            '    let mid = (lo + hi) >>> 1;',
-            '    if (data[mid] < key) lo = mid + 1;',
-            '    else hi = mid;',
-            '  }',
-            '  return data[lo] === key ? lo : -1;',
-            '}',
-          ].join('\n'),
-        },
-        'Lookup is three steps: evaluate the model to get a predicted position, clamp to valid bounds and compute the search window from the known maximum error for that segment, then run binary search inside the window. The window size is the key variable. If maxError is 32, the binary search examines at most 5 positions (log2(64)). If maxError is 1 million, the model is not helping.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Correctness does not come from the model. It comes from the search. If the error bound is honest -- if the true position is guaranteed to lie within [predicted - maxError, predicted + maxError] -- then binary search over that interval returns the same answer as binary search over the entire array. The model can be biased, approximate, and trained on a sample. The comparison step is still exact. This is why the approach works even with imperfect models: learning handles navigation, data-structure invariants handle semantics.',
-        'The speedup comes from compression. A B-tree over n keys uses O(n / B) internal nodes. A learned index over the same keys might use a root model with a few hundred parameters and a few thousand leaf models with a handful of parameters each -- total model size measured in kilobytes instead of megabytes. If the model fits in L1/L2 cache, prediction is a multiply-add that costs nanoseconds, replacing pointer chases that cost hundreds of nanoseconds each.',
-        'The deeper reason this works is that real data has structure. Timestamps are monotonic. Auto-incremented IDs are near-uniform. ZIP codes cluster geographically. The CDF of these distributions is smooth and compressible. A piecewise-linear model with a few hundred segments can approximate a CDF over 200 million keys with maximum error under 128 positions. A B-tree cannot exploit that smoothness -- it stores every separator regardless.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'B-tree: lookup costs O(log_B n) pointer chases, space is O(n / B) internal nodes, and build or sorted insert work follows the tree update path.',
-            'Learned index or RMI: lookup is O(1) model evaluation plus O(log maxErr) local search, space is mostly model parameters, and build is a data scan plus model training.',
-            'ALEX: lookup is O(1) model evaluation plus local search in gapped arrays, with adaptive splits and higher implementation complexity for updates.',
-            'PGM-index: lookup walks a compact tree of piecewise-linear models, space is O(n / epsilon), and build can be done in an optimal linear scan for the chosen error.',
-          ],
-        },
-        'The practical cost of a learned index is model evaluation time plus correction search time. With a two-stage RMI, model evaluation is two multiply-adds -- essentially free. The correction search dominates, and its cost depends entirely on the error bound. If maxError is 64, the binary search takes 6-7 comparisons. If maxError is 8, it takes 3. Compare that to a B-tree over 100 million keys with fanout 128: about 4 levels of pointer chasing, each potentially a cache miss.',
-        'The hidden costs are real. Training the model requires a pass over all keys. Maintaining error bounds requires tracking the worst-case prediction per segment. Update handling requires delta buffers, gap arrays, or periodic retraining. Tail latency depends on the worst segment, not the average. A model that averages 4 slots of error but occasionally misses by 50,000 slots is dangerous under a strict latency SLO.',
-        'The PGM-index deserves special mention. It builds an optimal piecewise-linear approximation of the CDF with guaranteed maximum error epsilon, then recursively indexes the segment boundaries the same way. The result is a tree of linear models with O(log_epsilon n) lookup and provably minimal space for the chosen error. It combines the learned-index insight with worst-case guarantees that the original RMI lacked.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Learned indexes win on read-heavy workloads over mostly static, sorted data with smooth key distributions. Analytic column stores, time-series databases, dense numeric primary keys, and sorted string stores with predictable prefixes are natural fits. In these settings the model compresses the index by 100x or more while matching or beating B-tree lookup speed.',
-        'They win when memory is the bottleneck. If the B-tree index is 4 GB and the learned index is 40 KB, the learned version leaves more RAM for data pages and buffer pool. On embedded devices or in-memory databases where every megabyte matters, that compression is not cosmetic -- it changes what fits in cache.',
-        'ALEX, the adaptive learned index (Ding et al., 2020), extends the idea to read-write workloads. It uses gapped arrays that leave slack space for inserts, adaptive node splitting that retrains models when error grows too large, and a tree of model nodes that can restructure without rebuilding the whole index. ALEX demonstrated that learned indexes can handle millions of inserts per second while maintaining lookup performance competitive with B-trees, though at the cost of higher implementation complexity.',
-        {
-          type: 'note',
-          text: 'Google adopted learned indexes in their Bigtable infrastructure. The key observation: for the specific key distributions in production, a few linear models replaced index blocks that consumed significant memory, reducing both space and lookup latency on sorted string tables (SSTables).',
-        },
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Learned indexes fail when their assumptions break. Heavy write workloads invalidate the model continuously -- every batch of inserts changes the CDF, growing the error bound until the model is worse than no model at all. The system must retrain, buffer, or restructure, and those operations have real cost. A write-heavy OLTP workload with random inserts will spend more time maintaining the model than a B-tree spends on splits and merges.',
-        'Adversarial or pathological key distributions defeat the approach. If keys cluster into dense pockets separated by enormous gaps, the CDF has sharp jumps that no smooth model can approximate cheaply. The error bound for those segments explodes, and the correction search degenerates into scanning. Sparse tails, multi-modal distributions, and keys with no statistical pattern turn the learned index into overhead on top of a fallback structure.',
-        {
-          type: 'bullets',
-          items: [
-            'Distribution shift: if the key distribution changes over time (new tenant, schema migration, data backfill), the model becomes stale and error bounds grow silently.',
-            'Worst-case latency: the p99 depends on the worst segment error, not the average. Tail-sensitive SLOs need per-segment guarantees, not aggregate metrics.',
-            'Concurrency: learned indexes need careful concurrency control during model retraining -- readers must not see a half-trained model with invalid error bounds.',
-            'Updatability: the original RMI from Kraska 2018 was read-only. ALEX and LIPP added update support but at significant implementation complexity.',
-            'Complexity tax: a B-tree is one well-understood structure. A learned index is a model, a training pipeline, error tracking, a buffer for updates, a fallback structure, and a retraining policy. More can go wrong.',
-          ],
-        },
-        'The organizational failure mode is common. A team benchmarks a learned index on a static dataset, sees a 2x speedup, and deploys it on a mutable table. The first week is fine. After a month of inserts, deletes, and distribution drift, the error bounds have grown, the buffer is large, retraining is expensive, and the system is slower than the B-tree it replaced. The benchmark was not wrong -- the workload assumption was.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Kraska, Beutel, Chi, Dean, Polyzotis. "The Case for Learned Index Structures." SIGMOD 2018. The founding paper. Read it asking: where is the model allowed to be wrong, and what repairs the error?',
-            'Ding, Minhas, et al. "ALEX: An Updatable Adaptive Learned Index." SIGMOD 2020. Extends learned indexes to read-write workloads with gapped arrays and adaptive model retraining.',
-            'Ferragina and Vinciguerra. "The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds." VLDB 2020. Optimal piecewise-linear CDF approximation with guaranteed error and O(n) build time.',
-            'Galakatos, Markovitch, et al. "FITing-Tree: A Data-aware Index Structure." SIGMOD 2019. Piecewise-linear models with bounded error segments.',
-            'Marcus, Kipf, et al. "Benchmarking Learned Indexes." VLDB 2020. Systematic comparison showing when learned indexes beat B-trees and when they do not.',
-          ],
-        },
-        'Study B-trees first -- they define the lookup contract (exact lower_bound, range scan, insert, delete) that any replacement must honor. Then study piecewise linear regression, because that is the model inside most practical learned indexes. After that, study ALEX for the updatability problem, learned Bloom filters for the same idea applied to membership queries, and LSM trees for the write-optimized baseline that learned indexes compete against in write-heavy settings.',
-        'The core question to carry forward: when is statistical regularity in data worth exploiting inside a systems primitive, and when does the complexity of exploitation exceed the cost of ignoring it?',
-      ],
-    },
+        'A Recursive Model Index adds a root model that routes keys to specialized leaf models. Each leaf has its own error bound, so smooth regions use tiny windows and difficult regions get tighter local treatment or fallback.',
+      ], },
+    { heading: 'Why it works', paragraphs: [
+        'The correctness invariant is that the true lower_bound position lies inside the recorded window. Binary search inside that interval returns the same answer as binary search over the full array, just with fewer comparisons when the interval is small.',
+        'The speedup comes from compressing navigation. A multiply-add or small model evaluation can replace several pointer chases, and the model may fit in cache even when the B-tree internal nodes do not.',
+      ], },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Lookup cost is model evaluation plus O(log maxError) local search. If maxError is 64, the correction search needs about 7 comparisons; if maxError is 1,000,000, the model is worse than a good tree.',
+        'Build cost includes scanning keys, training or fitting models, measuring worst-case error, and storing fallback metadata. Update cost is the hard part because inserts change the CDF and can make error bounds stale.',
+      ], },
+    { heading: 'Real-world uses', paragraphs: [
+        'Learned indexes fit mostly static sorted data with smooth distributions: time-series stores, analytic column stores, sorted string tables, dense numeric primary keys, and memory-constrained read-heavy systems. They are attractive when the ordinary index consumes cache space that could hold data.',
+        'ALEX, PGM-index, FITing-Tree, and related systems show different ways to add update handling or provable error. The common move is the same: model the CDF and bound the correction.',
+      ], },
+    { heading: 'Where it fails', paragraphs: [
+        'It fails when the distribution shifts quickly or writes dominate. Frequent inserts, deletes, tenant migrations, and backfills change the CDF faster than a static model can follow.',
+        'It also fails when tail error matters more than average error. A model with average error 4 but one segment error 50,000 can violate a strict latency SLO even if most lookups look excellent.',
+      ], },
+    { heading: 'Worked example', paragraphs: [
+        'Suppose 1,000,000 sorted keys are nearly linear: key 0 maps near slot 0 and key 1,000,000 maps near slot 999,999. A model predicts position = 0.999 x key, and measured max error for its segment is 32 slots.',
+        'For key 500,000, the model predicts slot 499,500. The index searches slots 499,468 through 499,532, a window of 65 positions, so binary search needs at most 7 comparisons.',
+        'A B-tree with fanout 128 over 1,000,000 keys has about 3 to 4 tree levels. If those levels miss cache and the learned model fits in cache, the learned lookup can win; if the error window grows to 50,000 slots, it loses.',
+      ], },
+    { heading: 'Sources and study next', paragraphs: [
+        'Sources: Kraska et al., "The Case for Learned Index Structures"; Ding et al., "ALEX"; Ferragina and Vinciguerra on PGM-index; FITing-Tree; and learned-index benchmarking work. Read them around the correction window, not just the model architecture.',
+        'Study B-trees, binary search, piecewise linear regression, LSM trees, learned Bloom filters, calibration, and workload benchmarking. The question is when statistical regularity is cheaper than storing explicit navigation.',
+      ], },
   ],
 };

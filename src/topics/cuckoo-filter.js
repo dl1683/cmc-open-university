@@ -226,147 +226,103 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "The insert-and-query view shows one fingerprint moving through the placement pipeline: hash the key to a short tag, compute two candidate buckets, try to place the tag, and kick a victim if both buckets are full. Active highlights mark the bucket being probed; found highlights mark a fingerprint that has settled into a legal home.",
-        "The deletion-tradeoffs view shows the sharp edge: removing a fingerprint from a bucket is cheap, but deleting a nonmember whose fingerprint collides with a real member can create a false negative. Watch which slots change and whether the cleared tag belonged to the key being deleted or to a collision.",
-        "At each frame, track the fingerprint-home invariant: every stored fingerprint must sit in one of its two candidate buckets. If a kick displaces a tag, the victim lands in its own alternate bucket. Lookup correctness depends on this invariant surviving every insert, kick, and delete.",
-      
-        {type: 'image', src: './assets/gifs/cuckoo-filter.gif', alt: 'Animated walkthrough of the cuckoo filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'The insert-and-query view follows one fingerprint through the placement pipeline. A key is hashed to a short tag, two candidate buckets are computed, the tag tries to land in an empty slot, and if both buckets are full a victim tag gets kicked to its alternate bucket. Active highlights mark the bucket currently being probed; found highlights mark a fingerprint that has settled into a legal home.',
+        'The deletion-tradeoffs view exposes the dangerous edge of the structure. Removing a fingerprint from a bucket is cheap, but if you delete a key that was never inserted and its fingerprint happens to collide with a real member, you erase the real member\'s evidence. Watch which slot gets cleared and whether it belonged to the key being deleted or to someone else.',
+        'At every frame, verify the fingerprint-home invariant: each stored fingerprint sits in one of its two candidate buckets. When a kick displaces a tag, the displaced tag must land in its own alternate bucket. Lookup correctness depends on this invariant surviving every insert, kick, and delete.',
+        {type: 'image', src: './assets/gifs/cuckoo-filter.gif', alt: 'Animated walkthrough of the cuckoo filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        "Many systems need a cheap front-door answer before they pay for the real lookup. A storage engine wants to know whether an SSTable might contain a key. A cache wants to avoid probing a cold shard. A security service may need to ask whether a token is on a changing deny list. The exact set still lives somewhere else; the filter exists to reject definite misses quickly.",
+        'Many systems need a cheap gate before the real lookup. A storage engine wants to skip reading an SSTable that definitely does not contain a key. A cache wants to avoid probing a cold shard. A security service needs to check whether a token is on a deny list that changes every minute. In each case, the exact set lives somewhere else; the filter exists to reject definite misses before paying for the real I/O.',
         { type: 'callout', text: 'A cuckoo filter keeps deletion cheap by storing each key as one movable fingerprint with two legal homes.' },
-        "A cuckoo filter is for mutable approximate membership. It answers no with certainty for keys that are not represented, and maybe for keys that collide with stored fingerprints. Its advantage over a basic Bloom filter is deletion: the filter stores small movable entries instead of spreading each key across many shared bits.",
+        'A cuckoo filter is a mutable approximate-membership structure. It answers "definitely absent" when neither candidate bucket contains the key\'s fingerprint, and "maybe present" when one does. The advantage over a Bloom filter is deletion: instead of spreading each key across many shared bits, the cuckoo filter stores one small movable entry per key. Removing that entry is safe and O(1).',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        "The standard first answer is a Bloom filter. Hash the key several times, set several bits, and check those bits on lookup. If any required bit is zero, the key is definitely absent. If all required bits are one, the key may be present. It is simple, fast, and very good for append-heavy or immutable sets.",
+        'The standard first answer is a Bloom filter. You hash the key with k independent hash functions, set k bits in a bit array, and on lookup check those same k bits. If any bit is zero the key is definitely absent. If all k bits are one the key is possibly present. Bloom filters are simple, fast, and excellent for append-only or immutable sets.',
         { type: 'image', src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Bloom_filter.svg', alt: 'Bloom filter bit array with hash positions for inserted keys', caption: 'Bloom filters spread each key across shared bits, which explains both compact negatives and hard deletion. Source: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.' },
-        "Deletion is the problem. Clearing a Bloom-filter bit can damage another key that happened to set the same bit. Counting Bloom filters replace bits with counters, but now each insert and delete touches multiple counters, the structure takes more space, and counter overflow or underflow becomes another operational concern.",
+        'Deletion is where Bloom filters break. Suppose keys A and B both set bit 7. Clearing bit 7 when you remove A destroys evidence for B, creating a false negative. Counting Bloom filters replace bits with counters, but now each insert and delete touches k counters, the structure uses 3-4x more space, and counter overflow becomes a real operational concern.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "The wall is mutable membership. Real systems admit and evict cache entries, expire bad credentials, compact storage files, and replace metadata. A filter that cannot delete cheaply either becomes stale or has to be rebuilt on a schedule. Staleness means extra false positives; rebuilding means CPU, memory, and deployment complexity.",
-        "The harder wall is preserving the no-false-negative promise. An approximate filter may return false positives, but it must not say absent for an inserted key. Cuckoo filters keep that promise by storing a fingerprint in one of two legal homes. Lookup checks both homes. As long as insertion and deletion maintain that invariant, every represented key remains findable.",
+        'The wall is mutable membership. Real systems admit and evict cache entries, expire bad credentials, compact storage files, and rotate metadata. A filter that cannot delete cheaply either becomes stale -- growing its false-positive rate as dead entries accumulate -- or must be rebuilt on a schedule, which costs CPU, memory, and coordination complexity.',
+        'The harder wall is preserving the no-false-negative promise under mutation. An approximate filter is allowed to say "maybe present" for absent keys, but it must never say "absent" for a key that is genuinely stored. Any deletion scheme that can accidentally erase evidence for a different key violates this contract. The structure needs a way to tie each piece of evidence to a single removable entry.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "Store a short fingerprint, not the full key. Give that fingerprint two candidate buckets using the cuckoo-hashing placement idea. A lookup computes the same fingerprint and bucket pair, then scans those two small buckets for a matching fingerprint.",
+        'Store a short fingerprint (a hash fragment, typically 8-16 bits) instead of the full key. Give that fingerprint two candidate buckets using the cuckoo-hashing placement rule: primary bucket i1 = hash(key) mod m, alternate bucket i2 = i1 XOR hash(fingerprint) mod m. A lookup computes the same fingerprint and bucket pair, then scans those two small buckets for a matching tag.',
         { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Cuckoo_hashing_example.svg/250px-Cuckoo_hashing_example.svg.png', alt: 'Cuckoo hashing diagram showing alternate locations and eviction arrows', caption: 'Cuckoo placement gives each item two legal homes; cuckoo filters apply the same idea to short fingerprints. Source: https://en.wikipedia.org/wiki/Cuckoo_hashing.' },
-        "The structure is intentionally weaker than an exact set. It cannot prove that the original key is present because different keys can share the same fingerprint. But it can prove absence when neither candidate bucket contains that fingerprint, and that is the answer many systems need most often.",
+        'The structure is deliberately weaker than an exact set. It cannot prove a key is present because multiple keys can share the same fingerprint. But it can prove absence: when neither candidate bucket contains the fingerprint, the key was never inserted. That definite negative is the answer most systems need most often.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "In the insert view, follow one fingerprint. First it tries one legal bucket, then the alternate bucket, then it may kick another fingerprint and continue the displacement chain. The important idea is not the motion; it is that every moved fingerprint still lands in one of its two legal homes.",
-        "In the deletion view, notice the difference between deleting a represented key and deleting a colliding nonmember. Removing a matching fingerprint is cheap, but the filter does not know the original key. That is the price of compact approximate membership.",
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        "For key x, compute a fingerprint f. One hash chooses the primary bucket. The alternate bucket is commonly derived from the primary bucket and a hash of f, often by an XOR-style transform. That derivation matters: after a fingerprint has been kicked out of one bucket, the filter can compute its other legal bucket without storing the original key.",
-        "Lookup is two bucket probes. If neither bucket contains f, x is definitely absent. If either bucket contains f, x is maybe present. Insertion first tries to place f in an empty slot in either candidate bucket. If both are full, it selects a victim fingerprint, swaps f into that slot, and moves the victim to its alternate bucket. The process repeats until an empty slot is found or an insertion limit is reached.",
-        "Deletion checks the same two buckets and clears one matching fingerprint. This is why cuckoo filters are useful for changing sets: the evidence for a key is a small entry that can be removed from a bucket, not a collection of shared bits whose ownership is unknown.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Suppose a cache admits key K and its fingerprint is 0x3a. The primary bucket is 17 and the alternate bucket is 42. Bucket 17 is full, so the insertion kicks fingerprint 0x91 from bucket 17, stores 0x3a there, and moves 0x91 to its own alternate bucket. If that bucket has room, the insertion is done. Later, lookup for K checks buckets 17 and 42 and finds 0x3a.",
-        "Now suppose a different key Q also maps to the same fingerprint and one of the same buckets. The filter will return maybe present for Q even if Q was never inserted. That is a false positive, but it only causes a real lookup. The source of truth still decides whether Q is actually present.",
+        'The filter is an array of m buckets, each holding b slots (typically b = 4). Each slot stores one fingerprint. No slot stores the original key -- only the short tag.',
+        'Insert key x: compute fingerprint f = tag(x). Compute i1 = hash(x) mod m. Compute i2 = i1 XOR hash(f) mod m. If bucket i1 has an empty slot, store f there and stop. Otherwise try bucket i2. If both are full, pick a random occupied slot in i1, swap f into that slot, and the evicted fingerprint g moves to its alternate bucket: i2_g = current_bucket XOR hash(g). This repeats until an empty slot is found or a kick limit (typically 500) is reached. If the limit is hit, insertion fails and the table needs a resize or rebuild.',
+        'Lookup key x: compute f = tag(x), i1 = hash(x) mod m, i2 = i1 XOR hash(f). Scan bucket i1 and bucket i2 for any slot containing f. If found, report "maybe present." If no match in either bucket, report "definitely absent." Cost: scan 2 * b slots, which is O(1).',
+        'Delete key x: compute f and the two candidate buckets exactly as in lookup. Find a slot containing f and clear it. If no matching slot exists, do nothing -- the key was not represented. Cost: O(1). This is possible because each key\'s evidence is a single removable entry, not shared bits.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The no-false-negative argument is the fingerprint-home invariant. Every successful insertion leaves the key fingerprint in one of the two buckets lookup will check. Kicks do not break the invariant because each victim is moved to its alternate legal home. Deletion of a genuinely represented key removes that key's evidence, which is exactly the requested state change.",
-        "False positives are unavoidable because the fingerprint is shorter than the key. The filter trades exact identity for compact evidence. Longer fingerprints reduce accidental matches, larger buckets reduce insertion failure, and lower load factors reduce long kick chains. Those knobs tune the space, speed, and reliability envelope.",
+        'The correctness argument rests on the fingerprint-home invariant. After every successful insertion, the key\'s fingerprint sits in one of the two buckets that lookup will check. Kicks preserve this: when fingerprint g is evicted from bucket j, it moves to j XOR hash(g), which is by construction its other legal home. So every fingerprint in the table is always in one of its two candidate buckets.',
+        'False positives are unavoidable because the fingerprint is shorter than the key. With an f-bit fingerprint and b slots per bucket, the probability that a random non-member\'s fingerprint matches any slot in the two candidate buckets is approximately 2b / 2^f. For b = 4 and f = 8 bits, that is 8/256 = 3.1%. Doubling the fingerprint to 16 bits drops this to 8/65536 = 0.012%. The tradeoff is direct: longer fingerprints cost more bits per entry but exponentially reduce false positives.',
+        'False negatives cannot happen under correct usage. If key x was inserted and not deleted, its fingerprint f is somewhere in the table inside one of x\'s two candidate buckets. Lookup checks both buckets and will find it. The only path to a false negative is deleting a non-member whose fingerprint collides with a member -- which removes the member\'s evidence. This is a usage error, not a structural flaw.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Lookup is O(1): compute the fingerprint and inspect two small buckets. Deletion is also O(1) for a matching fingerprint. Insertion is expected O(1), but the worst cases are real: at high load, displacement chains can grow, cycle, or hit the configured kick limit. Production implementations need a resize, rebuild, stash, or fallback path.",
-        "The false-positive rate depends mainly on fingerprint length, bucket size, and occupancy. Larger fingerprints cost more bits per entry but reduce accidental matches. Bigger buckets make insertion easier but can increase scan work per lookup. Higher load saves memory but raises insertion failure risk. The useful design space is a compromise, not a single magic parameter.",
-      ],
-    },
-    {
-      heading: 'Deletion and correctness',
-      paragraphs: [
-        "Deletion is safe when the caller deletes only keys that were inserted and not already deleted. If the caller deletes a nonmember whose fingerprint collides with a real member, the filter can erase the real member's fingerprint and create a false negative. That is why a cuckoo filter should sit behind an API that knows membership semantics, or beside a source of truth that confirms deletes.",
-        "Duplicate keys need care too. If the same key can be inserted multiple times, a plain cuckoo filter does not count multiplicity. Removing one matching fingerprint may represent one insert or all inserts depending on the surrounding system. Counting variants or external reference counts are needed when multiplicity matters.",
+        'Lookup: O(1). Two bucket scans of b slots each. With b = 4 this is 8 fingerprint comparisons -- a single cache line read on most hardware.',
+        'Delete: O(1). Same two-bucket scan, then clear one slot.',
+        'Insert: expected O(1), but with a heavy tail. Most insertions place the fingerprint directly or after one kick. At high load (above 95% with b = 4), kick chains grow longer and may hit the configured limit. Insertion failure is not a bug; it is a signal to resize. The amortized cost stays O(1) when the load factor is kept in the practical range (below ~95% for b = 4, below ~85% for b = 2).',
+        'Space: each entry costs f bits. With 4-slot buckets and 8-bit fingerprints, the filter uses about 8.5 bits per key at 95% load -- comparable to a Bloom filter at the same 3% false-positive rate, and better than Bloom at lower target rates. Fan et al. (2014, Table 3) showed cuckoo filters beat Bloom on bits-per-key for false-positive rates below about 3%.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        "Cuckoo filters fit mutable guards: cache admission and eviction, database file checks, object-store indexes, dynamic deny lists, duplicate-suppression windows, and services where a false positive only wastes a real lookup. The source of truth must still be cheap enough to consult on maybe-present answers.",
-        "A storage cache is the clean example. A definite negative skips a cold cache probe. A maybe-present result checks the cache. Insert on admission and delete on eviction keep the filter aligned with the changing cache contents, so the false-positive rate reflects current state instead of old entries that should have disappeared.",
+        'Cache admission and eviction: a storage cache inserts a key\'s fingerprint on admission and deletes it on eviction. Lookups that miss the filter skip the cache entirely, saving I/O. Because the filter tracks the current cache contents (not a stale superset), the false-positive rate stays low.',
+        'Database file guards: LSM-tree engines like LevelDB and RocksDB use filters to avoid reading SSTables that do not contain a key. When SSTables are compacted and old ones are deleted, the filter needs to remove those keys. A cuckoo filter handles this without rebuilding from scratch.',
+        'Dynamic deny lists: a security gateway maintains a set of blocked tokens. Tokens are added and removed frequently. The filter rejects definite non-blocked tokens in O(1), sending only "maybe blocked" tokens to the authoritative policy store for verification.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "Use an immutable filter when the set is static. Xor, Binary Fuse, and Ribbon filters often win on space for build-once data. Use a Bloom filter when append-only behavior is enough and deletion is not needed. Use an exact hash table when false positives are unacceptable or when the system needs to return values rather than only gate lookups.",
-        "Cuckoo filters also become uncomfortable near saturation. Insert failures are not bugs; they are part of the design. If the application cannot tolerate rebuilds or temporary fallback lookups during resize, the filter may add more operational risk than it removes.",
+        'Static sets: if the set never changes, immutable filters (Xor, Binary Fuse, Ribbon) are typically smaller and faster to query. A cuckoo filter\'s mutability machinery is wasted overhead when you only build once and query forever.',
+        'Append-only sets: if you only insert and never delete, a plain Bloom filter is simpler, well-understood, and has no insertion failure mode. The cuckoo filter\'s main selling point -- deletion -- provides no value here.',
+        'Near saturation: at very high load factors, insertion kick chains grow long and may cycle. The filter must then resize or rebuild, which is O(n). If the application cannot tolerate this latency spike on a write path, the filter adds more operational risk than it removes.',
+        'Trusting "maybe present": the filter is a precheck, not an authority. Every positive answer must flow to the real data store for verification. If application logic starts treating "maybe present" as "present," false positives become user-visible correctness bugs.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Worked example',
       paragraphs: [
-        "Common failures are overloading the table, using fingerprints that are too short, deleting keys without checking the source of truth, forgetting duplicate semantics, and measuring only lookup speed while ignoring rebuild cost. A filter that is wonderful at 85 percent load in a benchmark may be fragile under bursty production inserts.",
-        "Another failure is treating maybe-present as present. The filter is a precheck, not an authority. Every positive answer must flow to the real data structure, database, cache, or policy store that can verify the key. If product logic starts trusting positives, false positives become user-visible correctness bugs.",
+        'Setup: 8 buckets (indices 0-7), 2 slots per bucket, 8-bit fingerprints. Alternate bucket: i2 = i1 XOR hash(fingerprint) mod 8. Suppose hash(0x3a) mod 8 = 5, hash(0x91) mod 8 = 2.',
+        'Insert key K with fingerprint 0x3a. i1 = hash(K) mod 8 = 3. i2 = 3 XOR 5 = 6. Bucket 3 has room. Store 0x3a in bucket 3, slot 0. Table: bucket 3 = [0x3a, empty].',
+        'Insert key L with fingerprint 0x91. i1 = hash(L) mod 8 = 3. i2 = 3 XOR 2 = 1. Bucket 3 has one slot left. Store 0x91 in bucket 3, slot 1. Table: bucket 3 = [0x3a, 0x91].',
+        'Insert key M with fingerprint 0x3a. i1 = hash(M) mod 8 = 3. Bucket 3 is full. Try i2 = 3 XOR 5 = 6. Bucket 6 has room. Store 0x3a in bucket 6, slot 0. Now two copies of 0x3a exist (one for K, one for M) in different buckets. The filter does not distinguish them.',
+        'Lookup key N (never inserted) with fingerprint 0x3a. i1 = hash(N) mod 8 = 6. i2 = 6 XOR 5 = 3. Check bucket 6: finds 0x3a. Report "maybe present." This is a false positive: N was never inserted, but its fingerprint collides with K and M.',
+        'Delete key K. Compute i1 = 3, i2 = 6. Find 0x3a in bucket 3, slot 0. Clear that slot. Bucket 3 = [empty, 0x91]. Key M\'s copy in bucket 6 is unaffected. If we mistakenly deleted key N (never inserted), we would find 0x3a in bucket 6 and erase M\'s fingerprint -- creating a false negative for M. This is why the caller must only delete keys it knows were inserted.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Primary sources: Cuckoo Filter: Practically Better Than Bloom at https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf, ACM DOI https://dl.acm.org/doi/10.1145/2674005.2674994, and the earlier USENIX workshop version at https://www.usenix.org/system/files/nsdip13-paper6.pdf.",
-        "Study Bloom Filter for the bit-array baseline, Cuckoo Hashing for the displacement invariant, Quotient Filter for another deletable approximate-membership design, Xor Filter and Binary Fuse Filter for static filters, Ribbon Filter for compact immutable sets, and LSM Trees for the storage-engine setting where these filters often appear.",
+        'The foundational paper is Fan, Andersen, Kaminsky, and Mitzenmacher, "Cuckoo Filter: Practically Better Than Bloom" (CoNEXT 2014). Full text: https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf. ACM DOI: https://dl.acm.org/doi/10.1145/2674005.2674994. An earlier workshop version appeared at USENIX: https://www.usenix.org/system/files/nsdip13-paper6.pdf.',
+        'Study Bloom Filter for the bit-array baseline and why deletion is hard there. Study Cuckoo Hashing for the two-home displacement invariant that underlies the filter. Study Quotient Filter for another deletable approximate-membership design with different tradeoffs. Study Xor Filter and Binary Fuse Filter for the best static (immutable) filters. Study LSM Trees for the storage-engine context where these filters most commonly appear.',
       ],
     },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        'Buckets of size 4, 8-bit fingerprints. Primary bucket index i1 = hash(x) mod m, alternate i2 = i1 XOR hash(fingerprint).',
-        'Insert key A with fingerprint 0x3a. i1 = 5, bucket 5 has room. Store 0x3a in bucket 5, slot 0.',
-        'Insert key B with fingerprint 0x3a. i1 = 5, same bucket. Store 0x3a in bucket 5, slot 1. Two identical fingerprints can coexist -- the filter does not distinguish keys, only tags.',
-        'Insert key C with fingerprint 0x7f. i1 = 5, bucket 5 is now full (4 slots taken). i2 = 5 XOR hash(0x7f) = 12, bucket 12 has room. Store 0x7f in bucket 12.',
-        'Lookup key D with fingerprint 0x3a. Check buckets i1 and i2. Find 0x3a in bucket 5 -- maybe present. D was never inserted, but its fingerprint collides with A and B. This is the false-positive mechanism.',
-        'Delete key A. Find 0x3a in bucket 5, clear one slot. Now only one 0x3a remains (for B). If we deleted key D instead (never inserted), we would erase B\'s fingerprint -- a false negative. Delete only known members.',
-        {
-          type: 'bullets',
-          items: [
-            'What is the fingerprint-home invariant? Every stored fingerprint sits in one of its two candidate buckets; lookup checks exactly those two buckets.',
-            'Why can the alternate bucket be computed from the fingerprint alone? Because i2 = i1 XOR hash(fingerprint), so given either bucket index and the fingerprint, the other index is recoverable without the original key.',
-            'When does insertion fail? When a displacement chain exceeds the configured kick limit, meaning both candidate buckets for every fingerprint in the chain are full. The table needs a resize or rebuild.',
-            'Why are cuckoo filters often more space-efficient than Bloom filters at low false-positive rates? A Bloom filter needs roughly 1.44 * log2(1/epsilon) bits per element. A cuckoo filter stores one fingerprint per element with high bucket occupancy (~95%), so at target FP rates below ~3%, the cuckoo filter uses fewer bits per key (Fan et al. 2014, Table 3).',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Four buckets (0-3), each holding 2 fingerprints. Alternate bucket: i2 = i1 XOR hash(fp) mod 4. Suppose hash maps fp values as: hash(0xab) mod 4 = 2, hash(0xcd) mod 4 = 1, hash(0xef) mod 4 = 3.',
-        'Insert fp 0xab at i1=1. Bucket 1 has room. Bucket 1: [0xab, empty].',
-        'Insert fp 0xcd at i1=0. Bucket 0 has room. Bucket 0: [0xcd, empty].',
-        'Insert fp 0xef at i1=1. Bucket 1 has one slot left. Bucket 1: [0xab, 0xef].',
-        'Insert fp 0xab at i1=1. Bucket 1 is full. Try i2 = 1 XOR hash(0xab) mod 4 = 1 XOR 2 = 3. Bucket 3 has room. Bucket 3: [0xab, empty].',
-        'Insert fp 0xcd at i1=0. Bucket 0 has one slot left. Bucket 0: [0xcd, 0xcd].',
-        'Insert fp 0xef at i1=1. Bucket 1 is full. Try i2 = 1 XOR 3 = 2. Bucket 2 has room. Bucket 2: [0xef, empty]. Now delete key with fp 0xcd from bucket 0. One slot cleared: Bucket 0: [0xcd, empty]. The other 0xcd still represents its original key.',
-        'Predict: lookup for a key with fp 0xab checks buckets 1 and 3. Both contain 0xab. The filter says maybe present regardless of which bucket the key was actually placed in. Now ask: if we delete both 0xab entries, how many keys lose their representation?',
-      ],
-    },
-],
+  ],
 };

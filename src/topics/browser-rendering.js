@@ -193,172 +193,114 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The visualization has two views, selected at the top. The "page load" view walks the full five-stage pipeline from raw HTML tokens to composited pixels. The "layout-thrash trap" view isolates the single most common performance bug in frontend code and shows why it is expensive.',
+        'In the page-load view, each frame advances one pipeline stage. The first frame shows 8 HTML tokens arriving as an array. The next three frames build the DOM tree node by node, highlighting invisible nodes that will be pruned later. The CSSOM matrix shows 4 selectors with their computed property values, and the highlighted removal of the display:none row explains why the render tree is smaller than the DOM. The layout matrix is the first frame where every box gets exact pixel coordinates. Paint and composite finish the journey to the screen.',
+        {type: 'image', src: './assets/gifs/browser-rendering.gif', alt: 'Animated walkthrough of the browser rendering visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'In the layout-thrash view, track the implicit dirty flag. Each style write marks layout dirty. Each geometry read (offsetHeight, getBoundingClientRect) that arrives while layout is dirty forces the browser to synchronously recompute layout inside your JavaScript loop. The fix frames show two remedies: batching all reads before all writes, and choosing compositor-only properties like transform and opacity that skip layout entirely.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A browser has to turn a stream of HTML, CSS, images, fonts, and JavaScript into pixels while the user is waiting. The hard part is that the page is not static. JavaScript can change the DOM, CSS can change which nodes are visible, text can wrap differently after a font arrives, and the user expects scrolling and animation to keep running at frame rate.',
+        'A browser receives a stream of bytes -- HTML, CSS, images, fonts, scripts -- and must produce pixels on screen while the user is already watching. The hard part is not doing this once; it is doing it again every time something changes, 60 times per second during animation, without the user seeing a stutter.',
         {
           type: 'callout',
           text: 'Browser rendering is a staged dependency graph: each change is expensive only to the stages it invalidates.',
         },
-        'The rendering pipeline is the browser answer to that problem. It breaks the work into parse, style, layout, paint, and composite stages. Frontend performance is mostly the art of avoiding repeated work in the expensive stages, especially layout and paint.',
+        'The rendering pipeline is the engine\'s answer. It breaks the work into five stages -- parse, style, layout, paint, composite -- each producing a more concrete representation than the last. Frontend performance boils down to one question: which stages does your change force the browser to re-run?',
       ],
     },
     {
-      heading: 'Context',
+      heading: 'The obvious approach',
       paragraphs: [
-        'This topic starts after the network topics have delivered bytes to the browser. How DNS Works, TCP: Handshake & Congestion Control, CDN Request Flow, and Resource Hints explain how resources arrive. Browser rendering explains what the engine does once it has enough input to begin building a page.',
-        'The same pipeline also explains UI jank. The Event Loop decides when JavaScript runs. requestAnimationFrame gives code a chance to update before a frame. PerformanceObserver Long Task Attribution tells you when code blocks the main thread. But a page can still stutter even when JavaScript is short if style, layout, paint, or compositing work exceeds the frame budget.',
+        'The simplest mental model treats rendering as a single function: give it the DOM, get back pixels. Under this model, any change to the page means recomputing everything from scratch. This is how early browsers actually worked -- Netscape\'s rendering engine would rebuild the entire page layout whenever the DOM changed.',
+        'For a static page loaded once, this works fine. The browser parses the HTML, applies the CSS, computes geometry, paints, and the user sees the result. The cost is paid once during load, and nobody notices. Most tutorials stop here because the pipeline is easy to understand as a one-shot process.',
+        'This model also makes JavaScript interaction straightforward to reason about. Change a style? Recompute everything. Add a node? Recompute everything. The programmer does not need to think about which stages are affected because the answer is always "all of them."',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The one-shot model collapses the moment the page is interactive. At 60fps, the browser has 16.67ms per frame for all work: running JavaScript, recalculating styles, computing layout, painting, and compositing. A full pipeline run on a page with 1,000 DOM nodes can easily take 10-15ms. If JavaScript triggers two full pipeline runs per frame, the budget is blown and the page stutters.',
+        'The specific invariant that breaks is: a geometry read must return a value consistent with all prior writes. If your JavaScript writes element.style.height = "200px" and then reads element.offsetHeight, the browser cannot return the old height. It must synchronously run layout right now, inside your script, to produce the correct answer. This is called a forced synchronous layout.',
+        'A loop that alternates write-read-write-read forces N full layouts instead of 1. With 100 elements, that is 100 layouts in a single frame where the browser planned to do one. The frame takes 100x longer than it should. This is layout thrashing, and it is the wall that separates pages that feel smooth from pages that feel broken.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core idea is a dependency graph from document structure to pixels. HTML creates the DOM tree. CSS creates style rules and computed values. The render tree keeps the visible styled boxes. Layout assigns geometry. Paint records drawing commands. Compositing blends painted layers into the final frame.',
+        'The pipeline is a dependency graph, not a monolithic function. Each stage depends on specific earlier stages, and changes only invalidate downstream. If you change text content, the browser must re-run layout (text reflows) and paint (new glyphs), but it does not need to re-parse CSS or rebuild the CSSOM. If you change background-color, layout can be skipped entirely because no geometry changed -- only paint and composite run. If you animate transform or opacity on a composited layer, even paint is skipped -- only the compositor re-blends existing bitmaps.',
         {
           type: 'image',
           src: 'https://developer.chrome.com/static/docs/chromium/renderingng/image/sketch-the-different-ele-d9f18c1bd6186.jpg',
           alt: 'Chromium RenderingNG pipeline sketch showing script style layout paint composite raster and draw',
           caption: 'RenderingNG separates main-thread work, compositor work, raster, and final drawing. Source: Chrome for Developers, https://developer.chrome.com/docs/chromium/renderingng.',
         },
-        'Each later stage depends on some earlier stage, but not every change invalidates the whole pipeline. Changing text content can require layout and paint. Changing `background-color` can usually skip layout but still paint. Changing `transform` or `opacity` on a composited layer can often skip layout and paint and only ask the compositor to blend layers differently.',
+        'This is why the pipeline exists as separate stages rather than one function. The browser can be lazy: it marks stages dirty when a change occurs but delays recomputation until the next frame. Multiple DOM writes between two frames dirty the same stages, but the browser runs each stage only once. The entire performance model rests on this deferred-batch-invalidation design.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Parsing is a stack-shaped tree-building process. Opening tags push, closing tags pop, and DOM nodes become parents and children. CSS parsing and selector matching compute styles for those nodes. The engine then filters out nodes that produce no boxes, such as `display: none`, before layout assigns each remaining box an exact position and size.',
-        'Layout is where relative declarations become geometry: percentages become pixels, text wraps, children influence parent height, and later boxes may move. Paint converts geometry and style into drawing commands such as fill this background, draw this border, and rasterize these glyphs. Compositing takes painted layers, often including GPU-backed layers, and produces the final screen image.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'The demo page contains `<html>`, `<head>`, `<style>`, `<body>`, an `<h1>`, a card `<div>`, a paragraph, and a hidden span. The DOM includes all of them because the DOM is document structure, not only visible output. The render tree drops `<head>`, `<style>`, and the `display: none` span because they do not create visible boxes.',
-        'In the layout frame, the viewport is 400px wide. The card is 300px wide with 16px padding on both sides, so the paragraph has 268px of content width. If the paragraph wraps onto more lines, the paragraph becomes taller, the card becomes taller, and everything below the card may move. That is why a small style change can become a page-wide geometry update.',
+        'Stage 1, Parse: the browser tokenizes HTML as bytes arrive over the network (it does not wait for the full file). Each token -- an opening tag, a closing tag, a text node -- feeds a stack-based tree builder. Open tags push onto the stack and become children of the current top; close tags pop. The result is the DOM tree, a tree data structure where every node except the root has exactly one parent. A document with 8 tags and text nodes becomes a tree of 8 nodes. If the parser hits a <script> tag without async or defer, it stops and hands control to JavaScript, because the script might call document.write() and inject new HTML. This is why scripts at the bottom of <body> became standard advice: a blocked parser means a blank screen.',
+        'Stage 2, Style: the CSS is parsed into the CSSOM (CSS Object Model), a parallel tree of style rules. The browser matches selectors against DOM nodes and resolves the cascade -- specificity, source order, !important -- to compute a final value for every property on every element. Percentages become concrete values relative to the parent, inherited properties propagate down the tree. For a page with 4 CSS rules and 8 DOM nodes, this produces a matrix of computed values: each row is a selector, each column is a property, each cell is the resolved value in pixels or keywords.',
+        'Stage 3, Layout (also called reflow): the browser walks the render tree -- the DOM minus invisible nodes like display:none elements and <head> -- and solves for exact geometry. Each box gets an x, y, width, and height in pixels. This is a constraint problem: a parent\'s width constrains its children, but children\'s content height determines the parent\'s height. Sizes flow down, heights bubble up. Change one box and every subsequent sibling and ancestor may shift. Layout is the most expensive stage because its effects are global.',
+        'Stage 4, Paint: each laid-out box becomes a sequence of draw commands -- fill this rectangle with a background color, stroke this border, rasterize these text glyphs at these coordinates. Commands execute back-to-front (the painter\'s algorithm), and z-index determines ordering. The output is bitmaps in memory, not yet on screen.',
+        'Stage 5, Composite: the browser splits the page into layers. Elements with transform, opacity, will-change, or certain other properties get their own GPU-backed layer. The compositor takes all painted layers and blends them into the final frame. Moving a composited layer means re-blending, not re-painting or re-laying-out. This is why transform animations are cheap and height animations are expensive.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The pipeline works because each stage gives the next stage a more concrete representation. Bytes become tokens. Tokens become nodes. Rules become computed styles. Styled boxes become geometry. Geometry and style become draw commands. Draw commands become pixels.',
-        'The performance model works because invalidation can be narrower than a full reload. The browser can batch many DOM writes and run layout once before the next frame. It can repaint only damaged regions in some cases. It can animate compositor-friendly properties without recalculating layout. Good UI code cooperates with those boundaries instead of forcing the engine to cross them repeatedly.',
+        'The pipeline works because each stage refines the representation toward pixels. Bytes become tokens. Tokens become a tree. Rules become computed styles. Styled nodes become geometry. Geometry becomes draw commands. Draw commands become bitmaps. Bitmaps become pixels on glass. No stage needs to understand the full picture; it only needs the output of the stage before it.',
+        'The performance model works because invalidation is selective. The browser tracks which stages are dirty and skips clean ones. If JavaScript makes 50 DOM writes in a single event handler, the browser does not run layout 50 times. It marks layout dirty on the first write and ignores the flag on subsequent writes. Before the next frame, it runs layout once. This batching is automatic and free -- unless your code forces the browser\'s hand by reading geometry between writes.',
+        'Compositing works because the GPU is a parallel blending machine. Once a layer is painted to a bitmap, moving it, fading it, or rotating it costs only a texture upload and a matrix multiply on the GPU -- operations that take microseconds. The main thread is not involved. This is why compositor-only animations (transform, opacity) can run at 60fps even while JavaScript is busy on the main thread.',
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the page-load view, read left to right as a pipeline. The first array is the incoming HTML token stream. The tree frames show DOM construction, including nodes that will never paint. The CSS matrix shows computed values, and the removed `display: none` row explains why the render tree is smaller than the DOM. The layout matrix is the first moment where boxes get exact coordinates.',
-        'In the layout-thrash view, watch the dirty-layout flag even though it is not drawn as a separate variable. A style write marks layout dirty. A later geometry read such as `offsetHeight` needs a correct answer immediately, so the browser synchronously runs layout inside the JavaScript loop. The fix frames show the two real remedies: batch reads before writes, or choose properties such as `transform` and `opacity` that enter late in the pipeline.',
-      
-        {type: 'image', src: './assets/gifs/browser-rendering.gif', alt: 'Animated walkthrough of the browser rendering visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The browser pipeline is a huge win because it separates concerns and lets engines skip work. The cost is that performance is now stage-specific. A program can have efficient JavaScript and still be slow because it forces layout, paints too many pixels, creates too many layers, or invalidates style across a large subtree.',
-        'Compositor-only animation is also a tradeoff, not a universal rule. Extra layers consume memory and can increase upload or blending cost. CSS containment and `content-visibility` can fence work, but they also change how the browser reasons about layout and visibility. The right optimization depends on the stage that profiling shows is actually slow.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The five-stage model is a teaching model. Real engines have preload scanners, style sharing, incremental layout, display lists, damage tracking, raster worker threads, GPU processes, font loading rules, async scrolling paths, and many heuristics. The stages are still useful, but browser internals are not one simple function call per stage.',
-        'The model also does not erase main-thread constraints. Web Workers can move CPU work away from the main thread, but they cannot directly mutate the DOM. Eventually visual changes return to the rendering pipeline. Service workers and CDNs can make resources arrive faster, but they cannot rescue a page that spends too long laying itself out after arrival.',
-      ],
-    },
-    {
-      heading: 'Where it fails (2)',
-      paragraphs: [
-        'The classic failure mode is layout thrashing: code alternates writes that dirty layout with reads that demand fresh geometry. The browser cannot safely return an old `getBoundingClientRect` or `offsetHeight`, so it does the expensive work immediately and repeatedly.',
-        'Other failures include animating layout properties such as `height`, inserting thousands of DOM nodes instead of virtualizing, using selectors or style invalidations that touch too much of the tree, loading fonts in a way that shifts layout, and treating `display: none` and `visibility: hidden` as equivalent. They diverge exactly because one removes a box from layout and the other leaves the box in place.',
+        'Parse is O(n) in document size and runs once on load. Re-parsing is rare; the HTML parser is a streaming state machine that produces DOM nodes incrementally. Style computation is O(n * s) where n is DOM nodes and s is CSS rules, because each rule must be tested against each node. Modern engines use bloom filters and rule hashing to avoid the full cross-product, but complex selectors (descendant combinators, :nth-child) still cost more than simple class selectors.',
+        'Layout is the expensive stage. In the worst case it is O(n) over the entire render tree, because changing one node\'s height can shift every node below it. In practice, browsers use incremental layout to limit work to dirty subtrees, but forced synchronous layout defeats this optimization by demanding a full recomputation immediately. A loop that forces layout k times costs O(k * n) instead of O(n).',
+        'Paint cost depends on the number of pixels invalidated and the complexity of drawing operations (gradients, shadows, and text rendering are expensive). Composite cost depends on the number of layers and their total pixel area -- each layer consumes GPU memory (a 1920x1080 layer at 4 bytes/pixel is about 8MB). Too many layers can exhaust GPU memory or slow down the compositor itself.',
+        'The practical budget at 60fps is 16.67ms per frame. A typical breakdown: JavaScript 0-6ms, style recalc 1-2ms, layout 1-4ms, paint 1-3ms, composite 0.5-1ms. If any single stage exceeds the remaining budget, the frame drops. DevTools\' Performance panel breaks down each frame into these stages so you can see exactly which one is the bottleneck.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'When a page janks, profile first. If the trace shows long JavaScript tasks, reduce work or move safe computation off-thread. If it shows forced layout, batch reads before writes. If it shows paint cost, reduce invalidated pixels, expensive effects, and overdraw. If animation is the problem, prefer `transform` and `opacity` where the visual design allows it.',
-        'UI frameworks, virtual DOM reconciliation, requestAnimationFrame scheduling, virtual scrolling, CSS containment, and image lazy-loading are all practical ways of cooperating with the same pipeline. The goal is not to memorize one trick. The goal is to know which stage you are making the browser repeat.',
+        'React, Vue, and other virtual DOM frameworks exist largely to batch DOM writes and avoid layout thrashing. React collects all state changes, diffs a virtual tree, and applies the minimal set of DOM mutations in one batch before yielding to the browser. The browser then runs style, layout, paint, and composite once for the entire batch. This is the batching principle applied at the framework level.',
+        'CSS animations and transitions on transform/opacity are the standard technique for smooth UI motion. Dropdown menus, modals, page transitions, and scroll-linked effects all use compositor-only properties to avoid main-thread work. The will-change CSS property hints the browser to promote an element to its own layer before the animation starts, avoiding a layout spike on the first frame.',
+        'Virtual scrolling (used by large lists in Slack, Twitter, and VS Code) keeps only visible rows in the DOM. A list of 10,000 items renders maybe 30 DOM nodes and swaps their content as the user scrolls. This keeps layout cost proportional to the viewport, not the data size. Content-visibility: auto achieves a similar effect by telling the browser to skip layout and paint for off-screen sections entirely.',
+        'requestAnimationFrame (rAF) lets JavaScript schedule work just before the browser\'s next render. Writes inside rAF execute, then the browser runs style-layout-paint-composite as one batch. This is the correct place to make visual DOM changes. setTimeout or setInterval writes can fire at arbitrary times, potentially splitting reads and writes across frame boundaries.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        "MDN's critical rendering path guide covers the path from HTML, CSS, and JavaScript to pixels: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. MDN's browser overview adds the broader navigation-to-rendering context: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work. web.dev covers rendering performance and compositor-friendly animations at https://web.dev/articles/rendering-performance and https://web.dev/articles/animations-guide. Chrome documents forced reflow at https://developer.chrome.com/docs/performance/insights/forced-reflow.",
-        'Study Tree Traversals and Stack for parsing, then The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, and PerformanceObserver Long Task Attribution for when rendering work gets a turn. Virtual DOM Reconciliation, Dirty Rectangle Damage Tracking, OffscreenCanvas Worker Renderer, WebGPU Swapchain Frame Pacing, and Render Graph Framegraph Resource Lifetimes continue the path from changed UI state to bounded paint and GPU work.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        'The five-stage model is a teaching simplification. Real engines have preload scanners (which look ahead in HTML for resources to fetch while the parser is blocked on a script), style sharing (which reuses computed styles for siblings with identical rules), incremental layout (which tries to recompute only dirty subtrees), display lists, damage tracking, raster worker threads, GPU process isolation, and dozens of heuristics. The stages are accurate as a mental model, but the actual code path in Chromium\'s RenderingNG is far more complex.',
+        'Layout thrashing is the most common failure, but not the only one. Animating layout properties like height, width, top, or left forces layout+paint+composite on every frame. Inserting thousands of DOM nodes without virtualizing forces massive layout. Complex CSS selectors (e.g., .parent > .child:nth-child(3n+1)) can make style recalculation expensive. Font loading that changes glyph metrics triggers a layout shift after the page appears stable. Excessive layer promotion (too many will-change declarations) wastes GPU memory and can make compositing itself the bottleneck.',
+        'The model also cannot help with main-thread contention. Web Workers can offload CPU-heavy JavaScript, but they cannot touch the DOM. Any visual change must eventually return to the main thread and pass through the rendering pipeline. A 200ms JavaScript task blocks the entire pipeline for 200ms -- that is 12 dropped frames at 60fps, regardless of how well-optimized the CSS is.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Worked example',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'The demo page has 8 DOM nodes: <html>, <head>, <style> (with 4 CSS rules), <body>, <h1> ("Hello"), <div class="card">, <p> ("Welcome..."), and <span class="hidden">. The DOM tree includes all 8 because the DOM represents document structure, not visual output.',
+        'Style computation resolves 4 selectors. The body gets font-size 16px, width 400px, padding 8px. The h1 gets font-size 32px, width 384px (400 - 2*8 body padding). The .card gets font-size 16px, width 300px, padding 16px. The .hidden span gets display: none -- this single property removes it from the render tree entirely. After pruning, 5 nodes survive (all 8 minus <head>, <style>, and the hidden span).',
+        'Layout runs on the 5-node render tree with a 400px viewport. The body box is at (0, 0) with width 400px and height 138px. The h1 box is at (8, 8) -- offset by body padding -- with width 384px and height 40px. The card starts at (8, 56) with width 300px. The paragraph inside the card is at (24, 72) with width 268px (300 - 2*16 card padding) and height 34px. If the paragraph\'s text were longer and wrapped to a second line, its height would increase, pushing the card\'s height up, and anything below the card would shift down. That cascading recalculation is why layout is expensive.',
+        'Now consider layout thrashing. Suppose JavaScript loops over 3 boxes, reading offsetHeight then writing style.height on each iteration. Iteration 1: layout is clean, so the read is cheap (no forced layout). The write marks layout dirty. Iteration 2: the read finds layout dirty, so the browser stops and runs a full synchronous layout to return the correct offsetHeight. The write dirties it again. Iteration 3: same forced layout. Total: 3 forced layouts where 1 would suffice. The fix: read all 3 heights first (1 layout, then stays clean for remaining reads), then write all 3 heights (each just re-dirties the same flag, browser coalesces into 1 layout before the next frame). Same operations, 3 layouts reduced to 1.',
       ],
     },
-
     {
-      heading: 'Frame-by-frame checkpoints',
+      heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
+        'MDN\'s critical rendering path guide covers parse-to-pixel in detail: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. MDN\'s "How browsers work" adds navigation and network context: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work. web.dev covers rendering performance at https://web.dev/articles/rendering-performance and compositor-friendly animations at https://web.dev/articles/animations-guide. Chrome documents forced reflow triggers at https://developer.chrome.com/docs/performance/insights/forced-reflow. The RenderingNG architecture is detailed at https://developer.chrome.com/docs/chromium/renderingng.',
+        'For prerequisites, study Tree Traversals (the DOM is a tree) and Stack (the parser uses a stack). For the JavaScript execution model that interleaves with rendering, study The Event Loop, requestAnimationFrame Frame Budget, and PerformanceObserver Long Task Attribution. For what comes after rendering, study Virtual DOM Reconciliation (how frameworks batch DOM writes), Dirty Rectangle Damage Tracking (how engines minimize repaint area), and WebGPU Swapchain Frame Pacing (how GPU-driven rendering manages frame delivery).',
       ],
     },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why How a Browser Paints a Page moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

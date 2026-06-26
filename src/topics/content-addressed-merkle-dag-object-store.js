@@ -188,82 +188,98 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization has two views. The "cid graph" view builds a Merkle DAG from the bottom up: raw payload blocks get hashed into CIDs, CIDs become links inside a parent node, and the parent gets its own CID that names the entire reachable graph. Watch for the highlight moving from leaves to root -- that upward flow is the commitment chain.',
+        'The "fetch and gc" view shows the opposite direction: a client starts with a root CID, fetches the block from any provider, verifies it by recomputing the hash, extracts child links, and walks the DAG recursively. The final frames show cache storage and garbage collection. Use the slider to step through each stage.',
         {type: 'image', src: './assets/gifs/content-addressed-merkle-dag-object-store.gif', alt: 'Animated walkthrough of the content addressed merkle dag object store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Ordinary storage names data by location or mutable path: a filename, URL, bucket key, database row, or server address. That is convenient until the same bytes appear in many places, a cache serves stale data, a mirror is untrusted, or a build needs to prove exactly which inputs produced an artifact. Location names answer where to ask. They do not prove what was returned.',
+        'Most storage systems name data by location: a file path, a URL, a database row ID, an S3 key. The name tells you where to ask for the data. It does not tell you what you will get back, and it does not promise that the answer today matches the answer last week.',
         {type: 'callout', text: 'A content-addressed Merkle DAG makes the root name a cryptographic commitment to every reachable block.'},
-        'A content-addressed Merkle DAG object store names immutable blocks by cryptographic identifiers derived from their bytes and encoding metadata. Blocks can link to other blocks by identifier, so a root identifier names the whole reachable graph. Git, IPFS, IPLD, package lockfiles, container manifests, backup systems, and reproducible build stores all use versions of this pattern.',
+        'A content-addressed store flips this: the name of a block is derived from the block\'s own bytes, typically by hashing them with a cryptographic hash function like SHA-256. Two parties who independently hash the same bytes get the same name. A "Merkle DAG" extends this to graphs: a parent block contains the hashes (names) of its children, so hashing the parent commits to the children, which commit to their children, and so on. One small root hash names an arbitrarily large graph of immutable data.',
+        'Git commits, IPFS objects, container image manifests, Nix store paths, and package lockfiles all implement variants of this pattern. The motivation is the same everywhere: verify what you received, deduplicate what you already have, and prove exactly which inputs produced which outputs.',
       ],
     },
     {
-      heading: 'The naive naming wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious design is a key-value store where keys are chosen by the application: report-2026.pdf, layer-3.tar, chunk-42, latest.json. That works while one writer controls one namespace. It fails when data moves across peers, caches, mirrors, and time. A malicious or broken server can return the wrong bytes under the right name unless the client has an independent way to verify them.',
-        'The second failure is duplication and provenance. If two builds contain the same dependency bytes under different paths, a location-named store may keep two copies. If a report cites a dataset path that later mutates, the report no longer commits to the evidence it used. Mutable names make it easy to say where something used to be and hard to prove what it was. The error often appears later, when nobody remembers which version the name once resolved to.',
+        'The obvious design is a key-value store where the application picks the keys: report-2026.pdf, snapshot-latest.tar, layer-3.gz. The application writes bytes under a chosen name, and readers fetch by that name. This is how local filesystems, HTTP URLs, and S3 buckets work by default.',
+        'It is simple and fast. You pick a human-readable name, store the bytes, and hand the name to whoever needs the data. No hashing, no link extraction, no graph traversal. For a single writer who never needs to verify integrity or deduplicate, it works fine.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to make the name a commitment to the content. If the bytes or codec change, the identifier changes. If two parties use the same serialization and hashing rules for the same content, they get the same identifier. A CID in IPFS is more than a raw hash: it carries information such as the multihash, multicodec, and string encoding needed to interpret the block identity.',
-        'Merkle links make this commitment recursive. A parent node stores child identifiers. Hashing the parent commits to its local payload and to the exact children it names. The root identifier therefore commits to every reachable block. A small root can name a large object graph without listing every byte in the root itself.',
+        'Location-named storage breaks down on three axes. First, integrity: a malicious or buggy server can return wrong bytes under the right name. The client has no way to detect this unless it already knows what the bytes should be, which defeats the purpose of fetching them. CDNs, caches, mirrors, and peer networks all multiply this risk.',
+        'Second, duplication: if two builds contain identical dependency bytes stored under different paths, a location-named store keeps two copies. At scale -- across container layers, VM snapshots, backup archives -- this waste compounds into terabytes.',
+        'Third, provenance: if a report references dataset-v3.csv and that file later changes, the report no longer commits to the evidence it used. Mutable names make it easy to say where something was and hard to prove what it was. The error surfaces months later, when nobody remembers which version the name once pointed to.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Make the name a function of the content. Hash the bytes, and the hash becomes the name. If even one byte changes, the name changes. If two independent parties hash the same bytes with the same algorithm, they get the same name. No coordination, no central registry, no trust in the transport -- the name itself is the verification.',
+        'In IPFS, this name is called a CID (Content Identifier). A CID is more than a raw hash: it also encodes the hash algorithm used (multihash), the serialization format (multicodec), and a version number. This self-describing structure means a CID reader can always know how to verify the block it names, even if hash algorithms change over time.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Hash_Tree.svg/500px-Hash_Tree.svg.png', alt: 'Merkle hash tree with data blocks at leaves and hashes combined upward to a top hash', caption: 'A hash tree shows recursive commitment: parent hashes commit to child hashes, and the root commits to the full reachable structure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_Tree.svg.'},
+        'The recursive extension is what makes this a DAG, not just a flat hash table. A parent block contains child CIDs as links. When you hash the parent, you commit to its local payload and to the exact identity of every child. The children commit to their children. So one root CID -- a short string like 32 or 64 bytes -- cryptographically names an entire graph of blocks that could be gigabytes in total.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The store first chunks data into blocks. Chunking can be fixed-size for simplicity or content-defined so insertions near the front of a file do not shift every later boundary. Each block is encoded, hashed, and indexed by its content identifier. Higher-level nodes store payload plus links to child identifiers, forming a directed acyclic graph rather than a single flat file. Updating one logical object creates new nodes along the changed path while unchanged descendants keep their old identifiers.',
-        'Fetching starts from a root CID. The client asks a local cache, peer, gateway, registry, or other provider for the block. Trust comes from recomputing the identifier from the returned bytes and checking that it matches the requested CID. After a block verifies, its links reveal child CIDs to fetch. Traversal continues until the reachable graph has been fetched, streamed, or partially materialized.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The CID graph view shows compositional identity. Payload blocks become CIDs. CIDs become links inside a parent node. The parent becomes a new CID. The root CID names the reachable graph, not only the root block. The important fact is that a parent does not merely point to children; it commits to the exact child identities.',
+        'The store has four operations: add, fetch, pin, and garbage-collect. Adding data means chunking it into blocks (fixed-size or content-defined), computing a CID for each block, storing the block bytes keyed by CID, and building parent nodes whose links are child CIDs. The output is a root CID.',
+        'Fetching starts from a root CID. The client asks any provider -- local cache, peer, gateway, CDN -- for the block matching that CID. When bytes arrive, the client recomputes the hash. If it matches the CID, the block is authentic regardless of who served it. The client then extracts child CID links from the verified block and fetches those recursively until the whole reachable graph is local.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A Merkle DAG is still a directed graph; content addressing changes what an edge means by making each link a verified identifier. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        'The fetch-and-GC view separates integrity, availability, caching, traversal, and retention. A block can arrive from an untrusted peer and still be verified. A cache can skip repeat fetches because the same CID means the same block under the same settings. Garbage collection can delete blocks not reachable from retained roots because immutable children cannot be changed behind the root.',
+        'Pinning marks a root CID as "keep this and everything reachable from it." Garbage collection is the inverse: walk all pinned roots, mark every reachable block, then sweep (delete) any block that is not marked. Because blocks are immutable and links only point to existing CIDs, this mark-and-sweep is safe -- an unpinned block cannot be needed by a pinned root without being reachable from it.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The integrity argument comes from collision resistance and deterministic encoding. If the store asks for CID X and receives bytes that hash and decode to X, the client has strong evidence that it received the intended block. It does not need to trust the server, path, CDN, or peer identity for byte integrity. The name and verification procedure carry the trust boundary.',
-        'The graph argument is inductive. A leaf CID commits to its payload. A parent CID commits to its payload and child CIDs. If each verified child has the identity named by the parent, the verified parent commits to the whole verified subgraph. Shared children are safe because the same identifier denotes the same immutable block.',
+        'The integrity guarantee rests on collision resistance. A cryptographic hash like SHA-256 makes it computationally infeasible to find two different byte sequences that produce the same hash. So if you ask for CID X and receive bytes that hash to X, you have strong evidence those are the intended bytes. You do not need to trust the server, the network, the cache, or the peer. The name carries the verification.',
+        'The graph commitment is inductive. Base case: a leaf block\'s CID commits to its payload bytes. Inductive step: a parent block\'s CID commits to its payload plus its child CIDs, each of which commits to its own subgraph. Therefore the root CID commits to every block reachable from it. If any block in the graph is tampered with, its CID changes, which changes its parent\'s CID, which changes the root CID. One root hash guards the entire structure.',
+        'Deduplication follows automatically. If two parent nodes link to the same child CID, the store only needs one copy of that child\'s bytes. The CID is the identity, and identity is content, so "same CID" literally means "same bytes." This is why container registries can share layers across images: a shared layer has the same digest, so it is stored once and referenced many times.',
       ],
     },
     {
-      heading: 'Cost and operations',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is not only the hash. A real store pays for chunking, codec choices, CID indexes, peer discovery, traversal queues, fetch scheduling, cache eviction, pin bookkeeping, and garbage collection. Small blocks improve deduplication and partial reuse, but create more metadata and random reads. Large blocks reduce metadata and traversal overhead, but make small edits less reusable. The right block size is an access-pattern decision, not a universal constant.',
-        'The operational contract is root management. If no retained root reaches a block, garbage collection is allowed to delete it. Pins, branch heads, release tags, package locks, manifests, and build outputs are not just labels; they are retention policy. Lose the root registry and the store may correctly delete data that users still expected to keep, even though every remaining block verifies perfectly.',
+        'Hashing a block is O(n) in the block\'s byte length. Building the DAG requires hashing every block and every internal node, so total hashing cost is O(total bytes + internal node count). For a file chunked into k blocks of average size s, that is O(k * s) = O(file size) for hashing, plus O(k) for building internal nodes.',
+        'The operational costs that dominate in practice are not the hashes themselves but the surrounding infrastructure. CID indexes (hash-to-block lookups) must handle millions of entries efficiently -- typically a hash table or LSM tree. Peer discovery, fetch scheduling, traversal queues, cache eviction, and pin bookkeeping each add their own overhead. A naive BFS traversal of a deep DAG can issue many sequential round-trips; production systems use bitswap protocols, CAR files, or graph-sync to batch requests.',
+        'Block size is the critical tuning knob. Small blocks (4 KiB) maximize deduplication and partial reuse but multiply metadata entries and random reads during restore. Large blocks (1 MiB) minimize metadata and improve sequential throughput but make small edits waste bandwidth. Most systems target 256 KiB to 1 MiB as a practical compromise. The choice is workload-dependent, not universal.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This design wins when integrity and reuse matter more than mutable convenience. Git can name snapshots through commits and trees. IPFS can fetch content from different providers and verify it after retrieval. Container registries can reuse digest-addressed layers across images. Package managers can pin dependency graphs. Backup systems can avoid storing duplicate chunks.',
-        'It also wins for provenance. A research platform can store every downloaded PDF, extracted table, generated chart, model output, and report as hash-named objects. The report root then commits to the exact evidence graph it used. A semantic claim ledger can explain meaning, while the Merkle DAG proves byte identity and reachability. That separation is useful: semantics can be debated, but the underlying bytes either match the committed identifiers or they do not.',
+        'Git stores every file version, tree, and commit as a content-addressed object. A commit hash names the exact source tree, parent commits, author, and message. Two developers who independently build the same tree from the same parent get the same commit hash. This is why git clone from any mirror produces a verifiable repository -- every object can be checked against its name.',
+        'IPFS generalizes this to arbitrary data. A CID can name a single file, a directory tree, or a complex DAG of linked blocks. Any node on the network can serve any block, and the client verifies integrity locally. Package managers like Nix use content-addressed store paths so that two machines that build the same package with the same inputs get the same output path -- enabling binary caches that are trustless at the byte level.',
+        'Container registries (Docker, OCI) use digest-addressed layers and manifests. Pulling an image means fetching a manifest by digest, then fetching each layer by digest. Shared base layers (like ubuntu:22.04) are stored once and referenced by every image that uses them. The manifest digest is the image identity, and it commits to every layer it includes.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A CID is not a location. It says what bytes are wanted, not who will serve them. Availability still needs pinning, replication, gateways, indexes, incentives, or an ordinary storage service underneath. Content addressing can make a cache honest about bytes, but it cannot make an absent block appear.',
-        'A CID is also not privacy or schema evolution. Public or guessable content can be recognized by its identifier, so sensitive content should be encrypted before being added to a public system. The same logical file can produce different CIDs if chunking, hashing, codec, or serialization settings differ. Determinism only holds under the same content-addressing contract.',
-        'A final failure is treating roots as informal bookmarks. Production systems need explicit root ownership, retention classes, audit logs, replication status, and deletion workflows. Otherwise a valid garbage collector can erase the only copy of a block graph because nobody recorded which root made it important.',
+        'A CID tells you what bytes you want, not where to get them. Availability requires pinning services, replication policies, gateways, incentive layers, or plain old server infrastructure. Content addressing makes a cache honest about bytes, but it cannot conjure bytes that nobody is serving. If every node that pinned a CID goes offline, the data is gone no matter how valid the CID remains.',
+        'Privacy is another gap. If the content is known or guessable, anyone can compute its CID and check whether a public store holds it. Encrypting before adding solves byte confidentiality, but the CID of the ciphertext still reveals that you have something, and chunk sizes or access patterns can leak structure. Multi-tenant systems that deduplicate across users create side-channel risks: a new user\'s upload that deduplicates instantly reveals the content already existed.',
+        'Determinism is conditional. The same logical file can produce different CIDs if the chunking algorithm, hash function, codec, or serialization format differs. Two IPFS nodes using different chunker settings will not deduplicate against each other. Interoperability requires agreement on the full content-addressing contract, not just "hash the bytes."',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose you store a 1 MiB file using 256 KiB chunks and SHA-256. The file splits into 4 leaf blocks: L0, L1, L2, L3. Each leaf gets a CID: CID(L0) = SHA-256(bytes of L0) = e3b0c44..., and similarly for L1 through L3. A parent node P is built containing the four child CIDs plus any metadata. CID(P) = SHA-256(serialize(CID(L0), CID(L1), CID(L2), CID(L3))). This single CID(P), a 32-byte value, names the entire 1 MiB file.',
+        'Now change one byte in the region covered by L2. The new L2\' has different bytes, so CID(L2\') differs from CID(L2). The parent must be rebuilt with the new child CID: P\' = serialize(CID(L0), CID(L1), CID(L2\'), CID(L3)), and CID(P\') differs from CID(P). But L0, L1, and L3 are unchanged -- their CIDs are identical, so the store already has their bytes. Only L2\' and P\' need to be stored. The store saved 75% of the data transfer.',
+        'For fetch: a client that knows CID(P) asks any provider for that block. The provider returns the serialized parent. The client hashes it, confirms it matches CID(P), extracts the four child CIDs, and fetches each child. For each child block, the client hashes the returned bytes and checks the hash against the CID. If all four match, the client has a verified copy of the entire file. If any block was corrupted in transit, the hash mismatch catches it immediately.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: IPFS content addressing at https://docs.ipfs.tech/concepts/content-addressing/, IPFS Merkle DAG docs at https://docs.ipfs.tech/concepts/merkle-dag/, IPLD at https://ipld.io/, and ProtoSchool Merkle DAG tutorial at https://proto.school/merkle-dags/.',
-        'Study Git Internals for a production file-tree version, Merkle Tree for proof paths, Content-Defined Chunking for stable boundaries, Hash Table for CID lookup, Graph BFS for traversal and garbage collection, Software Supply Chain Provenance Graph for artifact trust, Transparency Log Witnessing for append-only audit, and Claim Graph Source Ledger for semantic provenance on top of byte identity.',
+        'Study Merkle Tree for proof paths and membership verification, Content-Defined Chunking for shift-resistant block boundaries, Hash Table for CID-to-block lookup internals, and Graph BFS for the traversal algorithm used in fetch and garbage collection. For applications, see Git Internals for a production file-tree Merkle DAG, and Container Image Layers for digest-addressed storage in practice.',
       ],
     },
   ],

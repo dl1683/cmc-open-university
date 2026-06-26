@@ -1,4 +1,4 @@
-ï»¿// Louvain and Leiden community detection: greedy local modularity moves,
+// Louvain and Leiden community detection: greedy local modularity moves,
 // graph aggregation, and Leiden refinement for well-connected communities.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -130,20 +130,20 @@ function* louvainPass() {
       ],
     ),
     highlight: { active: ['orange:gain', 'orange:internal'], compare: ['blue:gain'], removed: ['stay:gain'] },
-    explanation: `Louvain greedily tries moving one node into each of the ${3} neighboring communities. A move is kept when it improves modularity â€” the best delta here is ${'+0.16'}, so node C joins the orange cluster.`,
+    explanation: `Louvain greedily tries moving one node into each of the ${3} neighboring communities. A move is kept when it improves modularity — the best delta here is ${'+0.16'}, so node C joins the orange cluster.`,
     invariant: `${topic.title} is heuristic: it optimizes a score greedily, not by checking every possible partition.`,
   };
 
   yield {
     state: pipelineGraph('Louvain alternates local moves and aggregation'),
     highlight: { active: ['singletons', 'move', 'partition', 'e-singletons-move', 'e-move-partition'], compare: ['aggregate'] },
-    explanation: `The first phase starts with every node in its own community and repeatedly moves nodes when modularity improves. The pipeline graph shows ${6} stages â€” once local moves stop helping, the current communities become the partition for this level.`,
+    explanation: `The first phase starts with every node in its own community and repeatedly moves nodes when modularity improves. The pipeline graph shows ${6} stages — once local moves stop helping, the current communities become the partition for this level.`,
   };
 
   yield {
     state: pipelineGraph('Aggregation turns communities into supernodes'),
     highlight: { active: ['partition', 'aggregate', 'next', 'e-partition-aggregate', 'e-aggregate-next'], found: ['move'] },
-    explanation: `The aggregation frame is why Louvain creates a hierarchy. Communities become supernodes, edge weights are rolled up, and the same local-move game repeats on a smaller graph â€” this is the core loop in ${topic.title}.`,
+    explanation: `The aggregation frame is why Louvain creates a hierarchy. Communities become supernodes, edge weights are rolled up, and the same local-move game repeats on a smaller graph — this is the core loop in ${topic.title}.`,
   };
 
   yield {
@@ -167,7 +167,7 @@ function* louvainPass() {
       ],
     ),
     highlight: { active: ['level0:action', 'level1:action', 'level2:action'], found: ['stop:action'] },
-    explanation: `The result is naturally hierarchical across ${4} rows â€” level 0 through the stop condition. That hierarchy is why ${topic.category.toLowerCase()} like community partitions are useful for graph indexes: each level gives a different compression of the same relationship structure.`,
+    explanation: `The result is naturally hierarchical across ${4} rows — level 0 through the stop condition. That hierarchy is why ${topic.category.toLowerCase()} like community partitions are useful for graph indexes: each level gives a different compression of the same relationship structure.`,
   };
 }
 
@@ -199,7 +199,7 @@ function* leidenRefinement() {
       ],
     ),
     highlight: { active: ['louvain:risk'], found: ['final:internal shape'], compare: ['refined1:internal shape', 'refined2:internal shape'] },
-    explanation: `The failure frame matters for GraphRAG. A weakly connected community may still score well, but it becomes a bad summary unit because unrelated entities are forced into one report â€” this is why ${topic.title} matters in practice.`,
+    explanation: `The failure frame matters for GraphRAG. A weakly connected community may still score well, but it becomes a bad summary unit because unrelated entities are forced into one report — this is why ${topic.title} matters in practice.`,
     invariant: `Leiden refines communities before constructing the next aggregated graph, a guarantee that plain Louvain in the ${topic.category} toolbox does not provide.`,
   };
 
@@ -246,173 +246,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. "Louvain pass" walks through the greedy local-move and aggregation cycle that produces a hierarchical partition. "Leiden refinement" shows the extra step Leiden inserts to fix badly connected communities before aggregation. Active highlights mark the node or community under evaluation. Found highlights mark a decision that has been locked in. Compare highlights mark alternatives being weighed against the active choice.',
-        'In the matrix frames, rows are candidate moves and columns are the quantities that determine whether a move improves modularity. The highlighted cell is the winning option. Follow the delta-modularity column: a positive value means the move is accepted, zero means no improvement, and the algorithm moves on.',
-        'At each frame, ask three things: what partition exists right now, what move is being tested, and whether the move improved the objective or exposed a structural flaw.',
+        'Nodes are vertices in a graph, and edges are relationships between them. A community is a group with more internal edge weight than the grouping would have by chance. The animation marks active nodes, proposed moves, refined groups, and compressed supernodes.',
+        'Read every move as a modularity test. Modularity is a score that compares observed internal edges with the internal edges expected from node degrees alone. A move is safe only when the score improves and the later refinement step does not hide a broken community inside a supernode.',
         {type: 'callout', text: 'Leiden adds a repair step to a greedy compression loop, so communities are not allowed to become permanent supernodes while internally broken.'},
-      
-        {type: 'image', src: './assets/gifs/leiden-louvain-community-detection.gif', alt: 'Animated walkthrough of the leiden louvain community detection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/leiden-louvain-community-detection.gif', alt: 'Animated walkthrough of the leiden louvain community detection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Large graphs are hard to understand one vertex at a time. A social network may have millions of accounts, a code dependency graph may have thousands of modules, and a knowledge graph built from documents may have millions of entity-relationship triples. Humans cannot reason about structure at that scale without compression. Community detection compresses a graph into groups that are denser internally than externally, so each group can stand in for a topic, team, subsystem, or summary unit.',
-        {
-          type: 'quote',
-          text: 'Community structure is one of the most relevant features of graphs representing real systems. Its identification is critical for understanding the function, organization, and dynamics of complex networks.',
-          attribution: 'Blondel, Guillaume, Lambiotte, Lefebvre -- "Fast unfolding of communities in large networks" (2008)',
-        },
+        'Large graphs often contain local structure that is not visible from individual edges. A social graph, citation graph, fraud graph, or dependency graph can have millions of vertices, so a human cannot inspect every connection and name groups by hand. Community detection compresses the graph into groups while trying to preserve dense local structure.',
+        'Louvain exists because exact modularity maximization is too expensive for large graphs. Leiden exists because Louvain can freeze communities that look good from the outside while being poorly connected inside. The extra refinement pass repairs that failure before compression.',
         {type: 'image', src: 'https://media.springernature.com/lw685/springer-static/image/art%3A10.1038%2Fs41598-019-41695-z/MediaObjects/41598_2019_41695_Fig1_HTML.png', alt: 'Louvain and Leiden community-detection passes showing local moves, refinement, and aggregation.', caption: 'The Leiden paper visualizes the extra refinement step that separates it from Louvain. Source: Traag, Waltman, and van Eck, Scientific Reports 2019, CC BY 4.0.'},
-        'Louvain (Blondel et al., 2008) and Leiden (Traag, Waltman, van Eck, 2019) are the two most widely deployed algorithms for this job. Both optimize modularity -- a score that measures how much edge weight falls inside communities compared to what a random graph with the same degree sequence would produce. The output is a hierarchical partition: communities of nodes, then communities of communities, at increasing levels of coarseness.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest grouping rule is connected components: run BFS or union-find and put every reachable node in the same bucket. That works when groups are literally disconnected, but real graphs rarely cooperate. One weak bridge between two dense clusters merges them into a single component even though they represent different topics. In a citation graph, one shared reference connects two unrelated research areas. In a service dependency graph, one shared logging library connects every microservice.',
-        'A more principled attempt is global optimization: define a quality score for the whole partition and search for the best one. The trouble is combinatorial. The number of ways to partition n nodes into groups is the Bell number, which grows faster than exponential. For 100 nodes, the Bell number exceeds 4 * 10^115. Exhaustive search is hopeless; even approximate global search is expensive for graphs with millions of edges.',
-        'So the field needs a heuristic that improves a score locally, scales to large graphs, and produces partitions that are useful -- not just high-scoring.',
+        'The obvious approach is greedy grouping. Move each node into the neighboring community that gives the largest modularity gain, then compress each community into one node and repeat. This is the Louvain pattern.',
+        'The approach is reasonable because it uses local edge evidence and shrinks the graph after every round. If a node sends most of its edge weight into one group, moving it there often improves the score. Compression lets the next pass reason about larger structure.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall has two faces. The first is scale: the number of possible partitions is astronomical, so any practical algorithm must be greedy or approximate. The second is structural: a partition can score well by modularity while being internally broken.',
-        'Louvain hits the structural wall. Because it optimizes modularity greedily and then aggregates communities into supernodes, it can produce communities that are disconnected internally. Imagine two dense clusters A and B connected by a single bridge edge. Louvain may merge them into one community because the combined modularity contribution is higher than keeping them separate. The modularity score is happy, but the community is held together by one edge. Remove that edge and the "community" falls into two pieces that share nothing.',
-        {
-          type: 'note',
-          text: 'Traag, Waltman, and van Eck (2019) proved this is not a rare edge case. They constructed families of graphs where Louvain provably returns disconnected communities, and showed the problem persists across random seeds and resolution values. The bug is architectural: aggregation locks in mistakes that later passes cannot undo.',
-        },
-        'There is a deeper wall called the resolution limit, identified by Fortunato and Barthelemy (2007). Modularity optimization cannot detect communities smaller than a scale that depends on the total edge weight of the graph. Two perfectly clear clusters can be merged into one community if the graph is large enough, because the null-model penalty for splitting them becomes smaller than the gain from combining them. No amount of algorithmic cleverness fixes this; it is a property of the modularity function itself.',
+        'The wall is that modularity gain is not the same as internal connectivity. Louvain can create a community whose parts are only weakly connected, then compress that community into a permanent supernode. Later passes cannot see and repair the weak interior.',
+        'Resolution is another wall. Modularity can merge small real communities into larger ones when the graph is large. A higher score can still hide useful local structure if the quality function rewards the wrong scale.',
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'Leiden keeps greedy movement and graph compression, but inserts refinement before aggregation. A tentative community is split into connected subcommunities when its interior is not strong enough. Only refined communities become supernodes.',
+        'That changes the invariant. Louvain mainly preserves nondecreasing quality. Leiden preserves nondecreasing quality while adding the rule that compressed communities must be internally connected under the refinement criterion.',
+      ],
+    },    {
       heading: 'How it works',
       paragraphs: [
-        'Both algorithms follow a two-phase loop: local moves, then aggregation. Louvain runs the loop directly. Leiden inserts a refinement step between the two phases.',
-        {
-          type: 'diagram',
-          text: [
-            'LOUVAIN LOOP:',
-            '',
-            '  [singleton partition] --> LOCAL MOVE PHASE --> [improved partition]',
-            '        ^                   (greedy node moves        |',
-            '        |                    that increase Q)         v',
-            '        |                                      AGGREGATION PHASE',
-            '        |                                      (communities become',
-            '        +---------- repeat until no gain <----  supernodes)',
-            '',
-            '',
-            'LEIDEN LOOP:',
-            '',
-            '  [singleton partition] --> LOCAL MOVE PHASE --> [candidate partition]',
-            '        ^                                              |',
-            '        |                                              v',
-            '        |                                      REFINEMENT PHASE',
-            '        |                                      (split badly connected',
-            '        |                                       communities)',
-            '        |                                              |',
-            '        |                                              v',
-            '        +---------- repeat until no gain <---- AGGREGATION PHASE',
-          ].join('\n'),
-          label: 'Louvain vs Leiden: the refinement phase is the key difference',
-        },
-        'In the local move phase, every node starts in its own singleton community. The algorithm visits each node, computes the modularity gain from moving it into each neighboring community, and executes the best positive move. It repeats until a full pass over all nodes produces no improvement. The modularity gain for moving node i into community C is computed from local information only: the edge weight from i to nodes in C, the total degree of C, and the degree of i.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: [
-            '// Modularity gain from moving node i into community C',
-            '// Q = (1/2m) * sum_ij [ A_ij - (k_i * k_j)/(2m) ] * delta(c_i, c_j)',
-            '//',
-            '// Delta Q for moving node i from its current community to C:',
-            'function modularityGain(edgeWeightToC, totalWeightC, degreeI, totalEdgeWeight) {',
-            '  const m2 = 2 * totalEdgeWeight;',
-            '  // Gain from new internal edges minus null-model penalty',
-            '  return (edgeWeightToC / m2) - (totalWeightC * degreeI) / (m2 * m2);',
-            '}',
-            '',
-            '// Example: node C (degree 9) considering community {D,E,F}',
-            '// edgeWeightToC = 4 (edge C-D has weight 4)',
-            '// totalWeightC  = 8 (sum of degrees of D,E,F inside their community)',
-            '// degreeI       = 9 (total degree of node C)',
-            '// totalEdgeWeight = 21 (sum of all edge weights in graph)',
-            'const gain = modularityGain(4, 8, 9, 21);',
-            '// gain > 0, so the move is accepted',
-          ].join('\n'),
-        },
-        'In the aggregation phase, each community becomes a single supernode in a new, smaller graph. Edges between nodes in different communities become weighted edges between the corresponding supernodes. Edges between nodes in the same community become self-loop weight on that supernode. The algorithm then runs local moves again on this compressed graph. The hierarchy emerges naturally: level 0 is the original graph, level 1 groups original nodes, level 2 groups communities of communities.',
-        'Leiden adds the refinement phase between local moves and aggregation. It takes the candidate partition from the local move phase and checks each community for internal connectivity. If a community is poorly connected -- for example, held together by a single bridge edge -- the refinement step splits it into well-connected subcommunities. Only the refined partition is passed to aggregation. This prevents broken communities from becoming permanent supernodes that later passes cannot decompose.',
+        'A Leiden iteration has local moving, refinement, and aggregation. Local moving considers a node and moves it to a neighboring community only when the chosen quality score improves. Nodes with no improving move stay where they are.',
+        'Refinement then works inside each tentative community. It builds connected pieces and merges only moves that are valid inside that community. Aggregation compresses those refined pieces into supernodes and sums edge weights between them.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'Community detection starts from a graph; the algorithmic question is which directed or undirected edge evidence belongs inside one compressed group. Source: Wikimedia Commons, David W., public domain.'},
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Louvain works as a scalable heuristic because each local move decision uses only local information: the edges from one node to its neighbors and the aggregate statistics of nearby communities. No global partition search is needed. Aggregation then shrinks the graph, so later passes operate on fewer nodes with heavier edges. For sparse graphs, the total work per level is proportional to the number of edges, and the number of levels is typically logarithmic in the graph size.',
-        'The correctness claim must be stated carefully. Louvain does not guarantee the globally optimal modularity partition. It greedily climbs toward a local optimum, and different random orderings of nodes produce different results. The useful invariant is weaker but real: every accepted move strictly increases modularity at the current level, and aggregation faithfully preserves the edge weight structure needed to continue optimizing at the next level.',
-        'Leiden strengthens the structural guarantee. The Leiden paper proves that every community in the final partition is gamma-connected: for any two nodes in a community, there exists a path between them that stays inside the community and whose edges all exceed a weight threshold determined by the resolution parameter gamma. This rules out the disconnected-community failure mode of Louvain. The guarantee holds because refinement splits any community that violates it before aggregation can lock it in.',
-        'Neither algorithm escapes the resolution limit. Both optimize modularity (or a parameterized variant), so both are blind to communities below the resolution-dependent size threshold. This is not a bug in the algorithm; it is a property of the objective function. If you need to detect small communities in a large graph, you need either a different objective (like the constant Potts model) or multi-resolution analysis.',
+        'The algorithm is heuristic, so correctness does not mean global optimality. The claim is that each accepted local move improves or preserves the selected quality rule, and refinement prevents disconnected or badly connected interiors from being compressed as one unit.',
+        'Aggregation is safe because it preserves total edge weight between refined groups. A move in the compressed graph corresponds to moving whole refined communities in the original graph. Since refinement happened first, later passes do not inherit a broken interior as an unchangeable node.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Louvain: O(m) amortized per level and O(n + m) space; it greedily increases modularity but can leave disconnected communities.',
-            'Leiden: O(m) amortized per level and O(n + m) space; refinement gives gamma-connected communities at a small constant-factor cost.',
-            'Label propagation: O(m) per iteration and O(n) space; it is fast but unstable on ambiguous graphs and offers no strong partition guarantee.',
-            'Spectral clustering: O(n^3), or O(n*m) with Lanczos-style approximations, and often O(n^2) space for eigenvectors; it needs k upfront and is expensive on large graphs.',
-            'Infomap: O(m) per iteration and O(n + m) space; it optimizes a description-length objective, so it may disagree with modularity in useful ways.',
-          ],
-        },
-        'For Louvain and Leiden, the dominant cost is scanning edges during the local move phase. Each node inspects its neighbors and computes modularity gain for each neighboring community. In sparse graphs with good data layouts (compressed sparse row or adjacency arrays), this is close to linear in the number of edges per pass. Multiple passes and multiple levels add constant factors, but the graph shrinks at each level, so total work is typically O(m log n) in practice.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows.', caption: 'Community detection starts from a graph; the algorithmic question is which directed or undirected edge evidence belongs inside one compressed group. Source: Wikimedia Commons, David W., public domain.'},
-        'Memory is O(n + m): the adjacency structure plus per-node community labels and per-community degree totals. Leiden requires additional bookkeeping for the refinement step -- tracking subcommunities within each community -- but this does not change the asymptotic bound.',
-        'The practical cost difference between Louvain and Leiden is small. Leiden is roughly 2-3x slower per pass due to refinement, but it often converges in fewer levels because the refined partition is a better starting point for the next aggregation. For graphs with millions of edges, both run in seconds on a single core.',
+        'On sparse graphs, one pass is close to linear in the number of edges because node moves inspect neighboring communities rather than all communities. If m is the number of edges, the practical cost is usually a small multiple of m per pass. The number of passes depends on the graph and resolution setting.',
+        'When the graph doubles in edges and average degree stays similar, one pass roughly doubles in work. Memory is O(n + m) for vertices, edges, labels, and compressed graphs. The dominant behavior is repeated neighbor scanning plus rebuilding aggregate edge weights.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Social network analysis is the original home. Facebook, Twitter, and LinkedIn use community detection to identify friend groups, interest clusters, and coordinated behavior. Biology uses it to cluster protein interaction networks, gene co-expression networks, and neural connectomes. Security teams use it to find clusters of related accounts, IP addresses, or transactions in fraud graphs.',
-        'GraphRAG (retrieval-augmented generation over knowledge graphs) makes the stakes concrete. Nodes are entities extracted from documents. Edges are relationships supported by source text. Community detection decides which entities get summarized together before a language model writes a community report. A coherent community produces a focused summary. A disconnected community forces the model to blend unrelated evidence into one report, degrading answer quality for every downstream query that touches it.',
-        'Software engineering applies community detection to dependency graphs to find module boundaries, to call graphs to identify subsystems, and to co-change graphs (files that change together in commits) to detect hidden coupling. The output guides refactoring: if two modules are in the same community by co-change but in different directories, the code organization does not match the actual development pattern.',
+        'Leiden-style methods are used to summarize social networks, citation graphs, payment graphs, biological networks, and knowledge graphs. The access pattern is many local edge-weight checks followed by compression. That fits large sparse graphs where local neighborhoods are much smaller than the whole graph.',
+        'They also work as preprocessing. A graph model can use community ids as features, or an analyst can inspect suspicious groups rather than raw accounts. The output is a hypothesis about graph structure, not proof of one real-world cause.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A community is not ground truth. It is a function of the graph you built, the weights you assigned, the objective you optimized, and the resolution parameter you chose. If the graph has missing edges, duplicate entities, extraction errors, or biased weights, the partition inherits every flaw. Garbage graph in, garbage communities out.',
-        'The resolution limit means small communities can be invisible. Two perfectly distinct clusters of 10 nodes each can be merged into one community in a graph with 10,000 nodes, because the modularity penalty for splitting them is too small to notice. Multi-resolution sweeps help (run the algorithm at several resolution values and compare), but they multiply the interpretation burden.',
-        'Hub nodes are a persistent headache. A node connected to many communities will be assigned to one of them, dragging unrelated neighbors along. In knowledge graphs, high-degree entities like "United States" or "machine learning" connect nearly everything and distort community boundaries. Practical pipelines often cap node degree or remove hubs before clustering.',
-        'Nondeterminism makes reproducibility harder than it looks. Both Louvain and Leiden depend on the order in which nodes are visited, which is typically randomized. Different seeds produce different partitions with similar modularity scores. For research or production pipelines, run multiple seeds and use consensus clustering or stability analysis to identify robust communities.',
+        'The result depends on the graph construction, quality function, resolution parameter, and random order. Weighted, directed, temporal, and bipartite graphs can change what a community means. A clean partition can be an artifact of preprocessing.',
+        'Leiden also returns a hard partition. A person, paper, or account can naturally belong to multiple groups, but the algorithm assigns each node to one community. Use overlapping or dynamic community methods when that assumption is wrong.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose A, B, C form a triangle with edge weight 3 on each side, and D, E, F form another triangle with weight 3. There is one bridge edge C-D with weight 1. Each triangle has internal weight 9, while the bridge between triangles has weight 1.',
+        'A low-resolution greedy pass might join all six nodes because the combined group improves the score. Leiden then refines inside that tentative group. The two triangles are strong connected pieces, and the single bridge is weak evidence for one community.',
+        'Aggregation can therefore create two supernodes, {A,B,C} and {D,E,F}, connected by weight 1. A later pass may merge them if the quality function still rewards it. The important point is that the weak interior was not hidden before refinement.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Blondel, Guillaume, Lambiotte, Lefebvre -- "Fast unfolding of communities in large networks," Journal of Statistical Mechanics (2008). The original Louvain paper; defines the two-phase loop and demonstrates scalability to networks with 10^8 edges.',
-            'Traag, Waltman, van Eck -- "From Louvain to Leiden: guaranteeing well-connected communities," Scientific Reports (2019). Proves Louvain can return disconnected communities and introduces the refinement phase that fixes it.',
-            'Fortunato, Barthelemy -- "Resolution limit in community detection," PNAS (2007). Proves that modularity optimization has a fundamental resolution limit: communities below a size threshold are invisible to the objective function.',
-            'Newman, Girvan -- "Finding and evaluating community structure in networks," Physical Review E (2004). Defines the modularity function Q and establishes the null-model framework.',
-            'Rosvall, Bergstrom -- "Maps of random walks on complex networks reveal community structure," PNAS (2008). The Infomap algorithm; a contrasting approach that minimizes description length instead of maximizing modularity.',
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Graph Representations (adjacency list, CSR) -- the data layout that makes neighbor scans fast.',
-            'Prerequisite: Breadth-First Search -- the traversal primitive behind connected-component checks.',
-            'Extension: PageRank -- another global graph score, but for node importance rather than community structure.',
-            'Contrast: K-Means Clustering -- community detection partitions a graph by edge density; k-means partitions vectors by distance. Same goal, different geometry.',
-            'Application: GraphRAG and Knowledge Graphs -- where community quality directly controls summary quality.',
-          ],
-        },
+        'Primary source: Traag, Waltman, and van Eck, From Louvain to Leiden: guaranteeing well-connected communities, Scientific Reports 2019. Study Blondel et al. on Louvain for the baseline and modularity for the quality score.',
+        'Study next by role. BFS, DFS, and connected components give the graph basics. Modularity and resolution limits explain the scoring tradeoff. Spectral clustering, Infomap, stochastic block models, and overlapping community detection provide contrasting approaches.',
       ],
     },
   ],

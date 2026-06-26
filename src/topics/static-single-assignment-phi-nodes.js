@@ -172,85 +172,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each numbered name as one value, not as one storage slot. A definition is the instruction that creates a value, and a use is an instruction that reads it. The active block shows where control flow currently is, while the phi row shows which incoming edge supplies the value at a join.',
+        'A phi node is an intermediate-representation merge, not a runtime function call. If the edge from the then block is taken, the phi selects the then value; if the edge from the else block is taken, it selects the else value. That edge-based selection is the safe inference the animation is making.',
         {type: 'image', src: './assets/gifs/static-single-assignment-phi-nodes.gif', alt: 'Animated walkthrough of the static single assignment phi nodes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Compiler optimizations need to answer one basic question over and over: where did this value come from? In straight-line code, the answer is usually nearby. Across branches, loops, early returns, and repeated assignments, the same source variable name can refer to different runtime values depending on the path taken through the program.`,
+        'Compilers optimize programs by asking where each value came from and where it is used. Source variables are mutable names, so the same name can mean different runtime values after branches and loops. Static Single Assignment form, or SSA, gives each computed value exactly one definition.',
         {type: 'callout', text: `SSA makes value provenance local: each ordinary use names one definition, and each phi names the control-flow edge that selected it.`},
-        `Mutable variables hide value flow. A source program may assign x in a then branch, assign x again in an else branch, update x in a loop, and read x after the join. The compiler cannot optimize that read safely unless it knows which definitions can reach it. Recomputing broad reaching-definition facts for every optimization is expensive and error-prone.`,
-        `Static Single Assignment form exists to make the value graph explicit. Every SSA value has one definition. Every use points to a specific definition, except at control-flow joins where several path-specific definitions meet. Phi nodes represent those joins. They are the price paid for turning mutation into a graph of values.`,
+        'SSA exists because many optimizations become local once value identity is explicit. Constant propagation, dead-code elimination, common-subexpression elimination, and loop analysis can follow def-use edges instead of rediscovering broad reaching-definition facts. Phi nodes are the cost paid at control-flow joins where one name may come from several paths.',
       ],
     },
     {
-      heading: 'The naive approach and why it fails',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The naive compiler keeps source variables as mutable slots. It can still run data-flow analyses: reaching definitions, live variables, available expressions, and constant propagation all work without SSA in principle. This is a reasonable first design, especially for an interpreter or simple bytecode compiler.`,
-        `The problem is that each analysis must rediscover value flow through the control-flow graph. If x is assigned in several blocks, a use of x may depend on any assignment whose path reaches that use without being overwritten. Loops add backedge definitions. Branches add mutually exclusive definitions. The optimizer spends effort scanning and merging sets when it really wants direct use-def edges.`,
-        `The naive approach also invites mistakes. A constant from one branch can be propagated into a join where the other branch supplies a different value. A dead assignment can be removed even though it is still needed on a rare path. A loop induction variable can be treated as one changing slot instead of a sequence of related values. SSA does not make optimization automatic, but it removes much of this ambiguity.`,
+        'The obvious compiler representation keeps source variables as mutable slots. An assignment to x overwrites the previous x, and a later read asks which assignment reaches that point. This is a reasonable design for an interpreter or a simple bytecode compiler.',
+        'Data-flow analysis can still answer the question, but it has to carry sets of possible definitions through the control-flow graph. A control-flow graph is a directed graph of basic blocks, where each block is a straight-line sequence of instructions. At every branch and loop, those sets have to be merged and recomputed until they stop changing.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is ambiguity at joins. If the then branch assigns x = 2 and the else branch assigns x = 5, a later use of x is not allowed to pretend either assignment dominates the join. Dominance means every path from entry to the use must pass through the definition.',
+        'Loops make the same problem recur. The value at a loop header may be the initial value on the first iteration and the updated value on later iterations. A mutable slot hides that distinction, so optimizers need extra analysis to avoid propagating the wrong value.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core move is to rename assignments, not variables. Each assignment to a source name creates a new SSA value. A later use reads the current version for the path being considered. If one definition reaches all paths to a use, that use names the definition directly. If different definitions reach a join from different predecessors, the compiler inserts a phi node.`,
-        `For an if statement, source code may say: if cond then x = G else x = H; return x. SSA says: then defines x0, else defines x1, and the join defines x2 = phi [x0, then], [x1, else]. The return uses x2. The phi does not recompute cond. It chooses the value associated with the predecessor edge that control actually used.`,
-        `The result is a sparse value graph. Optimizations can follow def-use and use-def chains instead of repeatedly solving broad data-flow equations. The control-flow graph still matters, but value identity is now explicit in the IR.`,
+        'SSA renames assignments instead of renaming variables by hand. Each assignment creates a fresh version such as x0 or x1, and each ordinary use names the one definition that dominates it. Where no single definition dominates, the compiler inserts a phi node with one incoming value per predecessor edge.',
+        'The phi is the only special case. It says that the value after the join is selected by the edge that control used to enter the block. That keeps the value graph sparse while preserving the control-flow fact that different paths carry different values.',
       ],
     },
     {
-      heading: 'How the algorithm works',
+      heading: 'How it works',
       paragraphs: [
-        `Classic SSA construction starts with the control-flow graph and dominator tree. A block dominates another block if every path from entry to the second block passes through the first. Dominance tells the compiler where a definition is guaranteed to be seen. Dominance frontiers identify the join points where a definition from one region can meet control flow from outside that region.`,
+        'Classic SSA construction starts by computing dominators and dominance frontiers. A dominance frontier is a block where a definition from one region can meet control from outside that region. Those frontier blocks are where phi nodes may be needed.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'SSA construction starts from directed control flow: phi nodes are inserted only where predecessor paths can carry different definitions into the same block. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
-        `For each variable assigned in multiple places, the compiler places phi nodes at appropriate dominance-frontier blocks. Then it renames variables by walking the dominator tree. For each source variable, the renamer keeps a stack of current SSA names. When it sees an assignment, it creates a fresh name and pushes it. When it sees a use, it reads the name on top of the stack. When it processes successor phi nodes, it fills in the incoming value for the current block. When it leaves the block, it pops names created in that block.`,
-        `That stack discipline is what prevents sibling paths from seeing each other values. A name defined in the then branch is current while visiting blocks dominated by the then branch. It is popped before visiting the else branch. The join receives both names through phi incoming edges instead of pretending either branch definition dominates the other.`,
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        `The phi-at-joins view proves that a merged value is not a guess. The then block and else block each define their own SSA value. The join block cannot use either one directly because neither definition is guaranteed to dominate the join on all paths. The phi records the path-specific choice at the exact place where control-flow paths meet.`,
-        `The rename view proves that SSA names are values, not storage locations. x0, x1, and x2 are not three memory slots that must exist at runtime. They are IR names with one definition each. Later backend passes may coalesce them into one register, spill them to memory, or eliminate them entirely. During optimization, their purpose is to make data dependencies precise.`,
+        'After phi placement, the compiler walks the dominator tree and renames variables with a stack per source name. On assignment, it pushes a fresh SSA name; on use, it reads the top of the stack. When leaving a block, it pops names created there, so sibling branches cannot see each other values.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument is dominance plus explicit merging. If a normal SSA value is used, its definition dominates the use, so every path to the use has passed through the definition. If no single definition dominates, the phi lists one incoming value per predecessor. The selected incoming value is determined by the edge taken into the block.`,
-        `This shape prevents a class of optimizer bugs. Constant propagation can follow the incoming values of a phi and only fold when all reachable choices agree or when control flow proves one choice impossible. Dead-code elimination can remove definitions with no uses while preserving values that feed live phis. Loop optimizers can represent induction variables with header phis that merge the initial value and the backedge value.`,
+        'The invariant is that every ordinary use is dominated by its definition. Because every path to the use passes through that definition, the use cannot accidentally read a value from a different path. The rename stack enforces this while the dominator-tree walk enters and leaves scopes.',
+        'Phi nodes cover the cases where the invariant cannot be satisfied by one ordinary definition. Each predecessor contributes the value that is current on that edge, and the phi result dominates later uses in the join block. Correctness comes from preserving both facts: one definition per SSA value and one incoming value per predecessor edge.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `SSA adds IR objects and maintenance rules. Phi nodes must have one incoming value for each predecessor. If a pass splits an edge, deletes a block, duplicates a loop, or redirects control flow, it must update affected phis. Broken phi lists are correctness bugs, not cosmetic damage.`,
-        `Memory complicates the story. Pure SSA works cleanly for register-like scalar values. Heap locations, aliases, volatile operations, and address-taken variables need additional structure. Many compilers promote simple stack variables into SSA with a mem2reg pass, but leave complicated memory operations in memory form or use MemorySSA to model memory dependencies sparsely. SSA for values does not automatically solve alias analysis.`,
-        `There is also a lowering cost. Real machines do not execute phi nodes. Before final machine code, phis must become edge copies or parallel copies, and those copies must be scheduled without clobbering source values. Register allocation may remove many copies by coalescing, but it can also create spills if live ranges grow too large.`,
+        'SSA construction is usually near linear in the size of the control-flow graph plus the number of inserted phi operands. When the function doubles in blocks and edges, dominator and rename work roughly double. Poor phi placement can still bloat the intermediate representation and slow later passes.',
+        'The behavior cost appears during maintenance. If a pass splits an edge, deletes a block, or clones a loop, phi incoming lists must be repaired. SSA also does not solve memory aliasing by itself, so compilers either promote simple stack variables into SSA or use separate memory-dependence structures.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Real-world uses',
       paragraphs: [
-        `SSA is the normal internal form for modern optimizing compilers. LLVM IR uses SSA values for registers. JavaScript engines, JVM compilers, WebAssembly engines, shader compilers, and many ahead-of-time native compilers use SSA or SSA-like forms because optimizations become easier to express and verify.`,
-        `Sparse conditional constant propagation uses SSA edges to propagate facts only where they matter. Global value numbering and common-subexpression elimination compare operations by operands and definitions. Dead-code elimination follows use lists. Loop optimizers understand induction variables through loop-header phis. Register allocators use SSA liveness to build intervals or interference. Even when frontends start from mutable variables, optimizers often promote eligible values into SSA because the form pays for itself.`,
+        'Modern optimizing compilers use SSA or an SSA-like form for register values. LLVM IR, many JavaScript engines, JVM compilers, WebAssembly engines, and shader compilers use the form because value flow becomes explicit enough for sparse optimizations. The same idea also supports precise diagnostics in compiler debug views.',
+        'The access pattern is what makes SSA useful. Optimizations ask for users of this value, the definition of that operand, and the phi choices at this join. SSA turns those into graph walks instead of whole-function data-flow recomputation.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
-        `Phi misunderstanding is the most common conceptual failure. A phi is not a runtime function call and not a branch inserted at the top of a block. It is an IR merge tied to predecessor edges. Moving it like a normal instruction can change meaning. Lowering it inside the join block is wrong because the join no longer knows which predecessor supplied the value.`,
-        `Construction can fail by placing too few phis, placing too many phis without pruning, or renaming with the wrong stack scope. Too few phis lose values. Too many phis bloat IR and slow passes, though later cleanup can remove useless ones. Bad renaming lets a definition from one path leak into another. CFG updates after construction can also break SSA if passes do not repair phi incoming lists.`,
-        `SSA is also not a replacement for all analyses. It makes value flow explicit, but aliasing, concurrency, exceptions, undefined behavior, and target-specific lowering still need separate reasoning. SSA is a foundation for optimization, not the whole compiler.`,
+        'SSA fails as a mental model when phi nodes are treated like normal instructions. A phi belongs to incoming edges, so lowering it as a copy inside the join block can clobber values after the predecessor information is gone. Correct SSA destruction inserts edge copies or parallel copies before machine code.',
+        'SSA also has limits around memory, exceptions, concurrency, and undefined behavior. Two pointer writes may refer to the same heap location even when their SSA value names differ. The form makes scalar value flow clear, but alias analysis and target lowering still have to do their own work.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Control Flow Graph & Dominator Tree before implementing SSA construction. Then study Dominance Frontier SSA Construction for phi placement, Sparse Conditional Constant Propagation for a classic SSA optimization, MemorySSA Alias Graph for memory dependence, and SSA Destruction Phi Elimination & Parallel Copy for leaving SSA. Continue into Linear Scan Register Allocation, Interference Graph Register Allocation, Instruction Selection DAG & GlobalISel, and Calling Convention & Stack Frame Layout to see how SSA values become executable machine code.`,
+        'Consider if cond then x = 2 else x = 5; y = x + 1. In SSA, the then block defines x0 = 2 and the else block defines x1 = 5. The join defines x2 = phi [x0, then], [x1, else], and y0 = x2 + 1.',
+        'If control enters from then, x2 is 2 and y0 is 3. If control enters from else, x2 is 5 and y0 is 6. The optimizer may fold y0 only if it proves one edge is impossible or both incoming values agree.',
+        'A loop uses the same rule. For i = 0; while i < 3; i = i + 1, the header phi is i1 = phi [0, entry], [i2, backedge]. The first iteration reads 0, the next reads 1, and the next reads 2, while every SSA name still has one definition.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Read Cytron et al., "Efficiently Computing Static Single Assignment Form and the Control Dependence Graph," ACM TOPLAS 1991, for the classic dominance-frontier construction. Then read LLVM documentation on SSA values and mem2reg to see the production version of the idea.',
+        'Study control-flow graphs and dominator trees before implementing SSA. Afterward, study sparse conditional constant propagation, MemorySSA, phi elimination with parallel copies, and register allocation so the full lifetime of an SSA value is visible.',
       ],
     },
   ],

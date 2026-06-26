@@ -305,119 +305,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
-        {type: 'image', src: './assets/gifs/sql-join-algorithms-primer.gif', alt: 'Animated walkthrough of the sql join algorithms primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
-      ],
-    },
-    {
-      heading: 'Why physical joins exist',
-      paragraphs: [
-        `A SQL query describes a logical result. When you join customers to orders on matching customer ids, you are not telling the database how to find the matching rows. You are saying what rows should appear. The planner still has to choose a physical method: nested loop, hash join, merge join, or a variant built from those families.`,
-        {type: 'callout', text: 'A join plan is a runtime data-structure choice: probe an index, build a hash table, or consume sorted streams.'},
-        `This separation is the reason SQL can feel both declarative and surprising. Two queries with the same answer can have very different execution costs because their physical plans touch data in different orders, use different indexes, allocate different memory, and recover differently when estimates are wrong.`,
-        `A join algorithm is therefore a data-structure choice made at runtime planning time. Nested loop leans on repeated probes, often through a B-tree. Hash join builds an in-memory lookup table for equality keys. Merge join turns sorted order into a two-cursor stream. The best choice is not a moral ranking of algorithms; it is a match between the query shape and the evidence the planner has about the data.`,
-      ],
-    },
-    {
-      heading: 'Why the obvious approach hits a wall',
-      paragraphs: [
-        `The most obvious join is the double loop: for every row on the left, scan every row on the right and emit pairs that satisfy the predicate. That is correct, simple, and often disastrous. If both tables have one million rows, the direct product has one trillion comparisons before filters and projection even matter.`,
-        `Databases avoid that n-by-m wall by using structure. If the inner side has an index on the join key, the executor can ask a targeted question instead of scanning every row. If the join is an equality join, it can hash one side and turn matching into lookup. If both sides are sorted, it can walk them once with cursors. Each method is a way to stop treating the join as an unstructured comparison problem.`,
-        `The catch is that structure has a price. Index probes are cheap only when the outer side is small or selective. Hash tables are fast only when the build side fits well enough in memory and the key distribution is not hostile. Merge joins are linear only after the needed order already exists or has been purchased with a sort. The planner is choosing among prices before it has run the query, so estimates matter.`,
-      ],
-    },
-    {
-      heading: 'Core insight: joins buy structure',
-      paragraphs: [
-        `The optimizer starts from a logical join graph. It estimates how many rows each scan and filter will produce, what indexes are useful, whether useful order already exists, how wide the rows are, and how much memory a plan node may need. It then searches possible join orders and physical join methods. A large query may contain several joins, and a wrong early estimate can push the whole plan toward the wrong shape.`,
-        `The executor receives the chosen plan and runs it as a tree of operators. In PostgreSQL-style iterator execution, each node repeatedly asks its children for the next tuple. A nested loop node may call its inner child once per outer row. A hash join node consumes the build side before probing. A merge join node asks both sorted children for their current front rows and advances one or both cursors.`,
-        `This distinction is important when debugging. A slow query is rarely fixed by saying "hash join good" or "nested loop bad." The right question is why the planner believed this physical method was cheaper than the alternatives, and whether the executor's actual row counts, memory behavior, and ordering assumptions matched that belief.`,
-      ],
-    },
-    {
-      heading: 'Mechanism: nested loop join',
-      paragraphs: [
-        `Nested loop join chooses one input as the outer side and one input as the inner side. For each outer row, it looks for matching inner rows. With no supporting structure, that means scanning the inner relation repeatedly. With a selective index on the inner join key, it can become a series of targeted lookups.`,
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in nodes', caption: 'Nested loop joins become practical when each outer row can probe an inner B-tree index instead of scanning the whole relation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg.'},
-        `This is why nested loop is not automatically the beginner algorithm to avoid. If the outer side has ten rows and the inner side has a B-tree on the join key, ten index probes can beat building a hash table or sorting both inputs. Nested loop is also useful for non-equality predicates because hash join needs exact-key lookup and merge join needs compatible order.`,
-        `The failure mode is multiplication by surprise. If the planner thinks the outer side has ten rows and it actually has ten million, the inner probe cost is multiplied ten million times. The plan can look reasonable on paper while producing a production stall. In an EXPLAIN ANALYZE plan, this often appears as a nested loop whose inner node has many loops and whose actual outer row count dwarfs the estimate.`,
-      ],
-    },
-    {
-      heading: 'Hash join',
-      paragraphs: [
-        `Hash join is the workhorse for large equality joins. The executor chooses a build side, reads it, and stores rows in buckets keyed by the join key. Then it streams the probe side. For each probe row, it hashes the join key, checks the matching bucket, and emits rows whose full join predicate succeeds.`,
-        `The reason it works is the same reason a hash table is useful in ordinary programming: once the build table exists, exact-key lookup is expected constant time. Instead of comparing every order to every customer, the executor turns customer id 7 into a bucket lookup. The total happy-path work is roughly build plus probe, not build times probe.`,
-        `The hard parts are memory and skew. A hash table that fits in memory can be fast and simple. A hash table that spills to disk becomes a partitioned IO problem. A key distribution with one very hot key can put too much work into one bucket or one parallel worker. A hash join is also not the right primitive for general range predicates because the hash table answers equality questions.`,
-      ],
-    },
-    {
-      heading: 'Merge join',
-      paragraphs: [
-        `Merge join uses sorted inputs. It keeps a cursor into each relation, compares the current join keys, advances the smaller key, and emits the cross-product of matching runs when the keys are equal. If the left stream is at customer 7 and the right stream is at order customer 7, all matching rows for key 7 can be emitted before both streams advance.`,
-        `The key invariant is the same one that makes Merge Sort work. Once the inputs are sorted, any key smaller than the current front has already been fully handled. The executor never needs to rewind the whole input. It only needs to manage the current equal-key runs. After sorting, the join is linear in the input sizes.`,
-        `Merge join is especially attractive when the required order is already available: clustered tables, index scans, earlier sort nodes, or pipelines that preserve order. It can also produce ordered output for downstream grouping or another merge join. Its main risk is paying a large sort bill just to earn the linear merge. If sorting dominates, hash join may be cheaper.`,
-      ],
-    },
-    {
-      heading: 'Worked customer-orders example',
-      paragraphs: [
-        `Suppose customers has rows for ids 7, 9, and 12. Orders has rows (11, customer 7), (12, customer 7), (13, customer 9), and (14, customer 15). The desired inner join emits three rows: customer 7 with orders 11 and 12, and customer 9 with order 13. Customer 12 has no order, and order 14 has no customer row in this input.`,
-        `A nested loop with customers as the outer side asks the orders index three questions: key 7, key 9, and key 12. The first probe returns two orders, the second returns one, and the third returns none. This is excellent if the customers input is tiny and the orders index is selective.`,
-        `A hash join builds buckets for customers 7, 9, and 12, then streams orders. Orders 11 and 12 probe bucket 7, order 13 probes bucket 9, and order 14 probes bucket 15 and misses. This is excellent when both inputs are large enough that repeated index probes are worse than one build pass.`,
-        `A merge join requires both inputs sorted by customer id. The cursor sees 7 on both sides and emits the run for key 7, then sees 9 on both sides and emits that match, then advances through 12 and 15 without emitting. This is excellent when sorted order was already present or useful for the next operator.`,
-      ],
-    },
-    {
-      heading: 'Why it works: correctness invariants',
-      paragraphs: [
-        `Nested loop is correct because it considers every outer row and returns every inner row that the chosen access path says can match. If the access path is a full scan, that is obvious. If the access path is an index lookup, the correctness obligation moves to the index predicate: the index must return all inner rows whose key equals the outer key.`,
-        `Hash join is correct because equal join keys hash to the same bucket under the same hash function, and the executor still checks the actual predicate before emitting. Collisions can add comparisons, but they do not change the result. A collision means "same bucket," not "same key."`,
-        `Merge join is correct because sorted order proves that skipped rows cannot match future rows. When the left key is smaller than the right key, advancing the left cursor is safe because every future right key is at least as large as the current right key. Equal-key runs are handled together so duplicates are not lost.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `Cardinality error is the most common root cause. Stale statistics, correlated columns, tenant skew, time-window skew, and missing most-common-value information can make the planner believe a huge input is small or a selective predicate is broad. The chosen join method then amplifies the bad estimate.`,
-        `Memory failure is most visible in hash joins. A build side that was expected to fit may spill to disk. Parallel workers may receive uneven partitions because one key dominates the data. The query is still logically correct, but the performance model has changed from memory lookup to partitioned IO and skew management.`,
-        `Order failure belongs to merge joins. A plan may look attractive because a merge join is linear, but the cost of sorting one or both inputs can dominate. Order can also be lost across operators that repartition, materialize, or otherwise break the stream shape.`,
-        `Index failure belongs to nested loops. The planner may choose repeated probes through an index that is technically available but not selective enough, or an index that does not cover the columns needed later. Each probe then becomes more expensive than the estimate suggested.`,
-      ],
-    },
-    {
-      heading: 'Operational debugging guide',
-      paragraphs: [
-        `Read a slow join plan from the leaves upward. First compare estimated rows to actual rows at scans and filters. Then inspect the join order, the physical join method, and the number of loops on inner nodes. After that, check whether the plan uses indexes, sort order, materialization, parallelism, and memory the way you expected.`,
-        `Do not start by disabling a join type globally. That may hide one bad plan and create worse plans elsewhere. Better repairs usually change the evidence or the shape: refresh statistics, add extended statistics for correlated columns, add a partial or covering index, filter earlier, rewrite an expression so an index is usable, increase memory for a specific reporting job, or materialize a selective intermediate result deliberately.`,
-        `When a query regresses after data growth, ask what crossed a threshold. Did the build side stop fitting in memory? Did one tenant become huge? Did a time window become less selective? Did an index become low-selectivity because a status column collapsed to one common value? Physical join choice often changes abruptly when one of these facts changes.`,
-      ],
-    },
-    {
-      heading: 'Implementation notes',
-      paragraphs: [
-        `A real executor has more details than the three textbook families. Hash joins may batch and repartition when memory is tight. Merge joins must manage duplicate-key runs, null semantics, outer joins, and mark/restore behavior. Nested loops may cache inner results, materialize subplans, or use parameterized index scans.`,
-        `Join predicates also matter. Equality predicates make hash joins possible. Ordered comparison predicates can sometimes use merge-like strategies. Non-equality predicates often leave nested loops or specialized indexes as the practical choices. Outer joins add preservation rules: unmatched rows from the preserved side must still appear with nulls on the other side.`,
-        `For application engineers, the implementation lesson is simple: schema and query shape teach the planner what physical plans are possible. A good index, accurate statistics, and a predicate written in an index-friendly form can matter more than the SQL keyword used to express the join.`,
-      ],
-    },
-    {
-      heading: 'Uses and limits',
-      paragraphs: [
-        `OLTP systems often depend on nested loops with indexed probes. A request path may fetch a small set of accounts and then join to recent events, permissions, or feature flags. The join is fast because the outer side is small and every probe is targeted.`,
-        `Analytics systems often lean on hash joins because they combine large filtered relations through equality keys. Fact tables join to dimensions, events join to sessions, and revenue rows join to products. The operational question is usually whether the build side is small enough, filtered early enough, and evenly distributed enough.`,
-        `ETL and storage pipelines often benefit from merge joins. Sorted files, clustered indexes, and append-only feeds can make order nearly free. If the output remains sorted, the next grouping, deduplication, or range operation also becomes cheaper.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources to keep nearby: PostgreSQL EXPLAIN documentation at https://www.postgresql.org/docs/current/using-explain.html, PostgreSQL executor documentation at https://www.postgresql.org/docs/current/executor.html, PostgreSQL planner statistics documentation at https://www.postgresql.org/docs/current/planner-stats.html, and Graefe's Volcano execution paper at https://cs-people.bu.edu/mathan/reading-groups/papers-classics/volcano.pdf.`,
-        `Study Cardinality Estimation Error Propagation to understand why the wrong join is often an estimate problem. Study PostgreSQL Query Planner Case Study and PostgreSQL Statistics Histogram & MCV for plan reading. Study Selinger DP Join Order Optimizer for join-order search, Volcano Iterator Query Execution for executor control flow, Exchange Operator Parallel Query for parallel joins, Spark Adaptive Query Execution for runtime join adaptation, and Leapfrog Triejoin Worst-Case Optimal Join for a different approach to multiway joins.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read each frame as one physical way to compute the same logical join. Active rows or keys are being processed, and found rows are matches that satisfied the predicate.', {type: 'image', src: './assets/gifs/sql-join-algorithms-primer.gif', alt: 'Animated walkthrough of the sql join algorithms primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'}], },
+    { heading: 'Why this exists', paragraphs: ['SQL describes the rows that should match, not the access path used to find them. The planner must choose a physical join method before the executor touches data.', {type: 'callout', text: 'A join plan is a runtime data-structure choice: probe an index, build a hash table, or consume sorted streams.'}], },
+    { heading: 'The obvious approach', paragraphs: ['The obvious join scans every right row for every left row. It is correct because it checks every possible pair.'], },
+    { heading: 'The wall', paragraphs: ['The double scan costs O(nm). A million rows joined to a million rows means one trillion comparisons before projection or filtering helps.'], },
+    { heading: 'The core insight', paragraphs: ['A join buys structure before comparing all pairs. An index supports targeted nested-loop probes, a hash table supports equality lookup, and sorted order supports merge cursors.', {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in nodes', caption: 'Nested loop joins become practical when each outer row can probe an inner B-tree index instead of scanning the whole relation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg.'}], },
+    { heading: 'How it works', paragraphs: ['Nested loop repeats inner access for each outer row. Hash join builds buckets for one side and probes with the other; merge join advances two sorted streams and emits equal-key runs.'], },
+    { heading: 'Why it works', paragraphs: ['Nested loop is correct because the inner access path returns all matches for each outer row. Hash join still checks real keys after bucket lookup, and merge join uses sorted order to prove skipped keys cannot match later.'], },
+    { heading: 'Cost and complexity', paragraphs: ['Raw nested loop is O(nm), but indexed nested loop is outer rows times probe cost. Hash join is near build plus probe when memory holds, while merge join is linear after sorted order exists.'], },
+    { heading: 'Real-world uses', paragraphs: ['OLTP queries often use indexed nested loops for small selective outer inputs. Analytical equality joins often use hash joins, and sorted pipelines often use merge joins.'], },
+    { heading: 'Where it fails', paragraphs: ['Bad row estimates choose bad joins. Nested loops multiply surprise rows, hash joins spill or skew, and merge joins lose when sorting costs more than expected.'], },
+    { heading: 'Worked example', paragraphs: ['Customers are 7, 9, and 12; orders are 11 for 7, 12 for 7, 13 for 9, and 14 for 15. Nested loop probes keys 7, 9, 12; hash join buckets customers then probes orders; merge join walks sorted runs and emits three rows.'], },
+    { heading: 'Sources and study next', paragraphs: ['Study PostgreSQL EXPLAIN, PostgreSQL planner statistics, executor documentation, and Graefe Volcano execution. Then study B-Tree, Hash Table, Merge Sort, Cardinality Estimation, Selinger Join Order, and Volcano Iterator Query Execution.'], },
   ],
 };

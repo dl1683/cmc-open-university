@@ -104,93 +104,91 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Tree Traversals. In-order, pre-order, post-order, and level-order — four ways to walk a tree, each with a job..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type: "callout", text: "Traversal order is a dependency contract: it decides whether a node is processed before children, after children, between subtrees, or by depth."},
-      
-        {type: 'image', src: './assets/gifs/tree-traversals.gif', alt: 'Animated walkthrough of the tree traversals visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
-    },
-    {
-      heading: `Why this exists`,
-      paragraphs: [
-        `A tree traversal is a disciplined order for visiting every node exactly once. The order is not cosmetic; it determines what information is available when a node is processed. In-order visits left subtree, node, right subtree. Pre-order visits node before children. Post-order visits children before node. Level-order visits nodes by depth from the root.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Sorted_binary_tree_ALL_RGB.svg/330px-Sorted_binary_tree_ALL_RGB.svg.png`, alt: `Binary search tree showing traversal paths in different colors.`, caption: `Traversal diagrams make the invisible order visible: the same tree can emit different sequences depending on where the node visit happens. Source: Wikimedia Commons, Derrick Coetzee, public domain.`},
-        `On a Binary Search Tree, in-order traversal emits keys in sorted order because every left key is smaller and every right key is larger by invariant. Pre-order is useful for copying or serializing structure because parents appear before descendants. Post-order is useful for deletion and expression evaluation because children finish before parents. Level-order is breadth-first traversal on a tree and uses a Queue instead of the call stack.`,
+        'The animation shows the same binary search tree visited in four different orders. Active means the current node is being emitted, and visited means the node has already been placed in the output sequence.',
+        'In-order emits left subtree, node, then right subtree. Pre-order emits node before children, post-order emits children before node, and level-order emits all nodes at one depth before moving deeper.',
+        'The safe inference depends on the order. In a binary search tree, in-order output is sorted because every left key is smaller and every right key is larger; in level-order, the queue proves that no deeper node can leave before a shallower one.',
+        {type: 'callout', text: 'Traversal order is a dependency contract: it decides whether a node is processed before children, after children, between subtrees, or by depth.'},
+        {type: 'image', src: './assets/gifs/tree-traversals.gif', alt: 'Animated walkthrough of the tree traversals visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: `Why it exists`,
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive way to "process a tree" is to visit nodes whenever you happen to reach them. That loses the dependency the task cares about. Copying needs parents before children, deletion needs children before parents, sorted output from a BST needs left side before node before right side, and breadth-first work needs all shallow nodes before deeper ones.`,
-        `A traversal is a contract about what is known when a node is processed. Depth-first traversals use the call stack to keep unfinished subtrees, while level-order uses a queue to preserve depth order. The correctness argument is the visit invariant: each node is emitted exactly once, and the chosen order is maintained recursively or by FIFO frontier discipline.`,
+        'A tree traversal is a rule for visiting every node exactly once. The rule matters because different tasks need different information available at the moment a node is processed.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Sorted_binary_tree_ALL_RGB.svg/330px-Sorted_binary_tree_ALL_RGB.svg.png', alt: 'Binary search tree showing traversal paths in different colors.', caption: 'Traversal diagrams make the invisible order visible: the same tree can emit different sequences depending on where the node visit happens. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
+        'Sorted output needs left before node before right. Copying needs parents before children, deletion needs children before parents, and breadth-first work needs shallow nodes before deeper nodes.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to process a node whenever the walk first reaches it. That gives pre-order, which is useful for copying, but it is wrong for sorted output and unsafe for deletion.',
+        'Another common shortcut is to use recursion without naming the order. That hides the real contract: the placement of the visit line relative to recursive calls determines the algorithm.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A tree does not have one natural output sequence. The same shape can emit several correct sequences, and only the task tells you which one is correct.',
+        'The wall appears when the traversal order violates a dependency. If a parent summary needs child values, pre-order is too early; if children need parent context, post-order is too late.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Traversal is dependency scheduling on a tree. Move the node visit before, between, after, or across levels, and you change what is known when work happens.',
+        'Depth-first traversal uses a stack, often the call stack, to remember unfinished ancestors. Level-order traversal uses a queue so first-in shallow nodes leave before children that were discovered later.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "For each traversal, watch when the node itself is emitted relative to its children. In-order waits until the left subtree is done. Pre-order emits the node before descending. Post-order delays the node until both children finish. Level-order ignores recursion and works outward by depth.",
-        "The highlighted frontier is the data structure doing the remembering. In recursive depth-first traversal, the call stack remembers ancestors whose right subtrees are unfinished. In iterative traversal, an explicit stack does that job. In level-order traversal, the queue stores the next nodes at the current and next depth.",
-        "After each frame, ask what information is guaranteed at the moment a node is visited. That question is the difference between memorizing four names and understanding which traversal a real algorithm needs.",
+        'In-order recursively walks left, visits the node, then walks right. Pre-order visits first, then recurses left and right; post-order recurses first and visits last.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Sorted_binary_tree_breadth-first_traversal.svg/250px-Sorted_binary_tree_breadth-first_traversal.svg.png', alt: 'Binary search tree annotated in breadth-first traversal order.', caption: 'Breadth-first traversal shows why level-order needs a queue: every node at one depth must leave before children at the next depth. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
+        'Level-order enqueues the root, then repeatedly dequeues one node, visits it, and enqueues its children from left to right. The queue is the data structure that preserves depth order.',
       ],
     },
     {
-      heading: `Worked example`,
+      heading: 'Why it works',
       paragraphs: [
-        `Take a search tree with root 8, left child 3, right child 10, and deeper values 1, 6, 14. In-order emits 1, 3, 6, 8, 10, 14 because the search-tree invariant puts smaller keys left and larger keys right. The traversal is not sorting by comparison at runtime; it is harvesting sorted order already encoded in the tree shape.`,
-        `Pre-order emits 8 before its descendants, so it is useful when rebuilding shape. A serializer can write the parent first, then enough null markers or subtree sizes to reconstruct children. Post-order emits children before parents, so it fits deletion, freeing memory, evaluating expression trees, and computing subtree sizes. Level-order emits 8, then 3 and 10, then the next layer, which is exactly what UI outlines, shortest-depth searches, and breadth-first diagnostics often need.`,
+        'Depth-first correctness follows by structural induction. If the left and right subtrees are traversed correctly and the current node is emitted at the promised moment, then the whole subtree is correct.',
+        'Level-order correctness follows from the queue invariant. Before processing depth d, the queue holds the depth-d nodes in left-to-right order, and enqueuing their children appends the depth d + 1 frontier behind them.',
       ],
     },
     {
-      heading: `How it works (2)`,
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The depth-first orders are naturally recursive. To traverse a subtree, handle its left child, its own node, and its right child in the order demanded by the task. Recursion supplies the implicit stack of unfinished calls. The same walks can be written iteratively with an explicit stack, which is safer for very deep or adversarial trees.`,
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Sorted_binary_tree_breadth-first_traversal.svg/250px-Sorted_binary_tree_breadth-first_traversal.svg.png`, alt: `Binary search tree annotated in breadth-first traversal order.`, caption: `Breadth-first traversal shows why level-order needs a queue: every node at one depth must leave before children at the next depth. Source: Wikimedia Commons, Derrick Coetzee, public domain.`},
-        `Level-order is different. Enqueue the root. Repeatedly dequeue one node, visit it, and enqueue its children from left to right. That queue discipline guarantees all nodes at depth d appear before any node at depth d + 1. Graph BFS generalizes the same frontier idea to graphs, adding a seen set because graphs can cycle back to previously visited nodes.`,
+        'Every traversal touches each of n nodes once, so time is O(n). Depth-first space is O(h), where h is tree height, because the stack holds one root-to-leaf path.',
+        'Level-order space is O(w), where w is maximum width. In a complete tree, the last level can hold about n / 2 nodes, so the queue can grow linearly even though the algorithm still visits each node once.',
       ],
     },
     {
-      heading: `Cost and behavior`,
+      heading: 'Real-world uses',
       paragraphs: [
-        `Every traversal touches n nodes, so time is O(n). Depth-first space is O(h), where h is tree height: O(log n) for a balanced tree, O(n) for a chain. Level-order space is O(w), where w is maximum width; a complete tree can have about n / 2 nodes on its last level, so the queue can be O(n).`,
-        `Edges are not repeatedly searched; each parent-child link is followed a constant number of times. Big-O Growth Rates matters when choosing the tree shape too: a balanced search tree keeps height logarithmic, while sorted insertions into an unbalanced tree can create a linear chain.`,
+        'Databases and search trees use in-order traversal to read keys in sorted order. Serializers and clone routines use pre-order because the parent must exist before children can attach to it.',
+        'Expression evaluators, compilers, destructors, and subtree-size computations use post-order because child results must exist first. UI outlines, shortest-depth searches, and graph BFS use level-order queue discipline.',
       ],
     },
     {
-      heading: `Iterative versions`,
+      heading: 'Where it fails',
       paragraphs: [
-        `Recursive code is the cleanest way to learn traversals, but production code often needs iterative forms. A pre-order traversal can push the right child, then the left child, so the left subtree is popped first. In-order traversal pushes a chain of left children, pops the next node, then moves to the right child. Post-order is trickier because the node must wait for both children; common solutions use two stacks, a last-visited pointer, or explicit frame states.`,
-        `These iterative forms make the hidden state visible. They also avoid call-stack overflow on deep trees. JavaScript engines do not guarantee tail-call optimization for ordinary recursive tree walks, so hostile or highly skewed input should use an explicit stack or a balanced tree shape.`,
+        'In-order is sorted only for a tree that obeys the binary search tree invariant. On an arbitrary binary tree, in-order is just a left-node-right walk with no sorting guarantee.',
+        'Recursive traversal can overflow the JavaScript call stack on a million-node chain. Use an explicit stack or queue for adversarial depth, or use a balanced tree to keep height under control.',
       ],
     },
     {
-      heading: `Why it works`,
+      heading: 'Worked example',
       paragraphs: [
-        `The proof for depth-first traversal is structural induction. The traversal handles the left subtree correctly, handles the current node at the promised moment, and handles the right subtree correctly. Because every subtree follows the same rule and the base case stops at null children, every reachable node is emitted exactly once.`,
-        `The proof for level-order is a queue invariant. Before depth d is processed, the queue contains nodes in left-to-right order for that depth, followed by no deeper nodes ahead of them. Dequeueing a node and enqueuing its children preserves the next depth frontier. That is the same FIFO idea that makes graph BFS find shortest unweighted paths, except trees do not need a visited set unless parent links or sharing are present.`,
+        'For insertion order 8, 3, 12, 1, 6, 10, 14, the root is 8, the left subtree contains 3 with children 1 and 6, and the right subtree contains 12 with children 10 and 14.',
+        'In-order emits 1, 3, 6, 8, 10, 12, 14. Pre-order emits 8, 3, 1, 6, 12, 10, 14; post-order emits 1, 6, 3, 10, 14, 12, 8; level-order emits 8, 3, 12, 1, 6, 10, 14.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Sources and study next',
       paragraphs: [
-        `Databases and filesystems use ordered index walks related to in-order traversal. Compilers traverse abstract syntax trees in pre-order for analysis passes and post-order for code generation when child results must exist first. Memory managers and destructors use post-order cleanup. Trie (Prefix Tree) autocomplete harvests completions with a subtree walk. Virtual Tree LCA Compression uses DFS entry order to sort marked nodes before building an auxiliary tree. Rerooting DP: All Roots Tree DP uses postorder and preorder passes to reuse subtree results. Binary Heap (Priority Queue) is also tree-shaped, but most heap algorithms navigate by index arithmetic rather than general traversal.`,
+        'Study binary search trees to understand why in-order becomes sorted, and study recursion to understand the implicit call stack behind depth-first traversal. Study queues and graph BFS to see level-order generalized beyond trees.',
+        'Then study tries, heaps, topological sort, rerooting DP, and virtual tree compression. Each reuses the same idea that visit order encodes a dependency contract.',
       ],
     },
-    {
-      heading: `Where it fails`,
-      paragraphs: [
-        `Traversal order is not insertion order. The same inserted values can yield different shapes depending on insertion sequence, and the same shape can be visited in several orders. In-order is sorted only when the tree obeys the search-tree invariant; it is not magically sorted for arbitrary trees. Duplicate-key policy also matters: equal keys must consistently go left, right, or into a count field.`,
-        `Another pitfall is recursion depth. A million-node chain can overflow a JavaScript call stack. Use an explicit stack or queue for hostile input. Topological Sort may look like a traversal too, but it runs on directed dependency graphs and chooses in-degree-zero nodes rather than parent-child order.`,
-        `A final mistake is choosing a traversal because it is familiar rather than because it matches the dependency. If parent metadata must exist before child work, choose pre-order. If child summaries must exist before parent work, choose post-order. If sorted search-tree keys are needed, choose in-order. If shallowest nodes must be seen first, choose level-order.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Study the search-tree lesson to connect in-order traversal with sorted output. Queue and Graph BFS explain level-order traversal beyond trees. Recursion explains the implicit call stack behind depth-first walks. Rerooting DP: All Roots Tree DP, Virtual Tree LCA Compression, Trie (Prefix Tree), Binary Heap (Priority Queue), and Topological Sort show how different structures reuse the same visit-each-node discipline for different jobs.`,
-      ],
-    },
-],
+  ],
 };
-

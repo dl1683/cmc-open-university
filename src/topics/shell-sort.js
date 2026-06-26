@@ -165,6 +165,13 @@ export const article = {
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'Shell sort sorts sparse views of the array before sorting the whole array. A gap-4 pass sorts positions 0,4,8 and positions 1,5,9 as separate insertion-sort runs, allowing values to move four positions at a time.',
+        'After a large-gap pass, the array is not fully sorted, but far-away values have moved closer to where they belong. Smaller gaps then refine the order until the final gap-1 pass completes the sort.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'Choose a decreasing sequence of gap values ending with 1. For each gap g, divide the array into g interleaved subarrays: subarray 0 contains positions 0, g, 2g, 3g, and so on; subarray 1 contains positions 1, g+1, 2g+1, and so on. Insertion-sort each subarray independently. When all g subarrays are sorted, the array is "g-sorted."',
@@ -197,7 +204,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Embedded systems and constrained environments. Shell sort requires no recursion (so no stack overflow risk), no memory allocation, and the code is tiny — often under 20 lines. For microcontrollers with kilobytes of RAM, it is the go-to sort. The uClibc library uses Shell sort internally.',
         'Small to medium arrays. For arrays under a few thousand elements, Shell sort with a good gap sequence is competitive with quicksort and often faster than heapsort, because its inner loop has excellent cache locality and minimal branch overhead.',

@@ -231,8 +231,9 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
         {type: 'image', src: './assets/gifs/mos-algorithm-offline-range-queries.gif', alt: 'Animated walkthrough of the mos algorithm offline range queries visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Read the animation as one maintained range moving across a static array. Active marks an endpoint move or a query being processed, and found marks the answer written back to that query\'s original id.',
+        'The safe inference rule is state equivalence. If the frequency table exactly matches arr[L..R], then the maintained distinct counter is the answer for that range no matter where the query appeared in the input order.',
       ],
     },
     {
@@ -240,108 +241,80 @@ export const article = {
       paragraphs: [
         {type: 'callout', text: 'The trick is batch freedom: reorder questions so one maintained window can answer them with local edits.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Mo order turns independent queries into a planned route through window states. Source: Wikimedia Commons, David W., public domain.'},
-        "Mo's algorithm exists for static range-query problems where each query is expensive from scratch, but the answer can be updated cheaply when one endpoint moves by one position.",
-        'It uses an unusual freedom: if all queries are known before answering, input order is not sacred. You can reorder the batch so one maintained window moves a small total distance.',
+        'Mo\'s algorithm exists for many range queries on a static array when each answer can be updated cheaply as an endpoint moves by one. The queries are offline, meaning all of them are known before answers must be returned.',
+        'That offline freedom changes the problem. Instead of answering in user order, the algorithm chooses an order that makes the current range move less.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first approach is to answer every range independently. For distinct count, scan `arr[L..R]`, rebuild a set, and return its size. That is simple and correct, but overlapping queries repeat the same work again and again.',
-        'The second approach is a segment tree or sparse table. Those are excellent when two adjacent answers merge cleanly. Sum, min, max, and gcd work. Distinct count does not merge cleanly because the same value can appear in both halves and should be counted once.',
+        'The obvious approach answers each query independently. For distinct count over arr[L..R], scan the range, build a set, and return the set size.',
+        'That is correct and simple. It wastes work when many ranges overlap because the same elements are counted repeatedly from scratch.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is endpoint movement. If the maintained range jumps randomly from one query to the next, updating state can cost as much as rebuilding it. The algorithm needs a route through query space, not just a data structure for one query.',
-        'The second wall is the offline contract. Basic Mo only works because queries can wait. If answers must be returned immediately, or if the array changes between queries, the standard version loses its main advantage.',
+        'The wall is that not every range statistic merges cleanly. Sum and minimum have standard structures, but distinct count cannot combine left and right answers without knowing duplicates across the boundary.',
+        'Random query order is another wall. If the current range jumps from [2, 4] to [700, 900], local updates may cost almost as much as rebuilding.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Sort queries by the block containing `L`, then by `R` inside that block. With block size near `sqrt(n)`, the left endpoint is constrained within a small block while the right endpoint moves in a more orderly sweep.',
-        'The current window is the state. To move from one query to the next, shift `curL` and `curR` until they match the target range. Each shift calls `add(index)` or `remove(index)`. The answer is always the maintained value for the current `[curL, curR]`.',
+        'Sort queries by the block of their left endpoint and then by the right endpoint. With block size near sqrt(n), left movement is limited inside a block and right movement becomes more orderly.',
+        'The maintained range is the data structure. Moving from one query to the next calls add(index) or remove(index) until curL and curR match the target.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Attach the original index to every query. Sort by `floor(L / blockSize)` and then by `R`, often reversing the `R` order on alternating blocks to reduce backtracking. Process the sorted list, but write each result into `answer[originalIndex]`.',
-        'The `add` and `remove` functions are the problem-specific layer. For range distinct count, keep a frequency table and a `distinct` counter. Adding a value whose count changes from 0 to 1 increments `distinct`. Removing a value whose count changes from 1 to 0 decrements it.',
-        'The array must be static for the basic form. The algorithm reuses a maintained view over the same data; it is not designed for arbitrary updates interleaved with queries.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the reorder-queries view, the important state change is the loss of input order. Queries are grouped by the left endpoint block, then ordered by the right endpoint so the window has a cheaper route.',
-        'When the window moves from one range to another, every endpoint step is work. Removing index 1 and adding 5, 6, and 7 is not a caption; it is the whole cost model. Mo wins only when those small endpoint moves are cheaper than rebuilding the answer.',
-        'In the distinct-count view, watch the frequency table instead of the range boundary. The invariant is that the frequency table exactly matches the current window. The answer is valid only because every add and remove preserves that invariant.',
+        'Attach an original id to every query before sorting. Process queries in Mo order, but write each answer into answer[id] so the final output still matches the input order.',
+        'For distinct count, add(x) increments freq[arr[x]] and increments distinct only when the count changes from 0 to 1. remove(x) decrements the count and decrements distinct only when the count becomes 0.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Mo works because it bounds total movement across the batch. Inside one left block, the left endpoint can move only within that block, while the right endpoint is processed in an orderly direction. Across all blocks, the total endpoint travel is far smaller than arbitrary query order.',
-        'The correctness invariant is simple: before answering a query, the maintained state must exactly represent the current window. Sorting only changes processing order. Storing results by original id restores output order without changing the answer to any query.',
-        'The algorithm does not make an individual range query cheaper by itself. It makes a batch cheaper by turning many independent rebuilds into a controlled sequence of local edits.',
+        'Correctness does not come from the sorting rule. It comes from the invariant that the maintained state exactly represents the current range before the answer is recorded.',
+        'Sorting changes only the route through ranges. Since every query carries its original id, answering Q2 before Q0 does not change what Q2 asks; it only changes how cheaply the range is reached.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Hilbert-topleft-topright.png/120px-Hilbert-topleft-topright.png', alt: 'Color-coded Hilbert curve construction', caption: 'Hilbert ordering is a common Mo variant because it keeps nearby ranges closer in processing order. Source: Wikimedia Commons, Fredrik Johansson, public domain.'},
+        'The common bound is O((n + q) sqrt(n)) endpoint moves plus O(q log q) sorting, assuming add and remove are O(1). Space is O(q) for answers plus the maintained state, such as a frequency table.',
+        'Cost behaves as travel distance. If query order makes endpoints walk a short path, the batch is fast; if add or remove is expensive, the same ordering gives little benefit.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram with input and output ends', caption: 'Mo is not a queue algorithm, but the visual reinforces the key operation: move one maintained frontier instead of rebuilding every range. Source: Wikimedia Commons, Everaldo Coelho and YellowIcon, LGPL.'},
+        'Mo\'s algorithm fits offline distinct counts, frequency statistics, some mode-like queries, and tree-path queries after an Euler tour turns paths into ranges. The access pattern is many known queries over data that does not change.',
+        'It is useful in contest and analytics settings where total batch time matters more than immediate per-query latency. The method trades response order for less repeated work.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails for online queries because the algorithm needs the whole batch before sorting. It also fails for frequent updates unless a more advanced variant explicitly handles time as another dimension.',
+        'It is the wrong tool when a simpler exact structure exists. Static range minimum belongs to sparse table, and dynamic sums usually belong to Fenwick tree or segment tree.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose the array is static and the queries are Q0=[6,9], Q1=[1,4], Q2=[2,7], and Q3=[5,8]. With block size 4, Q1 and Q2 are in left block 0, while Q3 and Q0 are in left block 1. Mo order becomes Q1, Q2, Q3, Q0.',
-        'Start at Q1=[1,4]. For Q2=[2,7], remove index 1 and add indices 5, 6, and 7. For distinct count, each add or remove updates one frequency count and possibly the distinct counter. The answer for Q2 is written to `answer[2]`, not to the next output slot.',
-        'That last detail prevents a common bug. Processing order is optimized for movement; answer order belongs to the user. The query id is the bridge between those two orders.',
+        'Let arr = [1, 2, 1, 3, 2, 4] and queries Q0=[0,2], Q1=[2,5], Q2=[1,3]. With block size 2, Mo order is Q0, Q2, Q1.',
+        'For Q0, frequencies are 1:2 and 2:1, so distinct = 2. Moving to Q2 removes index 0 and adds index 3, giving values [2,1,3] and distinct = 3. Moving to Q1 removes index 1 and adds indexes 4 and 5, giving [1,3,2,4] and distinct = 4.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Sources and study next',
       paragraphs: [
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Hilbert-topleft-topright.png/120px-Hilbert-topleft-topright.png', alt: 'Color-coded Hilbert curve construction', caption: 'Hilbert ordering is a common Mo variant because it keeps nearby ranges closer in processing order. Source: Wikimedia Commons, Fredrik Johansson, public domain.'},
-        'With the standard square-root ordering, the movement cost is usually taught as O((n + q) * sqrt(n)) endpoint changes, multiplied by the cost of `add` or `remove`. Sorting costs O(q log q). Space is O(q) for answers plus whatever maintained state the problem needs.',
-        'If `add` and `remove` are O(1), the method is strong. If each transition is expensive, Mo loses quickly. Block size also matters; `sqrt(n)` is the common default, but workloads with very different `n` and `q` may need tuning.',
-        'Odd-even ordering and Hilbert order can reduce movement and improve cache locality. They do not change the core contract: static data, offline queries, and cheap local transitions.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram with input and output ends', caption: 'Mo is not a queue algorithm, but the visual reinforces the key operation: move one maintained frontier instead of rebuilding every range. Source: Wikimedia Commons, Everaldo Coelho and YellowIcon, LGPL.'},
-        'Mo wins for offline distinct counts, frequency-based statistics, some mode-like queries, range properties that are cheap to update locally, and tree-path variants after an Euler tour transformation.',
-        'It is useful when a segment tree cannot merge the statistic naturally, but a current-window data structure can be patched one element at a time.',
-      ],
-    },
-    {
-      heading: 'Where it is the wrong tool',
-      paragraphs: [
-        'Mo is the wrong tool for online queries, frequent updates, expensive endpoint transitions, and problems with simpler exact structures. Static range minimum belongs to Sparse Table. Dynamic range sum belongs to Fenwick Tree or Segment Tree.',
-        'It is also a poor fit when memory for the maintained state is too large, when query latency matters more than total batch time, or when the implementation risk is not worth the constant-factor win.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The common correctness bug is stale state. If one endpoint move forgets to update the frequency table, every later answer can be wrong. Add and remove must be exact inverses for the maintained statistic.',
-        'The common output bug is losing original ids. The sorted order is not the answer order. Every query must carry its original index, and every result must be written back to that index.',
-        'The common performance bug is choosing Mo when the statistic has a better structure. If a Fenwick tree, segment tree, sparse table, prefix sum, or offline sweep solves the problem directly, use that instead.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'For many queries asking "how many distinct values are in `arr[L..R]`?", scan-per-query rebuilds a set every time. Mo reads all queries, sorts them, and sweeps one window through the sorted query list.',
-        'The maintained state is a frequency table plus one integer. Add a new value and increment its frequency. If the frequency was zero, increment `distinct`. Remove a value and decrement its frequency. If the frequency becomes zero, decrement `distinct`.',
-        'The final answer array restores input order. This batch-oriented shape is the point: the algorithm trades immediate answers for much less repeated work across the whole query set.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        "Primary sources: CP-Algorithms sqrt decomposition and Mo's algorithm at https://cp-algorithms.com/data_structures/sqrt_decomposition.html, USACO Guide sqrt decomposition and Mo variants at https://usaco.guide/plat/sqrt, HackerEarth Mo's Algorithm note at https://www.hackerearth.com/practice/notes/mos-algorithm/, and Codeforces square-root decomposition applications at https://codeforces.com/blog/entry/83248.",
-        'Study Square-Root Decomposition for the block idea, Sliding Window for local endpoint movement, Sparse Table for static idempotent range queries, Segment Tree and Fenwick Tree for online aggregates, and Rollback DSU for another offline technique that changes processing order.',
+        'Study square-root decomposition, Mo\'s algorithm notes from competitive-programming references, and Hilbert-order variants. Focus on the add/remove contract before memorizing the sort comparator.',
+        'Next study Sliding Window for local endpoint movement, Sparse Table for static idempotent queries, Segment Tree and Fenwick Tree for online aggregates, and Rollback DSU for another offline reordering technique.',
       ],
     },
   ],

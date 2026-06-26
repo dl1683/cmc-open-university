@@ -240,103 +240,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the picture as two decisions, not one. A cache miss means the requested value was absent. Cache admission means the fetched value is allowed to occupy scarce cache space after the request has been served.',
         {type: 'image', src: './assets/gifs/w-tinylfu-cache-admission.gif', alt: 'Animated walkthrough of the w tinylfu cache admission visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Active highlights show a request updating the frequency sketch or moving through the small window. Found highlights show resident items protected by reuse evidence. A one-time miss may pass through the window, but it must beat a victim by estimated frequency before it receives long-lived space.',
       ],
     },
     {
-      heading: "Why this exists",
+      heading: 'Why this exists',
       paragraphs: [
-        "A normal LRU cache admits every miss. If the key is requested and the cache has room, it enters. If the cache is full, the miss enters after evicting the least recent resident. That rule is simple, but it treats a one-time visitor as if it has earned the same space as a value used many times.",
+        'A cache is a small fast store in front of a larger slower authority. If the cache admits every missed key, a scan of one-time keys can evict the values that actually save latency. Real services see stable hot keys, short bursts, and accidental scans in the same request stream.',
         {type: "callout", text: "W-TinyLFU makes cache space an earned resource: recency gets a trial window, but frequency decides whether a newcomer can evict a resident."},
-        "Window TinyLFU exists because real workloads mix reuse with noise. A service may have a stable hot set, short bursts from user sessions, and long scans from reports or crawlers. The cache should learn from the request, serve the miss, and still ask a separate question before giving the fetched object durable resident space.",
+        'Window TinyLFU exists to separate serving a request from rewarding that key with residency. It lets new keys prove recent demand in a small trial area while a compact frequency estimate protects the main cache from noise.',
       ],
     },
     {
-      heading: "The naive approaches",
+      heading: 'The obvious approach',
       paragraphs: [
-        "Pure recency is the first naive answer. It reacts quickly because a new object immediately becomes hot after one access. That helps with bursts, but it is fragile under scans. A sequence of cold keys can push out useful residents even though none of the scanned keys will be used again.",
-        "Pure frequency is the second naive answer. It protects objects with many past hits, but old popularity can become stale. A once-famous object can keep its high count long after users stop asking for it. A new hot object may need many accesses before it can compete with old incumbents.",
+        'The obvious approach is least-recently-used eviction, usually called LRU. It keeps the keys touched most recently and evicts the key whose last access is oldest. LRU is simple and reacts quickly when a workload changes.',
+        'A second obvious approach is least-frequently-used eviction, or LFU. It keeps keys with many past hits and rejects keys with little history. LFU protects old hot keys, but it adapts slowly when the hot set changes.',
       ],
     },
     {
-      heading: "The core insight",
+      heading: 'The wall',
       paragraphs: [
-        "W-TinyLFU separates admission from eviction. The cache may fetch a missing value to answer the current request, but it does not automatically let that value displace a main-cache resident. The newcomer must show enough estimated reuse to justify replacing the victim.",
-        "The estimate does not need to be exact. TinyLFU uses a compact frequency sketch over a recent sample of accesses. The sketch gives a cheap signal: has this candidate been seen often enough in the recent past to be more promising than the resident it would evict?",
+        'Pure recency fails under scans. If a report reads 10,000 cold records through a cache that holds 1,000 entries, LRU can replace the entire working set even though none of those records will be reused.',
+        'Pure frequency fails under stale history. A key that was popular yesterday can keep a high count after users leave it behind. A new key that is becoming hot may be rejected for too long because it has not yet accumulated enough count.',
       ],
     },
     {
-      heading: "How the policy works",
+      heading: 'The core insight',
       paragraphs: [
-        "A practical W-TinyLFU cache has a small recency window and a larger main region. All requests update the frequency sketch. On a miss, the object is placed in the window so it gets an immediate chance to absorb bursts and demonstrate reuse without first passing a strict frequency test.",
+        'W-TinyLFU uses recency for a trial and frequency for admission. A missing key enters a small window so bursts get a chance. When the window overflows, the departing candidate challenges a main-cache victim using estimated recent frequency.',
+        'The estimate can be approximate because admission is a ranking decision, not a correctness decision. A compact sketch stores counters for hashed keys over a recent sample. Aging makes old popularity fade so the estimate follows the current workload.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Every request updates the frequency sketch, whether the request is a hit or a miss. On a miss, the cache fetches the value and puts it in the small window. The request is served immediately; the later question is whether the value deserves main-cache space.',
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg", alt: "Memory hierarchy showing multiple cache levels", caption: "A cache hierarchy makes the scarce-space problem concrete: fast layers must decide which copied values deserve residency. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cache_hierarchy.svg."},
-        "When the window overflows, a candidate leaves the window and challenges a victim from the main cache. The policy compares their sketch estimates. If the candidate looks more frequent, it is admitted and the victim is evicted. If the candidate looks less frequent, the candidate is rejected and the resident stays.",
-      ],
-    },
-    {
-      heading: "Main-cache shape",
-      paragraphs: [
-        "Many implementations pair TinyLFU admission with a segmented main cache. New admitted items can enter a probationary area, while repeatedly hit residents move into a protected area. This gives the cache a second mechanism: admission filters noise, and segmentation protects items that continue to prove reuse after admission.",
-        "The window matters because frequency alone is too conservative. If every new key had to beat an established resident before storing anything, the cache would adapt slowly. The window gives recent arrivals a small sandbox. Most one-hit objects die there. Real new hot objects get enough accesses to win the later comparison.",
-      ],
-    },
-    {
-      heading: "Aging and bounded memory",
-      paragraphs: [
-        "TinyLFU is useful only if old history fades. A key that was hot last week should not dominate a key that is hot now. Implementations keep the frequency sample bounded by aging counters, resetting portions of the sketch, or otherwise reducing old estimates so the admission signal follows the recent workload.",
-        "Bounded memory is the reason for using a sketch instead of a full table of counts for every key ever requested. A full history table would grow with traffic and would be attacked by one-hit keys. The sketch accepts collisions and approximate estimates in exchange for fixed memory and predictable update cost.",
-      ],
-    },
-    {
-      heading: "What the visual is proving",
-      paragraphs: [
-        "The visual is proving that a cache miss and cache admission are different events. The request still gets served, the sketch still learns from the access, and the window still absorbs the newcomer. Only when space pressure forces a choice does the policy ask whether the candidate deserves long-lived space.",
+        'When the window is full, one candidate leaves it and is compared with a victim from the main cache. If the candidate estimate is higher, the candidate is admitted and the victim leaves. If the estimate is lower, the candidate is rejected and the resident stays.',
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg", alt: "Directed graph with nodes connected by arrows", caption: "The admission path is a directed policy graph: request, sketch update, window trial, victim comparison, admit or reject. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg."},
-        "The scan-resistance path proves the value of rejection. In pure LRU, a long scan rewrites the cache simply because the scan is recent. In W-TinyLFU, scanned keys may pass through the window, but their low estimates make them lose against residents that have accumulated reuse evidence.",
       ],
     },
     {
-      heading: "Why it works",
+      heading: 'Why it works',
       paragraphs: [
-        "The policy works because it uses two weak signals that compensate for each other. Recency is good at adapting to sudden locality. Frequency is good at identifying values that survive beyond one touch. W-TinyLFU lets the window handle the first problem and lets the sketch handle the second.",
-        "It also works because approximate counting is enough for admission. The cache does not need the true access count for every key ever seen. It needs a biased but useful comparison at eviction time. A small sketch can represent a large stream and age its counters so old history fades.",
+        'The cache always returns the fetched value for the current request; admission only decides future residency. Therefore a mistaken sketch estimate can hurt hit rate, but it does not return the wrong value.',
+        'The policy works because its two signals cover each other. Recency catches new bursts before frequency has enough evidence. Frequency blocks one-hit scans before they overwrite proven residents.',
       ],
     },
     {
-      heading: "Costs and tradeoffs",
+      heading: 'Cost and complexity',
       paragraphs: [
-        "W-TinyLFU spends memory on metadata: sketch counters, window state, main-cache state, and sometimes extra bits for aging or segmentation. It also updates the sketch on every access. Those updates are usually small, but they are not free in a hot in-memory cache.",
-        "The tradeoff is that admission decisions can save far more work than they cost when misses are expensive or when scans are common. The policy is most valuable when cache space is contested. If the cache is huge relative to the working set, or if misses are cheap, the added machinery may not matter.",
+        'A lookup still needs the ordinary cache map operation, usually expected O(1). W-TinyLFU adds sketch updates on every access, window bookkeeping, main-cache bookkeeping, and a comparison when a candidate leaves the window. Doubling traffic doubles those small metadata updates.',
+        'Memory is bounded but not free. The cache stores resident keys and values plus sketch counters, window state, protected or probation state, and aging metadata. The main practical cost is extra CPU on the hottest path of an already latency-sensitive cache.',
       ],
     },
     {
-      heading: "Implementation details",
+      heading: 'Real-world uses',
       paragraphs: [
-        "A production implementation has to place the admission check on the right path. The sketch should learn from hits and misses, because both describe demand. The expensive comparison should happen only when the window or main cache needs space, not on every lookup.",
-        "Concurrency is another design pressure. Sketch updates may be buffered, striped, or otherwise relaxed so hot keys do not create a single counter bottleneck. Exact accounting is less important than stable behavior under load, because the sketch is already an approximation used for ranking rather than correctness.",
+        'Caffeine, a production Java caching library, popularized W-TinyLFU for service-local caches. The fit is strong when miss cost is high, memory is limited, and request streams mix hot keys with scans or bursts.',
+        'The same admission idea applies to database page caches, CDN object caches, storage caches, and memoization layers. The important access pattern is contested space: many values can be requested, but only a small fraction deserve to stay.',
       ],
     },
     {
-      heading: "Real uses",
+      heading: 'Where it fails',
       paragraphs: [
-        "Caffeine popularized this family in a production Java caching library, combining a small admission window, TinyLFU-style frequency estimation, and efficient concurrent implementation techniques. The important lesson is not that every cache should copy one library, but that admission can be a first-class policy surface.",
-        "The idea also appears in broader cache design discussions for storage, CDNs, database pages, and service-local memoization. Any system that sees one-hit noise must decide whether misses automatically deserve space. TinyLFU gives that decision a measurable, trace-replayable basis.",
+        'The sketch can overestimate a cold key because hashed counters collide. It can also underrepresent a new hot key if aging or window sizing is poorly tuned. Those errors show up as lower hit rate, not data corruption.',
+        'W-TinyLFU does not solve freshness, invalidation, byte sizing, or write policy. A cache that treats a 4 KB value and a 40 MB value as equal may waste memory even with a good admission rule. Adoption should be judged by trace replay, byte hit rate, miss cost, and latency.',
       ],
     },
     {
-      heading: "Failure modes and limits",
+      heading: 'Worked example',
       paragraphs: [
-        "The sketch can be wrong. Hash collisions can overestimate a cold key. Poor aging can keep old history alive too long or erase useful evidence too quickly. A workload shift can make yesterday's counts actively misleading until the sample catches up.",
-        "W-TinyLFU also does not solve capacity measurement, freshness, or durability. A byte-sized cache should not treat a 4 KB value and a 40 MB value as equal just because they are both one entry. A cache with TTLs, invalidation, write-back behavior, or stale-read risk needs those rules around the admission policy.",
-        "The safest way to adopt it is trace replay. Compare pure LRU, the candidate W-TinyLFU configuration, and any size-aware variant on the same request stream. Then inspect rejected keys, admitted keys, byte hit rate, miss cost, and latency rather than trusting a single aggregate hit-rate number.",
+        'Assume a cache holds four entries, the window holds one, and the main cache holds A, B, C, and D with sketch estimates A=20, B=18, C=15, D=12. A scan requests X, Y, and Z once each. Each scanned key enters the window, then challenges D with estimate 1 and loses, so the main cache stays intact.',
+        'Now key E is requested five times during a burst. Its estimate rises to 5 while it moves through the window. If the victim has estimate 3, E is admitted; if the victim has estimate 12, E is rejected until more evidence arrives.',
       ],
     },
     {
-      heading: "Study next",
+      heading: 'Sources and study next',
       paragraphs: [
-        "Primary sources: TinyLFU at https://arxiv.org/abs/1512.00727 and Caffeine Efficiency notes at https://github.com/ben-manes/caffeine/wiki/Efficiency. Read them with one question in mind: what evidence should a newcomer present before evicting a resident?",
-        "Study LRU Cache first for the baseline. Then study Count-Min Sketch and Conservative Count-Min Sketch for approximate frequency, Bloom Filter for compact negative evidence, Modern Cache Eviction for SIEVE and S3-FIFO, Cache Invalidation for freshness, and Tail Latency for the user-visible cost of bad misses.",
+        'Primary sources: TinyLFU at https://arxiv.org/abs/1512.00727 and the Caffeine efficiency notes at https://github.com/ben-manes/caffeine/wiki/Efficiency. Read them for the admission rule, the sketch, and the reason a small recency window improves adaptation.',
+        'Study LRU Cache for the baseline, Count-Min Sketch for approximate frequency, Bloom Filter for compact probabilistic evidence, Cache Invalidation for freshness, and Tail Latency for the user-visible cost of bad misses.',
       ],
     },
   ],

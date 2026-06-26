@@ -167,8 +167,8 @@ export const article = {
         {type: 'callout', text: 'Hyperparameter search is budget allocation under uncertainty: every trial should either cover a new region or exploit evidence from earlier trials.'},
         'The second view shows two smarter ideas. Bayesian optimization fits a surrogate belief curve (mean plus uncertainty band) and picks the next trial where expected improvement is highest. Successive halving starts many candidates cheaply and promotes only survivors. The matrix at the end shows the protocol card: the rules that keep a search honest.',
         'Colors: "found" (green) marks the best configuration discovered. "Visited" (blue) marks evaluated candidates. "Compare" (orange) highlights the structural contrast between strategies. "Active" (yellow) marks the current evaluation step.',
-      
-        {type: 'image', src: './assets/gifs/hyperparameter-search.gif', alt: 'Animated walkthrough of the hyperparameter search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/hyperparameter-search.gif', alt: 'Animated walkthrough of the hyperparameter search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -212,6 +212,14 @@ export const article = {
         'Grid search hits the curse of dimensionality in a way unique to hyperparameter spaces. A k-per-dimension grid in d dimensions costs k^d trials. With five knobs and five values each, the grid demands 3,125 full training runs. But the real damage is subtler than combinatorial explosion.',
         'Project a 3x3 grid onto the learning-rate axis: nine trials collapse to three distinct values. Six of the nine trials differ only along lambda, which barely affects the score. The grid spends two-thirds of its budget re-asking already-answered questions. If the true optimum falls between grid lines -- lr = 0.1 sitting between 0.03 and 1.0 -- no budget remains to look there.',
         'This is the effective dimensionality problem. In most real search spaces, a small subset of knobs explains nearly all the variance in the score. Grid search cannot exploit this structure because it commits its budget uniformly across all dimensions before seeing a single result. The important axis gets k samples regardless of whether it deserves k^d.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The fix has two parts, each attacking a different waste. First: decouple the knobs. Grid search locks every dimension into a shared lattice, so the number of distinct values along any single axis equals only the k-th root of the total budget. Random sampling breaks this lock -- each knob is drawn independently, so n trials produce n distinct values along every axis. That is the Bergstra-Bengio insight, and it costs nothing beyond changing a for-loop to a random draw.',
+        'Second: make the search sequential and adaptive instead of batch-and-pray. Grid and random both commit their entire budget before seeing a single result. Nine scores sit in a notebook screaming "the good region is near 0.1," but neither strategy can hear them. Bayesian optimization closes the loop: after each trial, update a cheap surrogate model of the objective, then pick the next trial where the surrogate predicts the most informative outcome. The search learns as it goes.',
+        'Successive halving attacks a third waste: most bad configurations reveal their badness early, yet grid and random train every candidate for the full epoch budget. Halving starts many candidates cheaply and kills losers at each rung, spending full training only on survivors. These three insights -- independent sampling, adaptive trial selection, and early stopping -- compose freely. BOHB combines all three.',
       ],
     },
     {
@@ -279,7 +287,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'Random search is the universal baseline. It is trivially parallelizable, requires zero implementation beyond a loop and a random sampler, and is surprisingly hard to beat at budgets under 20 trials. The Bergstra-Bengio result showed it matching or beating grid search in less wall-clock time across multiple neural network tasks -- not because random is clever, but because grid is structurally wasteful.',
         'Bayesian optimization dominates when each trial is expensive (hours or days of training) and the budget is small (10-100 trials). Drug discovery, material science, and large-model fine-tuning all fit this profile. TPE-based tools like Optuna and Hyperopt have made BO accessible without understanding GP internals.',
@@ -295,6 +303,16 @@ export const article = {
         'Successive halving fails on slow starters: a configuration that needs learning-rate warmup or a schedule that ramps up late will look bad at rung one and get killed. Hyperband mitigates this by running a conservative bracket, but cannot eliminate the risk entirely.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution diagram showing standard deviation intervals around the mean', caption: 'Validation noise matters because search repeatedly samples from a score distribution, not from a perfectly stable scalar. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg'},
         'The deepest failure is overfit through search itself. Every trial is a chance to exploit noise in the validation set. A 9,000-trial search that reports its best score is practicing multiple testing at industrial scale -- the forking-paths problem from A/B testing. The test set must stay sealed until the search is complete, and the search budget must be reported alongside the final number. A model that "reaches 94%" after 9 trials and one that "reaches 94%" after 9,000 trials are making different claims.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Concrete scenario: tune a neural network with two knobs -- learning rate (range 1e-3 to 1) and weight decay (range 1e-5 to 1e-1). Budget: 9 trials. The true best configuration is lr=0.08, weight_decay=0.001, scoring 0.94 accuracy.',
+        'Grid search (3x3): pick lr in {0.001, 0.03, 1.0} and weight_decay in {1e-5, 0.001, 0.1}. Nine trials, but only 3 distinct learning rates. Best trial lands at lr=0.03, scoring 0.87. The optimum at lr=0.08 sits between the second and third grid line, never tested.',
+        'Random search (9 draws, log-uniform): the nine trials produce lr values {0.0015, 0.004, 0.012, 0.04, 0.09, 0.2, 0.35, 0.6, 0.8}. Trial 5 at lr=0.09 scores 0.938 -- nearly optimal. Random found the good region because it placed 9 distinct probes on the axis that matters, compared to grid\'s 3.',
+        'Bayesian optimization (9 sequential trials): trials 1-3 are random seeds (lr=0.001 scores 0.72, lr=0.8 scores 0.60, lr=0.04 scores 0.86). The surrogate model notices high scores near 0.04 and high uncertainty to its right. Trial 4 targets lr=0.13, scores 0.92. Trial 5 narrows to lr=0.09, scores 0.938. Trials 6-9 fine-tune around the peak and find lr=0.078, scoring 0.9397. BO spent its last six trials in the productive region instead of wasting them on lr=0.001 and lr=0.8.',
+        'Successive halving (budget = 108 epochs, factor = 3): rung 1 starts 27 random configurations at 1 epoch each, cost 27. Top 9 promoted to rung 2 at 3 epochs each, cost 27. Top 3 promoted to rung 3 at 9 epochs each, cost 27. Winner gets 27 full epochs, cost 27. Total: 108 epochs, same as training 4 configs fully -- but 27 were screened. The winner\'s early signal at 1 epoch predicted its final ranking correctly.',
       ],
     },
     {

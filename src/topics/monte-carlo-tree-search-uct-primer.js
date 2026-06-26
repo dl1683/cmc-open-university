@@ -252,102 +252,87 @@ export const article = {
       paragraphs: [
         {type: 'callout', text: 'MCTS spends search where samples can still change the move choice, while UCT keeps uncertain branches alive.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/MCTS_Algorithm.png/250px-MCTS_Algorithm.png', alt: 'Monte Carlo tree search phases: selection, expansion, simulation, and backpropagation', caption: 'The four MCTS phases are selection, expansion, rollout, and backpropagation. Source: Wikimedia Commons, Yusha, CC BY-SA 4.0.'},
-        'The animation shows a game tree growing one node at a time. Each node carries two numbers: wins and visits (e.g., 9/10 means 9 wins out of 10 simulations). Active highlights trace the path the algorithm is currently walking. Found markers show nodes whose statistics just changed.',
-        'In the select-expand-rollout-backprop view, follow the four phases in sequence. The first frame shows the full loop. Subsequent frames highlight one phase each: selection walks from root to a frontier node by UCB1 scores, expansion adds one child, rollout simulates to a terminal state, and backpropagation updates win/visit counts on every ancestor.',
-        'In the UCT exploration view, the score table breaks UCB1 into parts: Q (win rate), N (visit count), exploration bonus, and total score. The visit plot shows how iterations concentrate on stronger moves over time. Read the table left to right, then watch the plot confirm the pattern.',
-      
+        'Read each node as a partial record of simulated games. Wins divided by visits is the current value estimate, active marks the path being selected, and found marks the node whose statistics changed.',
+        'The safe inference rule is budgeted evidence. A child with few visits is uncertain, so UCT can select it even when its current win rate is lower.',
         {type: 'image', src: './assets/gifs/monte-carlo-tree-search-uct-primer.gif', alt: 'Animated walkthrough of the monte carlo tree search uct primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Some games have too many positions to search exhaustively. Go has roughly 10^170 legal board positions and a branching factor around 250. Chess has about 10^47 positions. Even with alpha-beta pruning, exhaustive search is impossible at these scales.',
-        'Coulom (2006) and Kocsis and Szepesvári (2006) introduced Monte Carlo Tree Search and its UCT variant to solve this problem. Instead of evaluating every position, MCTS samples: it plays thousands of simulated games, tracks which moves lead to wins, and gradually builds a partial tree that concentrates on promising moves.',
-        'The key idea is treating computation as a budget. The algorithm does not try to see the whole tree. It grows only the branches that have earned attention, while reserving some budget for branches that have not been tested enough to dismiss.',
+        'Monte Carlo Tree Search, or MCTS, exists for decision trees too large to search completely. A game tree branches at every legal move, and the number of leaves grows exponentially with depth.',
+        'Instead of proving the value of every move, MCTS samples possible futures. It spends computation on branches whose statistics can still change the root decision.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The classical approach to perfect-information games is minimax: build the complete game tree, evaluate every leaf as a win or loss, and propagate values upward. Each player assumes the opponent plays optimally. For small games this works. Tic-tac-toe has 255,168 possible games, and minimax solves it completely.',
-        'Alpha-beta pruning improves minimax by skipping branches that cannot affect the result. If a move is already proven worse than an alternative, its subtree is pruned. This roughly halves the effective depth of search, reducing b^d to about b^(d/2). For chess with branching factor ~35, alpha-beta plus a hand-crafted evaluation function (material count, king safety, pawn structure) produces strong play.',
-        'The evaluation function is the critical piece: it scores non-terminal positions so the search does not need to reach the end of every game. In chess, decades of expert knowledge encode what makes a position good. The approach works because chess positions decompose into features that humans understand.',
+        'The obvious approach is minimax search. Build the game tree to a depth limit, score the leaves, and back up values assuming both players choose their best moves.',
+        'This works when the branching factor is small enough and the evaluation function is trustworthy. Chess engines made this approach powerful with alpha-beta pruning and strong position evaluators.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Go breaks both pillars of the minimax approach. The branching factor is around 250 legal moves per position, and games run about 150 moves deep. Alpha-beta pruning reduces 250^150 to roughly 250^75, which is still absurdly large. No amount of pruning makes exhaustive search feasible.',
-        'The evaluation function wall is worse. In chess, a piece advantage almost always translates to a winning position. In Go, the value of a stone group depends on the global board state. A cluster of stones that looks dead can become alive depending on stones placed on the opposite side of the board. No one succeeded in writing a static evaluator that captured these long-range dependencies. Before MCTS, the strongest Go programs played at weak amateur level.',
-        'MCTS sidesteps both walls. It does not need to evaluate positions statically because it simulates games to completion. It does not need to search the full tree because it allocates simulation budget to branches that earn it through results.',
+        'The wall is that some games have huge branching factors and weak hand-written evaluators. Go was the classic case: many legal moves exist, and local-looking positions can depend on far-away stones.',
+        'If a position has 250 legal moves and the search looks 20 plies ahead, the raw tree has 250^20 leaves. Pruning helps only when the evaluator gives reliable early ordering, and many domains do not provide that.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution curves with different means and variances', caption: 'UCB-style bonuses are an uncertainty policy: estimates with fewer samples keep a wider plausible range. Source: Wikimedia Commons, Inductiveload, public domain.'},
-        'Each node stores statistics, not truth: visit count N, total wins W, and average win rate Q = W/N. A child with high Q looks promising but might be lucky. A child with low N is uncertain and might be underestimated.',
-        'UCT (Upper Confidence bounds applied to Trees) turns that tension into a formula: UCB1 = w_i/n_i + c * sqrt(ln(N) / n_i). The first term is exploitation: prefer children that win often. The second term is exploration: prefer children that have been visited rarely relative to their parent. The constant c controls the tradeoff. With c = sqrt(2), UCB1 is theoretically optimal for the multi-armed bandit setting (Auer et al. 2002). In practice, c is tuned per domain.',
+        'Treat each move as an experiment arm with an uncertain value. The algorithm should prefer moves that have won often, but it must also revisit moves with too few samples.',
+        'UCT, which means Upper Confidence bounds applied to Trees, uses a score with two parts: average reward plus an exploration bonus. The bonus shrinks as a child receives more visits.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Each MCTS iteration has four phases. Selection: starting from the root, choose children by UCB1 score until reaching a node with untried actions or a terminal state. This walks the tree along the currently most promising path. Expansion: add one new child node for an untried action. The tree grows by exactly one node per iteration, not by materializing the entire game tree.',
-        'Simulation (rollout): from the new node, play moves to a terminal state. In classical MCTS, moves are chosen uniformly at random. In AlphaGo, a policy network proposes moves and a value network estimates the outcome, replacing or supplementing the random rollout. The result is a single number: +1 for a win, -1 for a loss, or a continuous value estimate.',
-        'Backpropagation: walk back up the path from the new node to the root. At every node on the path, increment the visit count and add the simulation result to the win total. After backpropagation, every ancestor of the simulated node has updated statistics. The next selection pass will see those changes.',
-        'After the budget of iterations is spent, the algorithm chooses the root child with the most visits, not the highest win rate. Visit count is more reliable because a child visited 5,000 times with a 60% win rate carries far more evidence than a child visited 20 times with a 95% win rate.',
+        'Each iteration performs selection, expansion, simulation, and backpropagation. Selection walks from the root by UCT score until it reaches a node with an untried action.',
+        'Expansion adds one child, simulation estimates the result from that child, and backpropagation updates every node on the selected path. After many iterations, the root chooses the child with the strongest visit evidence.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The accounting invariant is the foundation: after k iterations, every node on any selected path has its visit count incremented and its win total adjusted by exactly the simulation results that passed through it. Backpropagation preserves this invariant. No information is lost or double-counted.',
-        'The exploration term is the self-correction mechanism. If a child is ignored while its parent accumulates visits, ln(N_parent) grows while n_child stays fixed, making the exploration bonus larger. Eventually the bonus forces the algorithm to revisit that child. If a child is visited often, its bonus shrinks and it must survive on exploitation alone. This guarantees that every child is visited infinitely often as iterations grow, so no move is permanently ignored.',
-        'Under the assumptions of the multi-armed bandit setting, UCB1 achieves logarithmic regret: the number of times it pulls a suboptimal arm grows as O(ln(n)), not O(n). In tree search the assumptions are weaker because child node values depend on the policy below them, but the exploration-exploitation balance still drives convergence toward stronger play with more iterations.',
+        'The accounting invariant is that a node records exactly the simulations that passed through it. Backpropagation preserves this by adding one visit and the same result to every ancestor on the path.',
+        'The exploration term prevents permanent neglect. If a parent is visited often while one child is ignored, the child bonus grows relative to its sample count until the algorithm tests it again.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Each iteration costs O(d) for selection (walking down the tree of depth d), O(1) for expansion (adding one node), O(L) for simulation (playing L moves to terminal state), and O(d) for backpropagation (updating d ancestors). Total per iteration: O(d + L). For Go, d is at most 150 and L is at most 150, so each iteration is cheap. Quality scales with the number of iterations: more simulations produce better statistics.',
-        'Memory is O(number of expanded nodes). The tree stores only nodes that have been visited, not the entire game tree. In practice, a few hundred thousand nodes fit comfortably in memory even for Go.',
-        'The algorithm is anytime: it returns its current best move whenever stopped. Ten iterations give a rough answer. Ten thousand give a much better one. This matters for real-time systems where the caller sets a time or compute budget. AlphaGo ran 100,000+ simulations per move; a mobile game might run 1,000.',
+        'One iteration costs O(d + r), where d is tree depth walked during selection and backpropagation, and r is rollout length or evaluation cost. Memory is O(m), where m is the number of expanded nodes.',
+        'Quality improves with iterations rather than with a fixed complete search depth. If the budget doubles from 10,000 to 20,000 simulations, the tree does roughly twice as much sampling and reduces uncertainty most on contested moves.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'AlphaGo-style systems combine tree search with learned policy and value networks instead of pure random rollouts. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
-        'Go is the landmark success. AlphaGo (Silver et al. 2016) combined MCTS with deep neural networks for policy and value estimation, defeating the world champion in 2016. AlphaGo Zero (2017) removed human game data entirely, learning from self-play MCTS alone.',
-        'General game playing uses MCTS because it requires no domain-specific evaluation function: give it the rules, and it plays. Planning under uncertainty benefits when the planner can simulate outcomes: robot motion planning, scheduling, and resource allocation. Combinatorial optimization problems like chemical synthesis planning and drug discovery use MCTS to explore large action spaces where greedy heuristics get stuck.',
-        'More recently, MCTS structures appear in LLM reasoning: Tree of Thoughts evaluates branching thought paths, and process reward models score intermediate reasoning steps. The reusable structure is the same: a tree with visit counts, value estimates, and budgeted exploration.',
+        'MCTS is used in game playing, planning, synthesis search, molecule design, and systems that can simulate candidate actions. The fit is strongest when the simulator is cheaper than exhaustive reasoning.',
+        'Modern neural systems often replace random rollouts with learned policy and value models. The tree still provides lookahead, while the model makes each simulation more informative.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Games with deep tactics and reliable evaluation functions do not need MCTS. Chess engines using alpha-beta with hand-tuned evaluation functions remained competitive with MCTS-based approaches for decades, because the evaluation function is accurate and the branching factor is manageable. Alpha-beta searches deeper than MCTS can simulate.',
-        'MCTS struggles when rollouts are uninformative. If random play produces outcomes that do not correlate with optimal play, the backed-up statistics are noise. This is why AlphaGo replaced random rollouts with neural network evaluation. Without a meaningful value signal, more iterations do not help.',
-        'Real-time constraints limit MCTS because each iteration takes time. If the system can only afford 50 iterations, the statistics may not stabilize. High branching factors make this worse: with 1,000 legal actions, 50 iterations barely visit each child once.',
-        'For agent and LLM planning, the deepest failure mode is a misleading value signal. If the verifier or simulator rewards the wrong thing, MCTS will spend its entire budget becoming confidently wrong. Search does not create a trustworthy objective; it optimizes whatever signal it is given.',
+        'MCTS fails when simulations are cheap but uninformative. If rollout outcomes do not correlate with good play or good plans, the tree stores noise with confidence.',
+        'It also struggles with enormous action spaces under tiny budgets. If there are 1,000 legal actions and only 100 iterations, most actions are barely touched, so the visit counts cannot stabilize.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A simple game tree has root with three children: A (8 wins / 12 visits), B (9/10), and C (2/8). The root has N = 30 total visits. Compute UCB1 for each child with c = 1.4.',
-        'Child A: Q = 8/12 = 0.667. Exploration bonus = 1.4 * sqrt(ln(30) / 12) = 1.4 * sqrt(3.401 / 12) = 1.4 * 0.532 = 0.745. UCB1 = 0.667 + 0.745 = 1.412.',
-        'Child B: Q = 9/10 = 0.900. Bonus = 1.4 * sqrt(ln(30) / 10) = 1.4 * sqrt(0.340) = 1.4 * 0.583 = 0.816. UCB1 = 0.900 + 0.816 = 1.716.',
-        'Child C: Q = 2/8 = 0.250. Bonus = 1.4 * sqrt(ln(30) / 8) = 1.4 * sqrt(0.425) = 1.4 * 0.652 = 0.913. UCB1 = 0.250 + 0.913 = 1.163.',
-        'B wins selection (highest UCB1 = 1.716). Notice C gets the largest exploration bonus (0.913) because it has the fewest visits, but B still wins because its exploitation term (0.900) dominates. The algorithm descends into B, finds an untried child B2, expands it, runs a rollout that returns +1 (a win). Backpropagation updates: B2 becomes 1/1, B becomes 10/11, root becomes N = 31. On the next iteration, the updated statistics shift all three UCB1 scores.',
+        'At the root, suppose A has 8 wins in 12 visits, B has 9 in 10, and C has 2 in 8. With parent visits N = 30 and c = 1.4, A scores 8/12 + 1.4 * sqrt(ln 30 / 12), about 1.412.',
+        'B scores 9/10 + 1.4 * sqrt(ln 30 / 10), about 1.716. C scores 2/8 + 1.4 * sqrt(ln 30 / 8), about 1.163. Selection picks B, then a rollout result updates B and the root before the next iteration recalculates the scores.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Coulom 2006, "Efficient Selectivity and Backup Operators in Monte-Carlo Tree Search," introduced MCTS for computer Go. Kocsis and Szepesvári 2006, "Bandit-Based Monte-Carlo Planning," formalized the UCT algorithm by applying UCB1 to tree search. Silver et al. 2016, "Mastering the Game of Go with Deep Neural Networks and Tree Search," combined MCTS with deep learning in AlphaGo. Auer, Cesa-Bianchi, and Fischer 2002, "Finite-Time Analysis of the Multiarmed Bandit Problem," proved the UCB1 regret bound that UCT builds on.',
-        'Study next: Multi-Armed Bandits for the exploration-exploitation theory UCB1 comes from. Minimax and Alpha-Beta Pruning for the classical game tree search that MCTS replaces. Reinforcement Learning and Q-Learning for model-free alternatives that learn value functions without tree search. Policy Gradient Methods for how AlphaGo Zero trains the policy network used inside MCTS. A* Search for heuristic-guided search in deterministic shortest-path problems.',
+        'Study Coulom on Monte Carlo tree search, Kocsis and Szepesvari on UCT, Auer et al. on UCB1, and Silver et al. on AlphaGo. The chain is useful because UCT is bandit theory placed inside a tree.',
+        'Next study Multi-Armed Bandits for exploration bonuses, Minimax and Alpha-Beta Pruning for the classical baseline, and Reinforcement Learning for value functions that replace random rollouts.',
       ],
     },
   ],

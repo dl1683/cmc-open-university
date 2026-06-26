@@ -346,109 +346,106 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the animation as a model for sets, where a set means a collection whose meaning does not depend on row order. If the input rows are shuffled, row-level outputs should shuffle the same way, and pooled outputs should stay unchanged.',
         {type: 'image', src: './assets/gifs/set-transformer-induced-points-primer.gif', alt: 'Animated walkthrough of the set transformer induced points primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'The active rows are the elements being attended to. The learned inducing points are memory slots, not data points; they collect information from the whole set and send a compressed summary back.',
+        'The safe inference rule is permutation symmetry. A row index is not evidence, so any operation that depends on storage order rather than content is a bug for this topic.',
       ],
     },
     {
-      heading: 'Why This Exists',
+      heading: 'Why this exists',
       paragraphs: [
-        'Many machine-learning inputs are collections, not sequences. A bag of image patches, a point cloud, a few-shot support set, a group of particles, a candidate list, or a cluster of log events has rows, but the row order is often just storage order. If the data loader shuffles the rows, the meaning of the collection should not change.',
+        'Many machine-learning inputs are collections rather than sequences. A point cloud, a bag of image patches, a few-shot support set, or a group of particles has rows, but the row order is usually just storage order.',
         {
           type: 'callout',
           text: 'Set Transformer preserves set symmetry while using attention to model relationships that a plain pooled Deep Sets baseline can miss.',
         },
-        'Set Transformer exists for that contract. It lets elements interact through attention while refusing to treat row index as a signal. Elementwise outputs should move with the input permutation. Pooled outputs should stay the same. The model is built around that distinction: equivariance before pooling, invariance after pooling.',
+        'The model should see which elements are present and how they relate, not where the loader placed them. Set Transformer exists to model interactions inside a set while preserving that order-free contract.',
       ],
     },
     {
-      heading: 'Baseline Approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A good first model is Deep Sets: apply the same network to each element, sum or average the element embeddings, then pass the pooled vector to a prediction head. It is simple and correct about order because addition and averaging do not care which row arrived first.',
-        'Another baseline is to sort the rows and use a sequence model. That works only when there is a real canonical order. It is a bad fit when order came from a database query, a file layout, a sensor packet, or a batching routine. In those cases the model can learn the sorting artifact instead of the set structure.',
+        'The obvious first model is Deep Sets. Apply the same neural network to each element, sum or average the embeddings, and send the pooled vector to a prediction head.',
+        'That baseline is not naive. It is simple, fast, and invariant because addition and averaging do not care which row arrived first.',
+        'Another tempting approach is to sort the rows and use a sequence model. That only works when the sort key is a real property of the problem, not an accident of a database query or sensor packet.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The wall',
       paragraphs: [
-        'Deep Sets can miss relationships that depend on several elements at once. In clustering, a point only makes sense relative to nearby points and possible centers. In multiple-instance learning, one instance can change the interpretation of another. Independent row encoding followed by one sum can be too thin for that kind of relational evidence.',
-        'Full self-attention fixes the interaction problem but hits a cost wall. A Self-Attention Block compares every element with every other element, so the attention table is N by N. Doubling the set size roughly quadruples the attention scores and memory for that layer. Large sets need a cheaper path.',
+        'Independent row encoding followed by one sum can miss relationships. In clustering, a point matters because of nearby points and possible centers, not only because of its own coordinates.',
+        'Full self-attention fixes interaction by comparing every element with every other element. The cost wall is the N by N attention table, where N is the number of set elements.',
+        'If N doubles from 1000 to 2000, dense attention scores grow from 1,000,000 to 4,000,000 for one head. Large sets need interaction without paying every pair explicitly.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The core insight',
       paragraphs: [
-        'The core insight is to use attention without sequence position, then add learned memory slots when dense pairwise attention is too expensive. A Self-Attention Block, or SAB, models all pairwise interactions among set elements while preserving permutation equivariance. Shuffle the valid rows and the output rows shuffle the same way.',
-        'The Induced Set Attention Block, or ISAB, inserts m learned inducing points. First, those inducing points query the full set and build m induced states. Then the original set rows query the induced states. The model still passes global information back to every row, but the full N by N table is replaced by two N by m attention passes.',
+        'Use attention without positional meaning, then add learned inducing points when all-pairs attention is too expensive. A Self-Attention Block, or SAB, lets rows interact directly while preserving permutation equivariance.',
+        'An Induced Set Attention Block, or ISAB, inserts m learned memory slots. The inducing points first read the N elements, then the N elements read the m induced states.',
+        'This replaces one N by N table with two N by m tables. The model still passes global information to each row, but through a bottleneck whose size is chosen by the designer.',
       ],
     },
     {
-      heading: 'How the Visual Model Teaches It',
+      heading: 'How it works',
       paragraphs: [
-        'The set-symmetry view shows the contract first. The input is a collection of rows. The SAB block mixes those rows without adding a timeline. The output remains a collection of rows. The permutation node is there to show that changing storage order should only reorder row-level representations, not change the represented set.',
-        'The inducing-points view shows the bottleneck. The learned points read the set, forming a small memory H. The set rows then read that memory. The diagram is useful because it makes the missing N by N table visible by absence: rows do not all directly compare with all rows in ISAB.',
+        'The basic attention primitive is a Multihead Attention Block, or MAB. SAB applies that block with the set attending to itself, so N input rows produce N output rows.',
+        'ISAB performs two MAB passes. First, m inducing points query the N encoded elements and produce m induced states; second, the original rows query those m states and receive global context.',
+        'Pooling by Multihead Attention, or PMA, uses learned seed queries to produce a fixed number k of output slots from a variable-size set. The seeds have roles; the input rows do not.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'Why it works',
       paragraphs: [
-        'Set Transformer is built from a few reusable blocks. MAB is the attention primitive. SAB applies MAB with the set attending to itself. ISAB applies two MAB-style passes through inducing points. PMA, or Pooling by Multihead Attention, uses learned seed queries to produce a fixed number of output slots from a variable-size encoded set.',
-        'The shape accounting is the data structure. SAB maps N rows to N rows and costs N by N attention. ISAB maps N rows to N rows through m induced states and costs roughly two N by m attention passes. PMA maps N rows to k output slots, where k is the number of learned seed queries.',
+        'Correctness here means symmetry, not exact optimization. Shared parameters process every row in the same way, and attention uses content-derived queries, keys, and values rather than row numbers.',
+        'If the input rows are permuted, the same computations are permuted with them. That gives equivariance for row-level outputs, meaning the output row attached to an element moves with that element.',
+        'Pooled outputs become invariant when the final pooling ignores row order. PMA does this by letting fixed seed queries attend over the encoded set, so the answer depends on contents and relations, not storage order.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The symmetry argument is straightforward. Each valid input row is processed with shared parameters. Attention uses row content as queries, keys, and values, not a special row number. If a permutation reorders the rows, the same computations are reordered with them. That gives equivariance for row-level outputs.',
-        'Pooled predictions become invariant when the final pooling operation is itself order-insensitive. PMA does this with learned seed queries that attend over the encoded set. The seeds have fixed roles, but the input rows do not. The answer can depend on which elements are present and how they relate, not on where the rows happened to sit in memory.',
-      ],
-    },
-    {
-      heading: 'Costs',
-      paragraphs: [
-        'SAB costs O(N^2) attention scores per layer. ISAB costs O(Nm) for each of two attention passes when m is the number of inducing points. If m is fixed and N doubles, the ISAB attention work grows close to linearly rather than quadratically. That is the main reason the inducing-point version exists.',
+        'SAB costs O(N^2) attention scores per layer. With N = 1000 and 4 heads, the model forms about 4,000,000 scores before value mixing.',
         {
           type: 'image',
           src: 'https://ar5iv.labs.arxiv.org/html/1810.00825/assets/figs/runtime.png',
           alt: 'Runtime plot comparing SAB and ISAB as set size grows',
           caption: 'The Set Transformer supplementary runtime plot shows why inducing points matter for large sets. Source: ar5iv rendering of the Set Transformer supplementary material https://ar5iv.labs.arxiv.org/html/1810.00825.',
         },
-        'The price is capacity. A small m forces many elements to share a narrow memory bottleneck and can miss rare pairwise relationships. A large m approaches dense-attention cost. Treat m as a memory and latency budget. It should be chosen against set size, task error, tail latency, and the amount of interaction the task actually needs.',
+        'ISAB costs O(Nm) for each of two passes. With N = 1000 and m = 32, the attention table sizes are about 32,000 plus 32,000 per head, far below 1,000,000.',
+        'The price is capacity. A small m can compress away rare pairwise evidence; a large m moves back toward dense attention cost.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Set Transformer fits tasks where order-free interactions matter. Multiple-instance learning can compare instances inside a bag. Point-cloud classification can model relationships among points. Few-shot classification can compare support examples without treating dataloader order as evidence.',
-        'It also fits amortized inference and clustering. The input is a dataset or sample set, and the output is a summary, label, parameter estimate, or group of centers. PMA gives the model fixed output slots while the encoder still reads a variable-size set.',
+        'Set Transformer fits point clouds, multiple-instance learning, few-shot learning, particle sets, and amortized clustering. These tasks need relationships among elements while refusing to treat input order as a feature.',
+        'It also fits learned pooling when the output has fixed slots. A clustering model can use several PMA seeds to produce several center candidates from a variable-size set.',
+        'The workload fit is interaction under symmetry. If the problem has no meaningful order but does have element-to-element evidence, Set Transformer is a natural candidate.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
-        'Set Transformer is the wrong tool when order is real. Text, event streams with causal time, trajectories, and protocols often need sequence structure. Removing order from those inputs can remove the signal. A model that is invariant to event order cannot explain a process where before and after matter.',
-        'ISAB can also fail when the task depends on rare exact pairwise interactions and m is too small. Full attention, graph neural networks, nearest-neighbor structures, or sparse attention may be better when the interaction pattern is known and should not pass through a learned global bottleneck.',
+        'It fails when order is real. Text, event streams, trajectories, and protocols often encode meaning in before and after, so removing order removes signal.',
+        'It can fail when rare exact pairwise interactions must not pass through a small bottleneck. In that case full attention, graph neural networks, nearest-neighbor attention, or a hand-built sparse graph may fit better.',
+        'It also fails when padding masks are wrong. A padded row is storage, not an element; if the model attends to it, batch shape leaks into the prediction.',
       ],
     },
     {
-      heading: 'Concrete Examples',
+      heading: 'Worked example',
       paragraphs: [
-        'For a point cloud, each input row is a 3D point with features. The object label should not change because the points were loaded in a different order. SAB lets every point compare itself with every other point. ISAB lets the set communicate through learned inducing points when the cloud is too large for dense attention.',
-        'For amortized clustering, PMA can use several seed queries to produce several cluster-center slots. The slots have learned roles, but the input points do not. That is the data-structure distinction: fixed output memory, unordered input rows. The same idea appears in few-shot learning, where support examples form a set and the class answer should not depend on support order.',
+        'Suppose a set has N = 6 points and each point has a 16-dimensional embedding. Dense SAB compares all 6 points with all 6 points, so one head forms 36 attention scores.',
+        'Now choose m = 2 inducing points. The first pass forms 2 by 6 = 12 scores as the inducing points read the set, and the second pass forms 6 by 2 = 12 scores as set rows read the induced states.',
+        'The ISAB version uses 24 scores instead of 36 in this small example. At N = 1000 with the same m = 32, the contrast is 64,000 scores for the two induced passes versus 1,000,000 scores for dense self-attention.',
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Always carry a valid-row mask. Padding rows are storage, not set elements. If the mask leaks, the model can attend to fake elements and learn patterns from batch shape. Test the model by shuffling valid rows and checking that invariant outputs stay stable and equivariant outputs reorder predictably.',
-        'Log N, m, k, attention memory, and tail latency. Tune m with the same seriousness as hidden size or number of heads. If performance drops on large sets, inspect whether the inducing points are too few. If latency spikes, inspect whether m or PMA slots have grown into dense-attention behavior.',
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        'Primary sources: Set Transformer arXiv at https://arxiv.org/abs/1810.00825, the ICML/PMLR page at https://proceedings.mlr.press/v97/lee19d.html, the PMLR PDF at https://proceedings.mlr.press/v97/lee19d/lee19d.pdf, and the official PyTorch implementation at https://github.com/juho-lee/set_transformer.',
-        'Study the attention stack first: Attention Mechanism, Multi-Head Attention, Softmax Temperature, Embeddings and Similarity, and Transformer Block. Then compare learned memory designs: Perceiver IO Latent Array Bottleneck, Vision Transformer Register Tokens, AdaTape Adaptive Token Bank, RAG Pipeline, and Transformer Inference Roofline.',
+        'Primary sources: Lee et al., "Set Transformer" at https://arxiv.org/abs/1810.00825, the ICML/PMLR page at https://proceedings.mlr.press/v97/lee19d.html, the PMLR PDF at https://proceedings.mlr.press/v97/lee19d/lee19d.pdf, and the official implementation at https://github.com/juho-lee/set_transformer.',
+        'Study Deep Sets for the pooled baseline, attention and multi-head attention for the MAB primitive, softmax temperature for attention weights, Perceiver-style latent arrays for a related bottleneck, and graph neural networks for cases where the interaction pattern is known.',
       ],
     },
   ],

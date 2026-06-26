@@ -214,193 +214,108 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Hazard Pointers & Epoch Reclamation. The missing half of lock-free linked structures: protect nodes while readers hold raw pointers, then retire and reclaim only when reuse is safe..",
+        'The visualization has two views selected by the dropdown. The hazard-pointer view shows a five-step reader protocol (load, publish, recheck, use, clear) followed by a retire-list scan and an ABA failure scenario. The epoch-reclamation view shows the pin-retire-advance lifecycle, three epoch bags, a stalled-reader memory plot, and a comparison table.',
         {type: "callout", text: "Safe reclamation separates logical removal from physical reuse: a removed node is not free until old readers are proven gone."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/hazard-pointers-epoch-reclamation.gif', alt: 'Animated walkthrough of the hazard pointers epoch reclamation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        'Active highlights mark the node or step currently being decided. Found highlights mark outcomes already proven safe. In the retire-list table, a found marker on the action column means the node will be freed; an active marker on a hazard column means the node is still protected and must wait.',
+        'Watch the ABA frame carefully. It traces what happens when free-then-reuse happens before a paused reader resumes. The bug at the end is the consequence, not the cause. The cause is that free happened while a stale pointer still existed in another thread.',
+        {type: 'image', src: './assets/gifs/hazard-pointers-epoch-reclamation.gif', alt: 'Animated walkthrough of the hazard pointers epoch reclamation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A lock-free stack, queue, or linked list can be logically correct and still be unsafe. A successful compare-and-swap may unlink a node from the structure, but that does not prove every other thread has stopped holding a raw pointer to that node.',
+        'A lock-free stack, queue, or linked list can be logically correct and still crash. A compare-and-swap (CAS) can atomically unlink a node from the structure, but CAS tells you nothing about who else still holds a raw pointer to that node. In languages without garbage collection -- C, C++, Rust unsafe blocks, kernel code -- freeing a node while another thread holds a pointer to it produces a use-after-free bug.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list nodes connected by pointers', caption: 'Lock-free stacks, queues, and lists remove linked nodes before memory can always be reused. The pointer topology and the lifetime topology are different questions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
-        'This is the missing half of manual-memory lock-free programming. The data structure must decide when a removed node can be freed or reused. If it frees too early, a paused reader can dereference reclaimed memory. If it never frees, the structure leaks under load.',
-        'Garbage-collected runtimes hide most of this problem because the collector can find live references. C, C++, kernel code, Rust internals, and many high-performance runtimes need an explicit reclamation protocol.',
+        'This is the missing half of manual-memory lock-free programming. The data-structure algorithm decides when a node is logically removed. The reclamation protocol decides when the removed node\'s memory is physically safe to reuse. Without that second protocol, every lock-free structure either leaks memory or crashes under concurrency.',
+        'Garbage-collected runtimes solve this automatically: the collector traces live references and frees only unreachable objects. But in systems without a GC -- operating-system kernels, database engines, embedded firmware, high-frequency trading systems -- you need an explicit protocol. Hazard pointers and epoch-based reclamation are the two dominant answers.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first instinct is to free the node immediately after the CAS that unlinks it. In single-threaded code this is correct: once the list no longer points to the node, nobody can reach it. Teams reach for this approach because it keeps memory usage minimal and matches the mental model from sequential programming.',
+        'The second instinct, once the first crashes, is reference counting. Attach an atomic counter to each node, increment on access, decrement on release, and free when the counter hits zero. This works for some structures but adds a write to every read path, creates contention on the counter cache line, and cannot handle cycles without a supplementary collector.',
+        'A third common attempt is to never free removed nodes at all. This eliminates use-after-free but turns every long-running data structure into a memory leak. Under sustained load, the process eventually exhausts memory. Safe reclamation is the contract that sits between these extremes: remove the node from the structure now, defer physical reclamation, and free only after the system has proof that no active operation can still dereference it.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The obvious approach is to free a node immediately after the CAS that removes it. That keeps memory usage low and matches how single-threaded code often feels: once the list no longer points at the node, the node is dead.',
+        'The wall is invisible pointers. When thread T1 loads a pointer to node A and then gets preempted, that pointer lives in a CPU register or on T1\'s stack. The allocator has no visibility into registers. The data structure has no list of who read what. The operating system scheduler does not notify your code before preempting a thread.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Intel i7 processor die photograph', caption: 'Compare-and-swap is a hardware-level state transition, but it cannot reveal pointer history or paused readers by itself. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:KL_Intel_i7_die.jpg.'},
-        'The wall is that another thread may have loaded the pointer before the CAS. That pointer can live in a register or stack frame. The allocator cannot see it. If the node is freed and the address is reused, the paused thread can read new data through an old pointer.',
-        'The other obvious approach is to never free removed nodes. That avoids use-after-free, but it turns every long-running data structure into a memory leak. Safe reclamation is the contract in between: remove now, retire the node, and reclaim only after the system has evidence that no active operation can still touch it.',
+        'If another thread frees node A and the allocator hands the same address to a new allocation, T1 wakes up holding a pointer to memory that now belongs to a different object. A CAS comparing the old pointer will succeed because the bit pattern matches, but the semantic meaning is gone. This is the ABA problem: same Address, different object, Bogus Acceptance.',
+        'No amount of CAS cleverness inside the data structure can fix this. The structure needs an external protocol that tracks which threads might still hold old pointers and delays reclamation until those threads are provably done. That protocol is what hazard pointers and epoch reclamation provide.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Logical removal and physical reclamation are separate events. A node can be unreachable from the shared structure and still not be freeable. The question is not "is the node linked?" The question is "can any active operation still dereference an old pointer to it?"',
-        'Hazard pointers answer with precision. Before a thread dereferences a candidate node, it publishes that exact pointer in a public slot and then rechecks that the node is still valid. Reclaimers scan those slots and keep any retired node that appears there.',
-        'Epoch reclamation answers with time. Threads announce that they are inside a critical operation in the current epoch. Retired nodes are grouped by epoch and freed only after every active participant has moved beyond the epoch that could still contain old pointers.',
+        'Logical removal and physical reclamation are separate events that must never be conflated. A node can be unreachable from the shared structure and still not be freeable. The correct question is not "is the node linked?" It is "can any active operation still dereference a previously loaded pointer to this node?"',
+        'Hazard pointers answer that question with per-pointer precision. Before a thread dereferences a node, it writes that node\'s address into a public slot visible to all threads, then rechecks that the node is still reachable from the structure. Reclaimers scan all hazard slots before freeing; any retired node whose address appears in a slot survives.',
+        'Epoch reclamation answers with temporal boundaries. Each thread announces which epoch it is operating in. Retired nodes are tagged with the epoch in which they were removed. The system frees a batch of retired nodes only after every active thread has advanced past that epoch, proving that no thread can still hold pointers from that era.',
+        'Both approaches convert an invisible question (who holds old pointers?) into a visible one (what did threads publish?). The difference is granularity: hazard pointers track individual addresses; epochs track time intervals.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A reader loads a candidate pointer, writes that pointer into its hazard slot, and then reloads or revalidates the shared link. The recheck is essential. Without it, the node could be unlinked and retired in the gap between load and publication.',
-        'Once the hazard pointer is published and the recheck passes, the thread may safely dereference the node. A remover can still unlink the node from the structure, but it cannot free or reuse the node while any hazard slot names it.',
-        'Removed nodes go onto a retire list. When the list reaches a threshold, the thread scans all published hazard slots, builds the protected set, and frees retired nodes that are absent from that set. Nodes that are still protected stay retired and are checked again later.',
-        'Hazard pointers are precise because protection is per node. They are also expensive enough to matter: publishing needs memory-ordering discipline, and reclamation scans are proportional to the number of participating threads and hazard slots.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'A thread pins or enters the current epoch before operating on the structure. While pinned, it promises that it may hold pointers read during that epoch. When it finishes, it unpins or announces that it is no longer active.',
+        'Hazard pointers follow a five-step reader protocol: load, publish, recheck, use, clear. The reader loads a candidate pointer from the shared structure. It then writes that pointer into its hazard slot -- a per-thread public memory location. Before using the pointer, it reloads the shared link to verify the node is still there. If the recheck fails (the node was unlinked between load and publish), the reader restarts. If it passes, the reader dereferences freely. After the operation, it clears the slot.',
+        'The recheck is the step that makes publication meaningful. Without it, a thread could publish a pointer to a node that was already unlinked and retired in the gap between load and publication. The three-step sequence (load, publish, recheck) closes that race window.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram showing transitions among execution states', caption: 'Epoch reclamation is a state protocol: active participants delay freeing, inactive or advanced participants let old bags become reclaimable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Process_states.svg.'},
-        'A remover does not free an unlinked node. It retires the node into a bag associated with the current epoch. The global epoch advances only when active participants have moved forward or become inactive.',
-        'After enough epoch advancement, the oldest bags can be freed in bulk. The exact implementation varies, but the safety idea is stable: a node is reclaimed only after no active thread can still be inside the epoch where the node became retired.',
-        'Epoch reclamation is fast on the common path because readers usually publish only an epoch, not each pointer. The tax is coarse protection. One stalled participant can prevent many unrelated retired nodes from being reclaimed.',
-      ],
-    },
-    {
-      heading: 'How it works (3)',
-      paragraphs: [
-        'In the hazard-pointer view, the important transition is load, publish, recheck, use, clear. Publication alone is not enough. The recheck closes the race where a remover could unlink the node before the hazard slot became visible.',
-        'The retire-list table is the reclamation decision. A retired node with no hazard hit is freeable. A retired node with a hazard hit stays alive even though it is no longer linked. That distinction is the whole technique.',
-        'The ABA frame shows why early reuse is dangerous. The address can look the same to compare-and-swap while the object behind that address has changed meaning. Delayed reuse removes one major way that stale pointers become plausible again.',
-        'In the epoch view, watch the unit of protection change from one pointer to one time range. The three bags and the stalled-reader plot show the tradeoff: fewer per-node checks, but more unreclaimed memory when a participant stays pinned.',
+        'On the remover side, an unlinked node goes onto a per-thread retire list instead of being freed. When the retire list reaches a threshold (commonly 2 * threads * hazard-slots-per-thread), the thread scans every published hazard slot, collects the protected set, and frees any retired node not in that set. Protected nodes stay on the retire list for the next scan.',
+        'Epoch reclamation works differently. A thread pins itself to the current global epoch before touching the structure. While pinned, it may hold pointers from that epoch. Unlinked nodes go into a garbage bag tagged with the current epoch. The global epoch advances only when every active thread has moved forward or unpinned. Once the epoch advances far enough (typically two increments past a bag\'s epoch), that bag\'s contents are freed in bulk.',
+        'The epoch approach is faster on the common path because each reader publishes only one epoch number, not every individual pointer. But the protection is coarse: if one thread stays pinned in an old epoch, every bag from that epoch onward is held back, regardless of which nodes that thread actually accessed.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Hazard pointers preserve this invariant: a node cannot be reclaimed while an active thread has publicly declared that it may dereference that node. The recheck makes the declaration meaningful because it proves the thread did not protect a node that had already slipped out from under it.',
-        'Epoch reclamation preserves a different invariant: retired nodes are not reclaimed until every active operation that could have seen them has ended or moved past the relevant epoch. If pointers do not escape the pinned operation, old nodes become unreachable once that epoch is gone.',
-        'Both mechanisms are about evidence. They do not make the lock-free algorithm correct by themselves. The stack or queue still needs linearizable updates. Reclamation only makes it safe to reuse memory after those updates remove nodes.',
+        'Hazard pointers maintain a precise invariant: a node cannot be reclaimed while any thread\'s hazard slot contains its address. The recheck ensures the publication is not stale -- the thread proved the structure still contained the node after the slot was written. Any reclaimer that runs after this point will see the slot and skip the node.',
+        'Epoch reclamation maintains a temporal invariant: retired nodes from epoch E are not freed until every thread that was active during epoch E has either left or advanced past E. If pointers do not escape the pinned critical section (the code between pin and unpin), then once a thread unpins, it cannot hold any pointer from that epoch. When all threads have advanced, the proof is complete.',
+        'Both invariants depend on cooperation. Every thread must follow the protocol honestly: publish before dereference, clear after use, pin before access, unpin after completion. A thread that skips publication or holds pointers past its unpin violates the contract and introduces undefined behavior. The lock-free algorithm itself must still be correct (linearizable updates, proper CAS logic). Reclamation only adds the guarantee that memory reuse is safe after correct removal.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Consider a lock-free stack with head A -> B. Thread T1 reads head and gets a pointer to A, then pauses before it can finish the pop. Thread T2 pops A with CAS, so A is no longer reachable from the stack.',
-        'If T2 frees A immediately, the allocator may reuse the same address for a different node. T1 resumes with a pointer value that still compares equal to the old address but no longer means the old A. That is a use-after-free risk and can create ABA-style failures.',
-        'With hazard pointers, T1 publishes A before dereferencing it and T2 keeps A on the retire list while that hazard slot names A. With epoch reclamation, T1 stays pinned in the epoch where it read A, so T2 can retire A but cannot free the old epoch bag until T1 leaves.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Hazard pointers spend work on publication, memory ordering, retire lists, and scans. A scan considers roughly participating threads times hazard slots, plus the retired nodes being tested. The benefit is precision: a stalled thread protects only the nodes it published.',
-        'Epoch reclamation has a cheaper read path and bulk freeing. It works well when operations are short and participants reliably leave critical sections. Its bad case is memory growth: a stalled, crashed, or blocked participant can hold back every node retired behind its epoch.',
-        'RCU is a related design point, usually tuned for read-mostly systems and grace periods. Reference counting is another contrast: it gives per-object lifetime tracking but can add writes, contention, and cycles. The right answer depends on the access pattern and progress requirements.',
+        'Hazard-pointer publication requires a store with release semantics and the recheck requires an acquire load. On x86 this is relatively cheap (stores are release by default), but on ARM or RISC-V the memory barriers are real instructions. Each reclamation scan is O(T * H + R) where T is the number of threads, H is hazard slots per thread, and R is the retire-list length. With 64 threads and 2 slots each, scanning 128 slots against hundreds of retired nodes is nontrivial.',
+        'Epoch reclamation\'s read-side cost is typically one atomic increment (pin) and one atomic decrement (unpin) per operation, plus a check of the global epoch. Reclamation is amortized: when the epoch advances, an entire bag is freed in one pass. The worst-case memory footprint is (number of retired nodes) * (epochs held back), which can grow without bound if a thread stalls.',
+        'Concrete numbers: in a lock-free queue with 16 threads doing 10 million operations per second, hazard pointers might hold back at most 16 * 2 = 32 nodes per scan (bounded). Epoch reclamation under the same load could hold back zero nodes if all threads are fast, or millions if one thread blocks for a second. The choice depends on whether you need bounded memory or maximum throughput.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Hazard pointers fit lock-free stacks, queues, lists, maps, and freelists when readers may hold a small number of individual node pointers and the system needs portable node-level protection.',
-        'Epoch reclamation fits high-throughput structures where operations are short, threads are known participants, and pointer lifetimes are naturally bounded by the operation. It is common in concurrent libraries because the fast path can be very small.',
-        'Grace-period systems such as RCU fit read-mostly workloads where readers must be extremely cheap and updates can wait for a quiescent period. The common pattern is the same separation: publish new structure, retire old structure, reclaim after readers have moved on.',
+        'Hazard pointers are used in Facebook/Meta\'s Folly library for lock-free hash maps, queues, and freelists. They are specified in the C++ standard proposal P2530 and implemented in libcds (Concurrent Data Structures). They fit any structure where a reader holds a small, fixed number of node pointers and needs portable, bounded-memory protection.',
+        'Epoch reclamation powers Rust\'s crossbeam-epoch crate, which underlies many concurrent data structures in the Rust ecosystem including concurrent skip lists and lock-free deques. Java\'s ConcurrentHashMap uses a related approach where GC acts as the reclaimer. Sled, an embedded database in Rust, used epoch-based reclamation for its lock-free B-tree.',
+        'Linux kernel RCU (Read-Copy-Update) is the most deployed grace-period reclamation system. It protects read-mostly kernel data structures (routing tables, module lists, security policies) where readers must pay near-zero cost and writers can afford to wait a grace period. The kernel guarantees quiescent states through context switches, making the read path literally a single instruction on some architectures.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Do not use these mechanisms when a normal garbage collector or ownership model already solves the lifetime problem at the right cost. Adding manual reclamation to a managed environment can create complexity without buying safety.',
-        'Do not use epoch reclamation across blocking operations, long async awaits, or arbitrary user callbacks. A pinned epoch must be short. If user code can pause forever, memory retention can become unbounded.',
-        'Do not assume reclamation solves every ABA problem. Delaying address reuse removes one common source of ABA, but algorithms that allow remove-and-reinsert patterns may still need version tags, counted pointers, or stronger validation.',
+        'Do not use these mechanisms when a garbage collector or ownership model already solves the lifetime problem. Adding manual reclamation to a managed environment creates complexity without buying safety. In Rust safe code, the borrow checker already prevents use-after-free; reclamation protocols are needed only inside unsafe blocks that implement lock-free structures.',
+        'Do not use epoch reclamation across blocking operations, long async awaits, or arbitrary user callbacks. A pinned epoch must represent a short critical section. If user code can pause indefinitely while pinned, memory retention grows without bound. Crossbeam mitigates this with a \'Collector::flush\' mechanism, but the fundamental limitation remains: epoch reclamation assumes short operations.',
+        'For hazard pointers, the classic implementation bug is forgetting the recheck after publication. A thread publishes a pointer that was already unlinked, then treats the publication as proof of safety. Without the recheck, the hazard slot protects a node that was never validated, and reclamation can free it out from under the reader.',
+        'Another hazard-pointer bug is clearing the slot too early or allocating too few slots for the operation\'s needs. If a traversal holds two node pointers simultaneously (current and next), it needs two hazard slots. Using one slot means the unprotected pointer can be reclaimed mid-traversal. For epoch reclamation, the corresponding bug is letting a pointer escape the pinned region -- storing an old pointer and using it after unpinning invalidates the epoch proof entirely.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Worked example',
       paragraphs: [
-        'For hazard pointers, the classic bug is forgetting the recheck after publication. A thread can publish a pointer that was already unlinked, then treat the publication as proof of safety. It is not proof unless the structure still makes the node reachable under the algorithm rules.',
-        'Another hazard-pointer bug is clearing the slot too early or using too few slots for the number of pointers an operation may dereference. A node is protected only while the right slot contains the right address.',
-        'For epoch reclamation, the classic bug is letting a pointer escape the pinned region. If code stores an old node pointer and uses it after unpinning, the epoch proof is invalid. Dead threads, forgotten guards, and blocking calls create the same failure from the other side by preventing reclamation forever.',
+        'Consider a lock-free stack with head -> A -> B -> null. Thread T1 wants to pop: it reads head and gets pointer 0xA000 (node A). Before T1 can execute its CAS, the OS preempts it. Thread T2 runs, pops A with a successful CAS (head now points to B), and pops B. The stack is empty. T2 then pushes a new node C. The allocator happens to give C the address 0xA000 -- the same address A had.',
+        'T1 resumes. It executes CAS(&head, 0xA000, B). The head is 0xA000 (node C), which matches T1\'s expected value. CAS succeeds. But T1 just set head to B, which was already popped and freed. The stack now points into reclaimed memory. This is the ABA problem: the address matches but the identity does not.',
+        'With hazard pointers: T1 publishes 0xA000 in its hazard slot before the CAS. T2 pops A and puts it on the retire list. When T2 scans hazard slots, it finds 0xA000 and does not free A. The allocator never recycles the address, so the ABA scenario cannot arise. When T1 finishes and clears its slot, the next scan frees A safely.',
+        'With epoch reclamation: T1 pins in epoch 5 before reading head. T2 also pins in epoch 5, pops A and B, and retires both into epoch 5\'s bag. T2 unpins. But T1 is still pinned in epoch 5, so the global epoch cannot advance past 5. Epoch 5\'s bag cannot be freed. The allocator never gets A\'s memory back, so 0xA000 cannot be reused. When T1 unpins, the epoch eventually advances, and the bag is freed.',
       ],
     },
     {
-      heading: 'Primary references',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Maged M. Michael, "Hazard Pointers: Safe Memory Reclamation for Lock-Free Objects": https://dl.acm.org/doi/10.1109/TPDS.2004.8.',
-        'Crossbeam epoch documentation: https://docs.rs/crossbeam-epoch.',
-        'Linux RCU documentation: https://docs.kernel.org/next/RCU/whatisRCU.html.',
+        'The foundational paper is Maged M. Michael, "Hazard Pointers: Safe Memory Reclamation for Lock-Free Objects," IEEE Transactions on Parallel and Distributed Systems, 2004 (https://dl.acm.org/doi/10.1109/TPDS.2004.8). For epoch reclamation, see Keir Fraser\'s 2004 PhD thesis "Practical Lock-Freedom" from the University of Cambridge, which formalized epoch-based approaches.',
+        'For implementations, the crossbeam-epoch crate documentation (https://docs.rs/crossbeam-epoch) is the clearest modern reference. The Linux kernel RCU documentation (https://docs.kernel.org/next/RCU/whatisRCU.html) covers grace-period reclamation in production at massive scale. The C++ proposal P2530 specifies hazard pointers for the standard library.',
+        'Study ABA Tagged Pointer Stack next to see the address-reuse failure in a concrete stack. Study Nonblocking Progress Guarantees to distinguish lock-free, wait-free, and obstruction-free claims. Study Lock-Free Queue and Bw-Tree for larger structures that need reclamation discipline. Study Logical Clocks if the epoch concept made you want a broader model of time in concurrent systems.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study ABA Tagged Pointer Stack next if you want the address-reuse failure in a concrete stack. Study Nonblocking Progress Guarantees to separate lock-free, wait-free, and obstruction-free claims.',
-        'Study Linearizability History Checker for correctness after memory safety is handled. Study Lock-Free Queue and Bw-Tree Delta Chain and Mapping Table for larger structures that need reclamation discipline. Study Logical Clocks if the epoch idea made you want a broader model of time in concurrent systems.',
-      ],
-    },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Hazard Pointers & Epoch Reclamation moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

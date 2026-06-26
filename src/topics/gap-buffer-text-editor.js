@@ -225,8 +225,8 @@ export const article = {
         'Watch the insert frame first: characters fill the gap without touching the suffix. Then watch the distant-edit frame: the gap must slide across the array before a new burst of typing can begin. The matrix shows exact before/after layouts so you can trace each byte.',
         {type: 'callout', text: 'A gap buffer makes cursor-local editing cheap by moving empty capacity to the edit point instead of shifting the suffix on every keystroke.'},
         'In the editor-tradeoffs view, the plot compares edit cost against cursor distance. The gap buffer curve rises steeply because moving the gap copies text proportional to the jump. Rope and piece-table curves stay flatter because their tree structures avoid moving contiguous memory.',
-      
-        {type: 'image', src: './assets/gifs/gap-buffer-text-editor.gif', alt: 'Animated walkthrough of the gap buffer text editor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/gap-buffer-text-editor.gif', alt: 'Animated walkthrough of the gap buffer text editor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
@@ -259,6 +259,14 @@ export const article = {
         'The flat-array approach breaks when edits happen in the middle. Inserting one character at position k shifts n - k characters. A burst of 50 keystrokes at the same spot triggers 50 separate shifts of the same suffix. For a 100,000-character file with the cursor at position 1,000, that is 50 copies of 99,000 characters each -- nearly 5 million character moves for one sentence of typing.',
         'A linked list avoids shifting, but it destroys cache locality, makes rendering expensive (one pointer chase per character), and eliminates the ability to do fast bulk operations like search, save, or line counting. The structure that solves the shifting problem must keep contiguous memory for the common case.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list with nodes connected by pointers', caption: 'A linked list avoids suffix shifts but pays pointer-chasing costs that hurt rendering and search. Source: Wikimedia Commons, Lasindi, public domain.'},
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Instead of moving text out of the way, move empty space to where the editing happens. A gap buffer keeps a block of unused capacity inside the array and repositions that block to the cursor. Once the gap is at the cursor, any number of local inserts fill empty slots without shifting anything. The cost of one gap movement is paid once; the burst of edits that follows is nearly free.',
+        'This is the same amortization logic behind dynamic arrays, but applied spatially rather than temporally. A dynamic array pays an O(n) copy once every n appends. A gap buffer pays an O(distance) copy once per cursor jump, then gets O(1) inserts for the entire local editing burst. Both structures bet that the expensive event is rare relative to the cheap one.',
+        'The bet is well-placed because human editing is local. Studies of keystroke logs show that the vast majority of edits happen within a few lines of the previous edit. The gap buffer converts that behavioral regularity into a performance guarantee.',
       ],
     },
     {
@@ -315,7 +323,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         'GNU Emacs used a gap buffer from its first C implementation in 1984 through the present day. For single-cursor editing of source files (typically under 100 KB), the gap buffer is hard to beat: zero metadata overhead, excellent cache behavior, trivial implementation, and sub-microsecond insert latency.',
         {
@@ -347,6 +355,15 @@ export const article = {
             'Background refactoring tools: scattered machine edits pay full gap-movement cost each time.',
           ],
         },
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a 20-character document "The quick brown fox." is loaded into a gap buffer with 8 slots of initial gap capacity, giving a 28-slot array. The cursor starts at position 4 (after "The "). The array looks like: [T h e _ _ _ _ _ _ _ _ _ q u i c k   b r o w n   f o x .]. Left span is "The ", gap is 8 slots, right span is "quick brown fox.".',
+        'The user types "very " (5 characters). Each character fills one gap slot and advances gap_start. After all 5 characters, the array is [T h e _ v e r y _ _ _ _ q u i c k   b r o w n   f o x .]. The gap shrank from 8 to 3 slots. Total work: 5 writes, zero shifts. The suffix "quick brown fox." never moved.',
+        'Now the user clicks at position 19 (before the period). The gap must move from position 9 to position 19. That copies 10 characters ("quick brow") from the right span to the left span: a memmove of 10 bytes. After the move, the array is [T h e _ v e r y _ q u i c k   b r o w _ _ _ n   f o x .]. The gap is now 3 slots wide at position 19.',
+        'The user types "!" (1 character). It fills one gap slot. Total cost for this entire editing session: 5 + 1 = 6 character writes and one 10-byte memmove. A flat array would have shifted the suffix on every single keystroke -- 5 shifts of 16 characters plus 1 shift of 1 character, totaling 81 character moves. The gap buffer did 16 moves total (6 writes + 10 in the memmove), saving about 80% of the work.',
       ],
     },
     {

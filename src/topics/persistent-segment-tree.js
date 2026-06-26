@@ -248,14 +248,15 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read each root pointer as a version name. Active nodes are the copied nodes on the update path, while unhighlighted shared nodes are still reachable from older roots and must not be mutated.',
         {type: 'image', src: './assets/gifs/persistent-segment-tree.gif', alt: 'Animated walkthrough of the persistent segment tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'In the query view, the same interval can produce different answers because the traversal starts from a different root. The safe inference is that version identity is carried by the root pointer, not by timestamps stored inside every node.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A normal segment tree answers range queries over the current array. Many systems also need a previous array, the state before an edit, or the prefix version at a specific time.',
+        'A segment tree answers range queries over an array by storing aggregate values on intervals. A persistent segment tree keeps older versions queryable after updates, so time becomes part of the query.',
         { type: 'callout', text: 'Persistence turns a segment tree update into a new root plus a copied path, while untouched subtrees stay shared.' },
         {
           type: 'image',
@@ -263,98 +264,83 @@ export const article = {
           alt: 'Segment tree diagram with interval nodes above leaf segments',
           caption: 'A segment tree is already a hierarchy of intervals; persistence reuses the unchanged intervals across versions. Source: Wikimedia Commons.',
         },
-        'A persistent segment tree exists to make old versions queryable without copying the whole tree after every update. It turns a range-query structure into a timeline of immutable roots.',
+        'This exists for undo, audit history, snapshot reads, and historical indexes. The goal is to preserve old answers without copying the whole array or replaying a long edit log for every old query.',
       ],
     },
     {
-      heading: 'Naive baseline and wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The baseline is full snapshotting: after each update, copy the whole array or the whole segment tree. It is easy to reason about, but it costs O(n) space per version.',
-        'A second baseline is a log of updates. To answer an old query, replay or undo changes until the right time. That saves space in some workloads, but it makes historical queries depend on the distance through the log.',
-        'The wall is that a point update only changes one root-to-leaf path, while ordinary mutation destroys the old path. We want to preserve old answers without paying for unchanged subtrees again.',
+        'The obvious approach is full snapshotting. After every update, copy the whole array or rebuild the whole segment tree, then store that copy as the next version.',
+        'A second approach is an update log. Store every mutation and reconstruct an old version by replaying or undoing operations until the target time is reached.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        'Copy only the path that changes. A point update creates a new root, copies one node per level down to the leaf, recomputes copied aggregates on the way back up, and reuses every untouched subtree.',
-        'The invariant is reachability immutability: once a node is reachable from an existing version root, future updates must not mutate that node. New versions may point to shared old nodes, but changed nodes are fresh copies.',
-        'A version is just a root pointer. Query root v0 and you see the old reachable graph. Query root v1 and you see the copied path plus all unchanged shared subtrees.',
+        'Full snapshotting spends O(n) space per version even when one point changed. With a million elements and ten thousand edits, the copies dominate the data the user actually changed.',
+        'An update log makes historical queries depend on distance through time. A query for an old snapshot may need many replay steps, which turns a range query into a history-reconstruction problem.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'In the path-copying view, compare the old root v0 with the new root v1. The highlighted new nodes are exactly the copied root-to-leaf path for the updated index. The unhighlighted reused subtrees are the reason the update is O(log n) space instead of O(n).',
-        'In the versioned-query view, treat each root as a snapshot handle. The same range query can return different sums because it starts from a different root. The old leaf and new leaf both exist; which one you reach depends on the version root.',
-        'The persistence-level table distinguishes partial persistence from full persistence. Most uses query old versions freely but create new versions through controlled update paths, because unconstrained branching and merging add complexity.',
+        'A point update changes only intervals that contain the updated index. In a balanced segment tree, those intervals form one root-to-leaf path.',
+        'Copy that path, recompute aggregates on the copied nodes, and reuse every untouched subtree. The invariant is reachability immutability: once a node is reachable from an old root, future updates never mutate it.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'For a point update, copy the current root. Recurse into the child whose interval contains the updated index, copying that child as well. The sibling child is reused. Continue until the leaf, replace the leaf value, then recompute sums or other aggregates on copied ancestors.',
-        'Store the returned root pointer as the next version. Nothing about the old root changes. A range query is the ordinary segment-tree query algorithm, except its first argument is the root for the version being queried.',
-        'For order-statistic variants, the tree is often built over compressed values instead of array positions. Each prefix version adds one value. A query over subarray [l, r] subtracts counts in root r and root l - 1 while descending the value tree.',
+        'To update an index, allocate a new root. Recurse into the child interval that contains the index, copying that child, while the sibling pointer is reused unchanged.',
+        'At the leaf, store the new value in a fresh leaf node. On the way back up, recompute each copied aggregate from its children and return the new root as the next version.',
+        'A range query is the ordinary segment-tree query with one extra argument: the version root. Querying v0 walks the old graph, and querying v1 walks the copied path where the update changed the relevant intervals.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
-        'The update is correct because a point update changes exactly the intervals that contain the updated index. In a balanced segment tree, those intervals form one root-to-leaf path. Every interval outside that path has the same aggregate as before, so reusing its node preserves the right value.',
-        'The old version remains correct because none of its reachable nodes are modified. The new version is correct because every changed interval was copied and recomputed from its children. This is the same induction used for ordinary segment-tree updates, with immutability added to protect old roots.',
+        'The update is correct because the only changed aggregates are intervals containing the updated index. Every interval outside that path has the same contents as before, so reusing its node preserves the right value.',
+        'Old versions remain correct because their reachable nodes are not modified. New versions are correct by the same induction as an ordinary segment-tree update: copied leaves are correct, and copied parents recompute from correct children.',
+        'Sharing is safe only under immutability. If a shared child is changed in place, every older root that reaches it is silently corrupted, so copy-before-write is the proof obligation.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Start with [1, 3, 2, 4]. Version 0 has total sum 10. Update index 3 from 4 to 11. Only intervals [0,3], [2,3], and [3] change, so version 1 copies those three nodes and reuses [0,1] and [2].',
-        'Now sum [2,3] at v0 follows the old root to the old [2,3] node and returns 2 + 4 = 6. The same query at v1 follows the new root to the copied [2,3] node and returns 2 + 11 = 13. Both answers are available because both roots remain live.',
+        'The initial tree uses O(n) nodes. Each point update copies O(log n) nodes, and each range query still takes O(log n) time in a balanced segment tree.',
+        'After m point updates, total node count is O(n + m log n). When n doubles, tree height grows by one, so each update copies one more node level rather than doubling update cost.',
+        'The hidden cost is retention. Old roots keep shared nodes live, so memory use depends on how many versions the application keeps and how quickly unused roots can be released.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The initial tree costs O(n) space. Each point update creates O(log n) new nodes. A range query remains O(log n). After m point updates, total space is O(n + m log n).',
-        'The memory growth is real. Old roots keep shared nodes alive, so retention policy matters. If users can keep every version forever, garbage collection and storage pressure become part of the data-structure design.',
-        'Range updates with lazy propagation are possible, but the mutation rules become stricter. Lazy tags and child pointers on shared nodes must be copied before modification. The most common bug is accidentally mutating a node that an old root can still reach.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Represent nodes so sharing is visible. A node should contain its aggregate and child references; an update should allocate new nodes on the changed path and reuse child references for untouched intervals. Avoid helper functions that quietly mutate a child aggregate in place, because that breaks every old root that reaches the child.',
-        'Store version roots in a separate array or map with clear retention rules. If the product needs undo for the last 100 edits, old roots beyond that window can be released. If it needs audit history, roots may be durable records and memory compaction becomes a storage design problem.',
-        'For lazy range updates, copy before pushing tags. A shared node with a pending tag cannot be pushed into shared children in place. The safe rule is simple: if an operation would change a node or its children, allocate the new version of that part of the graph first.',
-      ],
-    },
-    {
-      heading: 'Testing persistence',
-      paragraphs: [
-        'The best tests compare against plain arrays. Keep an array snapshot for each version, run random point updates and range queries, and assert that every persistent-tree query matches the corresponding array snapshot. Then query older versions after many later updates to prove they did not drift.',
-        'Add identity checks when possible. An update to index 3 should reuse the entire left subtree in the example, while copying only the intervals that contain index 3. That confirms the implementation is actually persistent and not secretly rebuilding or mutating too much.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It wins in undoable editors, historical analytics, immutable indexes, competitive-programming order statistics, audit trails, snapshot reads, and functional-programming settings where old values should remain addressable.',
-        'It is especially strong when versions are cheap to create and old queries are common. A root pointer is a compact name for a whole historical state.',
+        'Competitive-programming order-statistic queries use persistent segment trees over value counts. Prefix roots let a query over subarray [l, r] subtract root l - 1 from root r while descending to the k-th value.',
+        'Undo systems and historical analytics use the same idea. A root pointer gives a cheap name to a whole past state, so users can query old data without replaying every edit.',
+        'Snapshot isolation in databases is a systems-level cousin. The exact structures differ, but the contract is similar: readers see an immutable historical view while writers create newer versions.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when versions are not needed. A normal mutable segment tree is simpler, faster in constant factors, and uses less memory.',
-        'It also fails if the implementation treats shared nodes casually. One accidental in-place update can silently corrupt older versions. Persistence is a discipline, not just an extra array of roots.',
-        'It is not a complete database snapshot system by itself. Authorization, transaction boundaries, compaction, retention, and consistency semantics still need separate design.',
+        'It fails when old versions are not needed. A mutable segment tree has smaller constants, fewer allocations, simpler cache behavior, and less garbage-collection pressure.',
+        'It becomes tricky with lazy range updates. Tags on shared nodes cannot be pushed into children in place, so the implementation must copy every node whose tag or child pointer would change.',
+        'It is not a complete storage system. Version authorization, retention, compaction, serialization, and transaction semantics must be designed around the data structure.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Segment Tree first, then compare Persistent Segment Tree with Sparse Table for static queries and Fenwick Tree for mutable prefix aggregates. For systems analogies, study Git Internals, MVCC Internals & VACUUM, and Write-Ahead Log.',
-        'For the theory foundation, read Driscoll, Sarnak, Sleator, and Tarjan on making data structures persistent.',
+        'Start with array [1, 3, 2, 4]. Version 0 has total sum 10, and the interval [2,3] has sum 2 + 4 = 6.',
+        'Update index 3 from 4 to 11. The changed intervals are [3], [2,3], and [0,3], so version 1 copies exactly those nodes and reuses the [0,1] subtree and the [2] leaf.',
+        'Now sum [2,3] at v0 still follows the old root to the old [2,3] node and returns 6. The same query at v1 follows the new root to the copied [2,3] node and returns 2 + 11 = 13.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The theory source is Driscoll, Sarnak, Sleator, and Tarjan, Making Data Structures Persistent. It explains partial and full persistence and the copy-on-update discipline behind structures like this one.',
+        'Study Segment Tree first, then Fenwick Tree and Sparse Table for neighboring range-query tradeoffs. For systems analogies, study Git Internals, MVCC snapshot isolation, and Write-Ahead Log.',
       ],
     },
   ],

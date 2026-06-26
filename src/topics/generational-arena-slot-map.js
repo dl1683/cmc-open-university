@@ -233,102 +233,99 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'The visualization offers two views. "Handle lifecycle" shows how an arena stores a value, issues a handle, and validates lookups against the slot\'s generation counter. "Free list and ABA" shows what happens when a slot is freed, reused by a new value, and an old handle tries to reach the old occupant.',
+        'Each frame highlights the active nodes and edges in the graph or matrix. Green marks the path the current operation follows; red marks rejected or stale elements. Step through slowly the first time to watch how the generation counter changes on deletion and how the free list threads through empty slots.',
         {type: 'image', src: './assets/gifs/generational-arena-slot-map.gif', alt: 'Animated walkthrough of the generational arena slot map visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A generational arena, also called a slot map, owns objects in an array of reusable slots and gives callers compact handles instead of raw references. A handle contains a slot index and a generation. The index finds a storage position. The generation proves that the position still contains the logical object the handle originally named.',
-        'The structure exists for programs with dynamic lifetimes and cross references: games, editors, graph algorithms, compiler IRs, simulations, UI trees, and ECS storage. These programs need stable ids, cheap deletion, and a way to reject old references after storage is reused.',
+        'Programs that manage many objects with dynamic lifetimes need a way to name those objects. Games track thousands of entities that spawn and die every frame. Compilers build intermediate representations whose nodes are created and deleted during optimization passes. Graph editors let users add and remove vertices while edges still reference them. All of these need stable identifiers that survive deletion and reuse of storage.',
+        'A generational arena (also called a slot map) solves this by storing objects in a flat array of reusable slots and returning compact handles instead of raw pointers or plain indices. Each handle pairs a slot index with a generation counter. The index says where to look; the generation says which occupant the caller expects to find there.',
         {type: 'callout', text: 'A generational handle separates location from identity: the index finds a slot, and the generation proves the current occupant is the one the handle meant.'},
-        'The problem is not just memory allocation. It is identity over time. Programs want to delete an object and reuse its storage without letting old ids accidentally reach the next object placed in that slot.',
+        'The core problem is identity over time. When an object is deleted and its storage is reused, old references must not silently reach the new occupant. The generation counter makes reuse visible.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is a plain array plus integer ids. Store object A at index 7, hand out 7, and use array[7] later. This is fast until deletion arrives. If removal shifts the array, every later id changes. If removal leaves holes, the program now has to manage reuse.',
-        'A Vec<Option<T>> or array of nullable slots fixes shifting but creates the ABA bug. Slot 7 can hold A, then be empty, then hold B. An old index-only reference to A still says 7, so it can accidentally read B. The index did not change, but the identity did.',
-        'Raw pointers and borrowed references have a different wall. They bind callers to a lifetime the program may not be able to express across undo logs, graph edges, serialized scenes, scripting callbacks, or dynamic entity deletion. A handle is explicit data. It can be stored, copied, serialized, compared, and rejected.',
+        'Store objects in an array and hand out integer indices. Object A goes into slot 7, so the caller remembers 7 and later reads array[7]. Insertion is O(1) by appending. Lookup is O(1) by indexing. This works well until objects are deleted.',
+        'If deletion shifts the array to fill the gap, every index above the deleted position becomes wrong. If deletion leaves a hole (sets slot 7 to null), the index still works but the program must track which slots are empty so it can reuse them. Neither option addresses the deeper issue: the index 7 is now ambiguous.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        'Reuse must change the name. A slot index tells you where to look; a generation tells you which occupant you expected to find there. Handle 7:g2 and handle 7:g3 name the same storage position but different lifetimes.',
+        'The ambiguity is called the ABA problem. Slot 7 holds object A, then A is deleted, then object B is inserted into the same slot. An old reference that remembers index 7 now silently reaches B instead of A. The index did not change, but the identity behind it did. In a game, this means an AI targeting a dead enemy starts attacking a door that happened to reuse the same slot.',
+        'Raw pointers and borrowed references avoid the index ambiguity but create a different wall. They tie the caller to a memory lifetime the program may not be able to express across undo histories, serialized save files, scripting language boundaries, or dynamic entity graphs. Handles are plain data: they can be copied, serialized, compared, and stored anywhere without lifetime entanglement.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Attach a version number to each slot. Every time a slot is freed, increment its version (called the generation). The handle records both the index and the generation observed at insertion time. On lookup, compare the handle\'s generation to the slot\'s current generation. If they differ, the handle is stale and the lookup is rejected.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list with nodes connected by pointers', caption: 'Free slots often form an internal linked list: the arena reuses empty storage without allocating a separate node for every hole. Source: Wikimedia Commons, Lasindi, public domain.'},
-        'The invariant is small enough to audit: a handle is valid only when the index is in range, the slot is occupied, and the slot generation equals the handle generation. Insert, remove, free-list linking, and generation-wrap policy all exist to preserve that sentence.',
-      ],
-    },
-    {
-      heading: 'Animation and readouts',
-      paragraphs: [
-        'In the handle-lifecycle view, the graph separates the handle from the payload on purpose. The handle node points to slot 7, but it does not own the value and it is not a memory address. The lookup succeeds only because slot 7 is live and its generation matches the handle.',
-        'The slot-table frame shows the hidden storage layout. Live rows store payloads. Free rows reuse their payload field as a next-free pointer, so the arena does not allocate a separate linked-list node for every hole. The highlighted generation cell is the stale-reference guard.',
-        'In the ABA view, watch the old handle stay visually unchanged while the slot changes generation. That generation bump is the stale-reference defense. Reusing index 7 is safe only because the old 7:g2 handle is no longer accepted after slot 7 moves to generation 3.',
-        'The readout does not prove a full production design by itself. It does not show generation wrap, concurrent mutation, serialization policy, or dense-iteration side indexes. Those choices decide whether the same invariant remains strong under long runtimes and larger systems.',
+        'The invariant fits one sentence: a handle is valid only when the index is in range, the slot is occupied, and the slot\'s generation equals the handle\'s generation. Every operation in the data structure exists to preserve this invariant.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Each slot stores a generation, an occupancy bit or enum, and either a payload or a next-free pointer. Insert pops the head of the free list when one exists, writes the payload, marks the slot live, and returns a handle containing the slot index and current generation. If no free slot exists, insert appends a new slot.',
-        'Remove checks the handle first. If it is valid, the arena clears the payload, advances the slot generation, marks the slot free, and links the slot into the free list. A double remove should fail because the slot is no longer occupied or the generation no longer matches.',
-        'Lookup is deliberately boring: read slots[handle.index], check occupied, compare generations, and return the payload only on a match. That one comparison turns a raw location into a revocable authority.',
+        'Each slot stores three fields: a generation counter, an occupancy flag (live or free), and either a payload or a next-free pointer. Free slots reuse their payload field to store the index of the next free slot, forming an intrusive linked list inside the array. This avoids allocating separate list nodes for free-slot tracking.',
+        'Insert pops the head of the free list. If the free list is empty, it appends a new slot to the array. It writes the payload into the slot, marks it live, and returns a handle containing the slot index and the slot\'s current generation. The generation is not incremented on insert; it was already incremented when the slot was freed.',
+        'Remove validates the handle first. If the handle\'s generation matches the slot\'s generation and the slot is occupied, the arena clears the payload, increments the slot\'s generation, marks the slot free, and pushes the slot index onto the free list. A second remove with the same handle fails because the generation no longer matches.',
+        'Lookup reads slots[handle.index], checks that the slot is occupied, and compares generations. On a match it returns the payload. On a mismatch it returns nothing. That single integer comparison is the entire stale-reference defense.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The generation is a version number for the lifetime of the slot occupant. Any handle created before removal carries the old version. Any value inserted after removal gets a newer version. Because lookup requires equality, an old handle cannot silently reach the new value.',
+        'The generation counter partitions the timeline of a slot into epochs. Handle 7:g2 names the second epoch of slot 7. When that epoch ends (the object is deleted), the slot advances to generation 3. Any handle still carrying generation 2 will fail the equality check against generation 3, so it cannot reach the next occupant.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state transition diagram', caption: 'Generation checks turn slot reuse into a state transition: live, freed, then live again with a new version. Source: Wikimedia Commons, state transition diagram.'},
-        'This is the same defense shape as tagged pointers in ABA-resistant concurrent structures: location alone is not enough when storage can leave and return to the same address or index. Add a tag, advance the tag on reuse, and stale observations become detectable.',
+        'This is the same defense used in ABA-resistant concurrent data structures with tagged pointers. The tag (generation) makes it possible to distinguish "same address, different lifetime" from "same address, same lifetime." The principle is general: whenever storage can be recycled, attach a monotonically increasing version so that stale observers can detect the change.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A game creates enemy#41 in slot 7 and returns handle 7:g3. The AI system stores that handle as its target. The enemy dies. Remove validates 7:g3, clears the payload, advances slot 7 to generation 4, and pushes slot 7 onto the free list.',
-        'A door object is inserted later and reuses slot 7. It receives handle 7:g4. The AI still holding 7:g3 tries to read its target. The index lands on slot 7, but the generation check fails, so the lookup returns missing instead of attacking the door.',
+        'Insert is O(1): pop the free list head (or append) and write the payload. Remove is O(1): validate, clear, bump generation, push onto free list. Lookup is O(1): one array index, one comparison, one conditional return. Memory is contiguous, so cache behavior is good for random access patterns.',
+        'Iteration is where variants diverge. A simple arena scans every slot and skips freed ones, making iteration O(capacity) rather than O(live count). If 10,000 slots exist but only 200 are live, iteration wastes time on 9,800 holes. A dense slot map adds a secondary compact array of live indices so iteration is O(live count), at the cost of extra bookkeeping on insert and remove.',
+        'Handle size depends on how many bits are allocated to the index and the generation. A 32-bit handle might pack 20 bits of index (1M slots) and 12 bits of generation (4,096 reuses before wrap). A 64-bit handle can afford 32 bits for each, giving billions of slots and billions of reuses. The generation width determines how many times a single slot can be recycled before the counter wraps and old handles become falsely valid again.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Insert, remove, and get are O(1) in the usual design. Memory is mostly contiguous, handles are small, and deletion does not move unrelated values. The free list keeps reuse cheap because a free slot already contains the pointer to the next free slot.',
-        'Iteration depends on the variant. A simple arena scans every slot and skips holes, so iteration is O(capacity). A dense slot map keeps a compact live list and pays extra bookkeeping so iteration is O(live count). Pick based on whether your workload does more random handle lookup or more full scans.',
-        'Generation width is not cosmetic. If a small generation counter wraps while stale handles still exist, stale detection can fail. Production designs use enough bits, delay reuse, avoid exposing handles across unbounded lifetimes, or combine the handle with a stronger external identity when serialization requires it.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Generational arenas win when objects need stable ids, frequent deletion, compact ownership, and cheap validity checks. They fit ECS entities, compiler IR nodes, UI widgets, scene graph nodes, graph vertices, simulation objects, and editor resources.',
+        'Entity-component-system (ECS) frameworks use generational arenas as their entity storage. Bevy (Rust game engine) stores entities in a generational arena and exposes entity ids that are index-generation pairs. The slotmap and generational-arena Rust crates provide ready-made implementations used across the ecosystem.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Graphs and scene structures need stable cross references even as nodes are deleted and reused. Source: Wikimedia Commons, David W., public domain.'},
-        'They are often simpler than reference counting for cyclic graphs and safer than naked indices for reusable storage. They also make debugging easier because a failed lookup is explicit: the handle is stale, out of range, or points at a freed slot.',
+        'Compiler intermediate representations use slot maps for instruction and basic-block identifiers. Graph editors use them so that edge endpoints remain valid even after vertex deletion. UI frameworks use them for widget trees where nodes are frequently created and destroyed. In all cases the pattern is the same: many objects with dynamic lifetimes, cross-references between them, and a need for cheap validity checks.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A slot map is not a universal ownership model. It does not by itself solve concurrent mutation, stable iteration order, referential integrity across durable databases, or memory compaction with borrowed references into payloads. The handle validates the slot; it does not validate every semantic relationship around the object.',
-        'It can also waste scan time when many slots are holes. If most work is dense iteration over live objects, pair the arena with a dense live list, a sparse set, or an archetype store. If ids must be public and permanent, use a domain id and treat the arena handle as an internal cache key.',
+        'Generation wrap is the fundamental weakness. If a slot is freed and reused 2^N times (where N is the generation bit width), the counter wraps to its original value and a stale handle becomes falsely valid. With a 12-bit generation, this happens after 4,096 reuses of a single slot. Long-running systems with high churn on a small number of slots are at risk.',
+        'Dense iteration requires extra machinery. A bare arena with many holes forces O(capacity) scans. If the workload is dominated by iterating all live objects (as in game physics), the arena alone is not enough; it must be paired with a dense live list or a sparse set.',
+        'The handle validates the slot, not the semantic relationship. An arena cannot enforce that deleting entity A should also clean up every edge pointing to A. Referential integrity across a graph requires additional bookkeeping on top of the arena. The handle is a revocable capability for one slot, not a garbage collector.',
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Use handles as capabilities, not as array indexes exposed for casual arithmetic. Keep handle construction inside the arena, validate handles on every public get or remove, and make failed lookup a normal result instead of an exception path.',
-        'Pick generation width from the lifetime of stale handles, not from the current demo size. If handles can be serialized, stored in undo logs, or held by scripts for a long time, a tiny generation counter is a bug waiting for wraparound. If iteration is the main workload, add a dense live list early instead of discovering later that every frame scans a mostly empty capacity.',
+        'Start with an arena of 10 slots, all free, all at generation 0. The free list chains them: head -> 0 -> 1 -> 2 -> ... -> 9 -> end.',
+        'Insert enemy#41. Pop slot 0 from the free list. Write enemy#41 as the payload, mark slot 0 live. Slot 0\'s generation is still 0. Return handle {index: 0, gen: 0}. The AI system stores this handle as its target.',
+        'Insert door#12. Pop slot 1. Write door#12, mark live. Return handle {index: 1, gen: 0}.',
+        'The enemy dies. Remove is called with handle {index: 0, gen: 0}. Check: slot 0 is live and its generation (0) matches the handle\'s generation (0). Valid. Clear the payload, increment slot 0\'s generation to 1, mark it free, push slot 0 onto the free list head. Free list is now: head -> 0 -> 2 -> 3 -> ... -> 9 -> end.',
+        'Insert crate#7. Pop slot 0 from the free list. Write crate#7, mark live. Slot 0\'s generation is now 1. Return handle {index: 0, gen: 1}.',
+        'The AI system tries to read its stored target using the old handle {index: 0, gen: 0}. Slot 0 is live, but its generation is 1, not 0. The comparison fails. Lookup returns nothing. The AI detects that its target no longer exists instead of accidentally targeting crate#7. Total cost of that safety check: one integer comparison.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary references: generational-arena crate docs at https://docs.rs/generational-arena/latest/generational_arena/, slotmap crate docs at https://docs.rs/slotmap/latest/slotmap/, and Bevy ECS entity docs at https://docs.rs/bevy/latest/bevy/ecs/entity/index.html. These sources describe generational indices, persistent unique keys, and entity ids used in production ECS-style storage.',
-        'Study ABA Tagged Pointer Stack for the version-tag pattern under concurrency, Sparse Set Entity Index for dense iteration plus membership, Archetype ECS Column Store for stable component bundles, Slab Allocator and Size Classes for slot reuse without generations, and Hash Table for a contrasting id-to-object map.',
+        'The generational-arena crate (https://docs.rs/generational-arena/latest/generational_arena/) and slotmap crate (https://docs.rs/slotmap/latest/slotmap/) document the two main Rust implementations with different design tradeoffs. Bevy\'s entity system (https://docs.rs/bevy/latest/bevy/ecs/entity/index.html) shows how generational indices work inside a production game engine. Catherine West\'s RustConf 2018 closing keynote, "Using Rust for Game Development," walks through why generational arenas replaced reference-counted pointers in game entity storage.',
+        'Study next: ABA Tagged Pointer Stack for the version-tag pattern under concurrency. Sparse Set Entity Index for dense iteration with O(1) membership testing. Archetype ECS Column Store for how ECS frameworks group components by type. Slab Allocator and Size Classes for slot reuse without generation counters. Hash Table for comparison: O(1) lookup by key but no contiguous storage or handle compactness.',
       ],
     },
   ],

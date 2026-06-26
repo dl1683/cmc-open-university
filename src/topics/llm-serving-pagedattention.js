@@ -1,4 +1,4 @@
-﻿// LLM serving case study: KV-cache memory is the real serving bottleneck.
+// LLM serving case study: KV-cache memory is the real serving bottleneck.
 // PagedAttention treats cache blocks like virtual-memory pages, while
 // continuous batching keeps the GPU busy as requests arrive and finish.
 
@@ -243,166 +243,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for LLM Serving: PagedAttention. How vLLM turns KV cache into paged memory and pairs it with continuous batching for high-throughput inference..",
+        'Read the first table as memory accounting for KV cache, which stores past key and value tensors needed during decode. Used tokens are real state; reserved tokens are memory held for possible future tokens. The safe inference is that changing the allocation unit from a slab to blocks reduces stranded memory without changing the logical token order.',
         {type: 'callout', text: "PagedAttention makes KV cache a block-mapped memory system, so scheduling can follow live tokens instead of reserved slabs."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      
-        {type: 'image', src: './assets/gifs/llm-serving-pagedattention.gif', alt: 'Animated walkthrough of the llm serving pagedattention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
+        {type: 'image', src: './assets/gifs/llm-serving-pagedattention.gif', alt: 'Animated walkthrough of the llm serving pagedattention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Large language model serving is often limited less by raw arithmetic and more by the memory needed to keep many conversations alive. During decode, every active request stores a key and value tensor for each generated token, layer, and attention head. That KV cache is the reason the server does not need to recompute the whole prompt at every token, but it also grows one token at a time for every request in flight.',
+        'Large language model serving keeps a KV cache for every live request so the model does not recompute old tokens at every new token. That cache grows with layers, heads, head dimension, precision, and token count. PagedAttention exists because this long-lived memory, not only arithmetic, limits how many users one GPU can serve at once.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Cache_hierarchy.svg', alt: 'Cache hierarchy diagram from CPU registers through storage', caption: 'PagedAttention is a serving-specific memory hierarchy move: scarce fast memory holds the live KV state needed by decode. Source: Wikimedia Commons, CC BY-SA 4.0.'},
-        'PagedAttention exists because this growth pattern is hostile to simple GPU memory allocation. Real users send short prompts, long prompts, early-stopping outputs, streaming chats, beam branches, and retries. A serving engine needs a way to pack that irregular state into HBM without wasting most of the space on tokens that might never be generated.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to reserve one contiguous KV region for each request at the maximum allowed length. It is simple, and it makes kernel addressing easy. It also turns unused future tokens into occupied GPU memory. If a request reserves 4096 token slots and stops after 350 tokens, the remaining slots are unavailable to other users even though they hold no useful information.',
-        'Another tempting fix is compaction: move live cache tensors together after requests finish. That works poorly in a decode server. Moving large tensors steals bandwidth from inference, complicates pointer validity, and happens exactly when the scheduler is trying to admit new work. The deeper problem is not that memory needs occasional cleanup. The problem is that one request owns too large a physical region.',
+        'The obvious approach is to reserve one contiguous cache region for each request at its maximum allowed length. Addressing is simple because token positions map into one slab. It is also easy to reason about in a single-request prototype.',
+        'The approach wastes memory in real traffic. If a request reserves 4,096 token slots and stops after 350 tokens, most of the slab is unavailable to other users. Moving slabs around later would consume memory bandwidth and complicate every pointer the kernels use.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is fragmentation under variable-length decode. Users send different prompt lengths, stop at different output lengths, cancel requests, branch beams, and share prefixes. A slab allocator makes future possible tokens occupy physical HBM even when they do not exist.',
+        'Continuous batching makes the wall sharper. The scheduler wants to admit and retire requests every token step, but slab allocation makes each admission a large memory decision. The system needs memory ownership to move at token-block granularity instead of request-maximum granularity.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'PagedAttention borrows the central move from virtual memory. Logical positions in a sequence are separated from physical storage blocks. The request owns a block table. The block table says which fixed-size KV blocks contain the keys and values for each range of token positions. The blocks themselves can be scattered through GPU memory.',
-        'This changes the unit of ownership. A request no longer owns one giant slab. It owns a logical list of block references that can grow as tokens arrive, release blocks as the request ends, share blocks with a related request, or spill blocks under pressure. The attention kernel pays the cost of following the table, but the serving system gains a memory model that matches variable-length decoding.',
-      ],
-    },
-    {
-      heading: 'Block Tables',
-      paragraphs: [
-        'The block table is the data structure that makes the idea operational. For each sequence, it maps logical token block number 0, 1, 2, and so on to a physical KV block. The kernel uses that mapping when it gathers old keys and values for attention. Correctness depends on exact addressability: the logical token position must resolve to the KV state produced for that token, request branch, layer, and head.',
-        'Fixed-size blocks reduce external fragmentation because any free block can satisfy any request. They also bound internal fragmentation because only the last block of a sequence is partly empty. In a serving workload with many partially completed requests, that is a large improvement over reserving a whole maximum-length slab per request.',
-      ],
-    },
-    {
-      heading: 'Continuous Batching',
-      paragraphs: [
-        'PagedAttention is strongest when paired with iteration-level scheduling. Static batching groups requests and waits for the batch to finish or drain. That wastes GPU lanes because outputs have different lengths. Continuous batching admits and removes requests at each decode step. When one sequence finishes, another can enter on the next token iteration.',
-        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a datacenter', caption: 'Serving replicas must keep many users alive at once; continuous batching and paged KV allocation are local control loops inside that fleet. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
-        'The memory allocator and scheduler need each other. Continuous batching creates constant churn in the live set of sequences. PagedAttention makes that churn cheap enough to handle because joining a batch means allocating a few blocks, not carving a new contiguous slab. Leaving a batch means freeing block references, not compacting the world.',
+        'PagedAttention separates logical token positions from physical KV storage. Each sequence has a block table, and the table maps logical blocks to fixed-size physical blocks in GPU memory. The blocks do not need to be contiguous as long as the table resolves each token position to the right KV tensors.',
+        'This is the virtual-memory move applied to inference serving. A request owns references to blocks, not one giant slab. That lets blocks be allocated lazily, freed quickly, shared for prefixes, copied on write for branches, or moved under pressure.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The visual first compares used tokens with reserved tokens. The important column is waste. With naive reservation, every request carries a long unused tail. With paged allocation, each request receives only the blocks it needs, plus a small amount of slack in the final block. The point is not that memory becomes free. The point is that unused future tokens stop blocking real current users.',
-        'The block-table view then shows why logical and physical order do not need to match. A sequence can be contiguous in token space while scattered in memory space. The continuous-batching view shows the scheduling payoff: once cache ownership is block based, the server can admit, retire, and preempt requests at token boundaries.',
+        'The allocator divides KV cache into equal-size blocks. When a sequence needs more token capacity, the scheduler assigns another free block and records it in the block table. During attention, the kernel follows the table to gather keys and values for the logical prefix.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a datacenter', caption: 'Serving replicas must keep many users alive at once; continuous batching and paged KV allocation are local control loops inside that fleet. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
+        'The scheduler can now admit a request by assigning a few blocks instead of reserving a full maximum context. When a request finishes, its blocks return to the free list. When two requests share a prefix, their block references can share physical storage until one branch diverges.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is simple if the block table is correct. Attention for token t needs the keys and values for earlier tokens. PagedAttention still supplies those exact tensors. It only changes how the tensors are addressed. The model sees the same numerical state it would have seen in a contiguous cache layout.',
-        'The performance argument is about utilization. GPU HBM is scarce, and decode kernels are most efficient when the server can keep many active sequences in flight. Smaller allocation units let the system turn stranded capacity into additional concurrency. The serving engine can trade a little indexing complexity for a large reduction in wasted cache reservation.',
+        'Correctness depends on address preservation. Attention for token t needs the exact keys and values created by earlier tokens in the same sequence and layer. PagedAttention changes the lookup path, not the numerical state the model reads.',
+        'The block table is therefore the invariant. For every logical token block, it must point to the physical block containing that sequence state. If the table is correct, the model output matches a contiguous cache layout while memory utilization improves.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'PagedAttention is not free. The attention kernel must handle indirect block lookup, the scheduler must maintain block ownership, and the runtime needs reference counts for shared prefixes or beam branches. Bugs in this layer are serious because a stale mapping can expose cache from another request or make the model attend to the wrong tokens.',
+        'PagedAttention trades indexing work for capacity. Smaller blocks reduce wasted slack in the last block but increase metadata and lookup overhead. Larger blocks reduce table pressure but leave more internal fragmentation when sequences stop early.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die with many processing blocks', caption: 'The benefit is economic only if block lookup overhead is smaller than the HBM capacity recovered for more live sequences. Source: Wikimedia Commons, Nvidia, public domain.'},
-        'There is also a tuning problem. Smaller blocks reduce slack but increase table size and lookup overhead. Larger blocks reduce metadata but waste more space in the last block. The best size depends on model shape, average sequence length, hardware, kernel design, and whether prefix sharing or offload is common.',
+        'The behavior changes when demand doubles. If memory was the bottleneck, recovered blocks can admit more live sequences and lower cost per token. If arithmetic or network transfer was already the bottleneck, better packing may not increase useful throughput.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'PagedAttention wins in high-concurrency services with variable prompt and output lengths: public chat APIs, internal copilots, RAG systems, coding agents, batch inference jobs, and any serving pool that mixes short and long requests. It is especially useful when the server runs near memory capacity and a small reduction in waste admits many more live sequences.',
-        'It also enables features that are awkward with slab allocation. Beam search can share prefix blocks and copy on write after divergence. Prefix caching can reuse system prompts or common documents. Preemption can evict or transfer blocks. Tiered KV systems can move blocks across HBM, CPU memory, SSD, or remote storage while keeping a stable logical identity.',
+        'PagedAttention fits high-concurrency LLM serving with mixed prompt lengths and output lengths. Public chat APIs, internal copilots, RAG services, agent backends, and batch inference pools all benefit when many partially complete requests share one GPU. The feature is most valuable near memory capacity, where a small reduction in waste admits many more live sequences.',
+        'It also enables serving behaviors that slabs handle poorly. Beam search can share prefix blocks, prefix caching can reuse common system prompts, preemption can move blocks instead of whole slabs, and tiered KV systems can decide which blocks stay in HBM.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'PagedAttention does not reduce the true byte cost of KV cache. A long active context still consumes memory proportional to layers, heads, head dimension, precision, and token count. It reduces fragmentation and improves control. If demand is dominated by extremely long contexts, the system still needs admission control, context limits, offload policy, or more hardware.',
-        'It is also different from FlashAttention. FlashAttention improves IO efficiency inside attention computation. PagedAttention manages long-lived KV storage across requests. A mature serving stack often uses both, along with quantization, chunked prefill, speculative decoding, and routing. Confusing these layers leads to wrong performance explanations.',
+        'PagedAttention does not reduce the true size of a long active context. A 100,000-token request still needs KV memory proportional to token count, model width, layers, and precision. The technique reduces fragmentation and improves control; it does not make long contexts free.',
+        'It also adds a dangerous correctness surface. A stale block pointer can make one request attend to another request state, and a reference-count bug can corrupt shared prefixes. The allocator, scheduler, and kernels must be tested as one memory system, not as an isolated optimization.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study KV Cache first, because PagedAttention is an allocator for that state. Then read Attention Mechanism, FlashAttention Case Study, Prefix Caching and RadixAttention, Chunked Prefill Token Budget Scheduler, Speculative Decoding, Prefill and Decode Disaggregation, KV Cache Transfer Fabric, KV Cache Tiered Offload Store, SLO-Aware LLM Request Router, Tail Latency, and Transformer Inference Roofline.',
-        'Primary references worth reading are the PagedAttention paper, the vLLM project and documentation, and Orca iteration-level scheduling. They show the same lesson from different angles: production LLM serving is a memory-management and scheduling problem as much as it is a model problem.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Use a block size of 4 token slots. Requests A, B, and C have generated 6, 11, and 4 tokens. A slab allocator reserving 16 slots each holds 48 slots total, uses 21, and wastes 27.',
+        'Paged allocation gives A two blocks for 8 slots, B three blocks for 12 slots, and C one block for 4 slots. It holds 24 slots, uses 21, and wastes 3. The same logical tokens are available to attention, but 24 slots return to the system for other users.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Read the PagedAttention paper at https://arxiv.org/abs/2309.06180 and the vLLM project documentation for implementation context. Read Orca for iteration-level scheduling, because the memory allocator and scheduler solve adjacent parts of the same serving problem.',
+        'Study KV cache, attention, FlashAttention, continuous batching, chunked prefill, prefix caching, speculative decoding, and tail-latency routing. The next exercise is to compute reserved, used, and wasted slots for three requests under slab and paged allocation.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why LLM Serving: PagedAttention moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

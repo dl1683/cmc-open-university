@@ -228,8 +228,9 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
         {type: 'image', src: './assets/gifs/morton-code-z-order-curve.gif', alt: 'Animated walkthrough of the morton code z order curve visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+        'Read the grid as integer coordinates being turned into one sortable key. Active cells show the current point or bit group, and found cells show the Z-order position implied by the interleaved bits.',
+        'The safe inference rule is prefix locality. Points with the same high-order Morton prefix share a coarse quadrant, even though Morton order is not an exact distance metric.',
       ],
     },
     {
@@ -237,73 +238,80 @@ export const article = {
       paragraphs: [
         {type: 'callout', text: 'A Morton key is a quadtree path encoded as a sortable integer.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Four-level_Z.svg/330px-Four-level_Z.svg.png', alt: 'Four iterations of the Z-order curve', caption: 'Z-order recursively visits quadrants in the same prefix pattern that Morton bits encode. Source: Wikimedia Commons, David Eppstein, public domain.'},
-        'A Morton code, also called a Z-order key, converts a point on an integer grid into one sortable integer by interleaving coordinate bits. In two dimensions the key alternates bits from x and y. In three dimensions it alternates x, y, and z. Sorting by that key walks the grid in a recursive Z pattern: visit a quadrant, then its neighbor, then the quadrant below, then the diagonal child, and repeat the same rule inside each child.',
-        'The point is not to compute Euclidean distance. The point is to make ordinary one-dimensional machinery behave spatially enough to be useful. Arrays can be sorted by Morton code. B-trees can index Morton prefixes. Files can be clustered by Z-order columns. GPU builders can sort triangle centroids before constructing a bounding-volume hierarchy. A Morton code is the encoding layer between multidimensional geometry and normal ordered storage.',
+        'Spatial data has two or more coordinates, but files, sorted arrays, B-trees, and cache lines are mostly one-dimensional. A Morton code, also called Z-order, maps grid coordinates to one integer while preserving useful coarse locality.',
+        'The goal is not exact nearest-neighbor search. The goal is to let ordinary sorted storage group nearby regions well enough that exact geometry checks have fewer candidates to inspect.',
       ],
     },
     {
-      heading: 'The real problem',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Spatial data is two- or three-dimensional, but disks, indexes, cache lines, sort keys, and file names are mostly one-dimensional. If you sort points by x, points with nearby y values can be scattered across the whole file. If you sort by y, the same failure happens in x. A hash key spreads load but destroys locality. A full R-tree or quadtree may be more precise, but sometimes the system already has a sorted table, a column-store layout, a B-tree, or a GPU radix sort and needs a cheap spatial key.',
-        'Morton order solves the storage mismatch by making prefixes spatial. A short prefix identifies a coarse square or cube. A longer prefix identifies a child region inside it. This gives a useful address hierarchy without building pointer-heavy tree nodes. The tradeoff is deliberate: the key preserves coarse locality and prefix grouping, but it does not promise that all nearby points are adjacent or that all adjacent keys are geometrically close.',
+        'The obvious approach sorts points by x, then uses y as a filter. That works for queries that are narrow in x, but it scatters points that are close by y across the whole order.',
+        'Sorting by y has the symmetric failure. A hash key spreads data evenly, but it destroys spatial locality entirely.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The wall',
       paragraphs: [
-        'The obvious approach is to use one coordinate as the sort key and keep the other coordinate as a filter. That works for narrow queries aligned with the chosen axis, but it breaks down when the query region is two-dimensional. Nearby objects by y can be far apart in x order, and nearby objects by x can be far apart in y order.',
-        'A full spatial tree solves more queries exactly, but it may be too heavy for a column store, tile cache, radix-sort pipeline, or compact GPU builder. Morton order sits in the middle: it gives the ordinary sorted system a spatial prefix without pretending to replace exact geometry.',
+        'The wall is a dimensional mismatch. A rectangular query like x from 4 to 7 and y from 4 to 7 is two-dimensional, while a single x-order interval may include many rows outside the rectangle.',
+        'A full R-tree or quadtree can be more precise, but it brings pointer-heavy structure and maintenance cost. Many systems already have a sorted-key engine and need a spatial key, not a new storage engine.',
       ],
     },
     {
-      heading: 'How the encoding works',
+      heading: 'The core insight',
       paragraphs: [
-        'Start by choosing a bounded integer grid. Floating-point coordinates must be scaled, rounded or floored, clamped, and sometimes biased so negative values become nonnegative grid coordinates. Then spread each coordinate bit stream apart and OR the streams together. For x = 3 and y = 5 on a three-bit grid, x is 011 and y is 101. Interleaving from high to low creates a six-bit key whose bit pairs are the successive quadtree child choices.',
-        'That pair grouping explains the prefix property. In 2D, every two Morton bits choose one of four quadrants. The next two bits choose a quadrant inside that quadrant. In 3D, every three bits choose one of eight octants. A prefix is therefore not just a numeric prefix; it is a spatial cell. This is why quadkeys, linear quadtrees, linear octrees, Z-order clustering, and Morton-sorted BVH builders all feel like different faces of the same mechanism.',
+        'Binary coordinate bits already describe recursive halves of space. The high bit of x chooses left or right, the high bit of y chooses bottom or top, and the pair chooses a quadrant.',
+        'Interleaving x and y bits writes that quadrant path as an integer. Sorting by the integer sorts by quadtree prefix before fine location.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
-        'In the interleave-bits view, read the Z path as the order produced by sorting cells by their Morton integer. The highlighted cells are not chosen by distance computation; they are chosen by bit prefix. The prefix table is the key frame: no prefix means the whole grid, one digit means a quadrant, two digits mean a subquadrant, and a full key means a fine cell.',
-        'In the spatial-sort case study, follow the pipeline from raw points to grid coordinates, then to Morton keys, then to sorted storage or a B-tree, then to candidate filtering. The last geometry check is not an implementation detail. It is the correctness boundary. Morton order gives a compact candidate set and a cache-friendly layout; exact bounding-box, polygon, or distance tests still decide the answer.',
+        'Choose a bounded integer grid, then quantize coordinates into that grid. In 2D, spread the x bits into alternating positions, spread the y bits into the remaining positions, and combine them.',
+        'For x = 3 and y = 5 on a 3-bit grid, x is 011 and y is 101. Interleaving high to low gives bit pairs 10, 01, 11, so the point follows quadrant 2, then child 1, then child 3.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The encoding works because binary coordinates already describe recursive halves. The high bit of x says left or right half. The high bit of y says bottom or top half. Put those bits together and you have a quadrant. Repeat with the next bits and you have a path down a quadtree. Morton order is just that path written as a sortable number.',
-        'Sorting by the number groups records with shared high-order prefixes. That makes range partitioning, block pruning, cache prefetching, and parallel construction practical. It also gives deterministic names for spatial regions. A map tile key, a data-lake clustering key, or a linear-octree node key can be compared lexicographically or numerically while still carrying spatial meaning.',
+        'Correctness of the encoding comes from conservation of bits. Every coordinate bit appears in a fixed position in the Morton key, so decoding can recover the original grid coordinate.',
+        'The locality argument is weaker but useful. Equal prefixes mean equal choices for the top levels of the quadtree, so records sharing a prefix occupy the same coarse cell and can be grouped in sorted storage.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Hilbert-topleft-topright.png/120px-Hilbert-topleft-topright.png', alt: 'Color-coded Hilbert curve construction', caption: 'Hilbert order often improves locality, but the encoding is harder than Morton bit interleaving. Source: Wikimedia Commons, Fredrik Johansson, public domain.'},
-        'Encoding is cheap: spreading and interleaving bits can be done with masks, shifts, lookup tables, or processor-specific bit deposit instructions. The expensive parts are usually before and after the key: quantizing coordinates, sorting n objects by code, decomposing a query window into Morton intervals, and filtering false candidates. A layout pipeline is often compute codes, sort by code, store clustered records, then answer queries by scanning one or more intervals.',
-        'The locality guarantee is useful but imperfect. A rectangle rarely maps to one clean interval. Cells that touch across a Z-order block boundary can be close in space but far in key order. Adjacent keys can cross visual boundaries. Hilbert curves often preserve locality better, but Morton codes are simpler, faster, easier to prefix-split, and easier to use in low-level builders that already operate on bits.',
+        'Encoding one point is O(b), where b is the number of bits per coordinate, or O(1) for a fixed machine-word width. Sorting n points by code costs O(n log n), or linear time with radix sort over fixed-width keys.',
+        'The behavior changes with bit depth. Doubling grid resolution by one bit per axis doubles precision in each dimension and adds two key bits in 2D, but it can also expose noise from imprecise coordinates.',
       ],
     },
     {
-      heading: 'Worked examples',
+      heading: 'Real-world uses',
       paragraphs: [
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree diagram with keys grouped into nodes', caption: 'Sorted Morton keys can live in ordinary ordered indexes such as B-trees, with exact geometry checks after candidate retrieval. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
-        'In a linear-BVH builder, each triangle gets a bounding-box centroid. The centroids are quantized into a fixed grid, converted to Morton codes, and sorted. Neighboring leaves in that sorted order are likely to be spatially related, so the builder can create hierarchy from common prefixes. This is faster and more parallel than carefully testing every possible split, though the resulting tree may be lower quality than a slower surface-area heuristic build.',
-        'In a map tile system, a tile at zoom z has integer x and y coordinates. Each zoom step chooses a child quadrant of the previous tile. A quadkey stores those child choices as digits, so parent and child tiles share prefixes. That makes tiles easy to cache, shard, expire by region, and fetch for a viewport. The same prefix idea appears in Z-order clustering for analytical tables, where nearby multidimensional column values are packed into the same files so scans can skip irrelevant blocks.',
+        'Morton keys fit map tiles, linear quadtrees, linear octrees, data-lake clustering, and GPU bounding-volume hierarchy builders. The access pattern is prefix grouping followed by exact filtering.',
+        'They are useful when fast sorting, deterministic partitioning, or ordinary ordered indexes matter more than perfect locality. A B-tree range over Morton prefixes can retrieve candidate cells before geometry code checks the true shape.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not treat Morton order as an exact nearest-neighbor index. Same prefix means same coarse cell, not nearest object. Range and radius queries need neighboring prefixes when the query crosses cell boundaries, and the returned candidates need exact geometry checks. A product search, collision detector, or map query that skips the exact check will return visibly wrong answers near boundaries.',
-        'Do not let the grid be an afterthought. Coordinate range, bit depth, signed-value handling, projection, clamping, and rounding define the address space. Too few bits collapse distinct objects into the same fine cell. Too many bits can waste key space or expose precision noise. For geospatial data, Web Mercator tiles, latitude distortion, antimeridian handling, and zoom-level semantics must be decided before keys are meaningful.',
+        'Morton order is not an exact nearest-neighbor index. Nearby points can be far apart across a Z-boundary, and adjacent keys can sit on opposite sides of a visual boundary.',
+        'It also fails when quantization is wrong. Bad projection, too few bits, mishandled negative coordinates, or careless rounding can make the key precise-looking but spatially misleading.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Use a 4 by 4 grid with two bits per coordinate. Point (x=2, y=1) has x = 10 and y = 01. Interleaving as y1 x1 y0 x0 gives 0 1 1 0, which is binary 0110 or decimal 6.',
+        'Point (x=3, y=1) has x = 11 and y = 01, giving 0 1 1 1, decimal 7. The keys 6 and 7 are adjacent because the points share the same coarse quadrant and differ only in the final x bit.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: NVIDIA linear-BVH construction blog at https://developer.nvidia.com/blog/thinking-parallel-part-iii-tree-construction-gpu/, Microsoft Bing Maps tile system at https://learn.microsoft.com/en-us/bingmaps/articles/bing-maps-tile-system, Azure Maps tile-grid and quadkey notes at https://learn.microsoft.com/en-us/azure/azure-maps/zoom-levels-and-tile-grid, and Stanford bit-interleaving techniques at https://graphics.stanford.edu/~seander/bithacks.html#InterleaveTableObvious.',
-        'Study Quadtree Spatial Index & Map Tiles, Bounding Volume Hierarchy, Hierarchical Geospatial Cells, R-Tree Spatial Index, k-d Tree, Spatial Hash Grid Broadphase, Rank/Select Bitvector, Elias-Fano Encoding, and Columnar Storage next.',
+        'Study Morton codes, quadtrees, linear octrees, NVIDIA linear BVH construction, map tile quadkeys, and bit-interleaving techniques. The recurring idea is a tree path stored as a sortable key.',
+        'Next study Quadtree Spatial Index, Bounding Volume Hierarchy, R-Tree, k-d Tree, Spatial Hash Grid, and Hierarchical Geospatial Cells to compare exact trees with compact linear keys.',
       ],
     },
   ],

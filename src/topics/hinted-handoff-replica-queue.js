@@ -255,113 +255,79 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        'Read the write path and replay queue separately. A quorum decision can succeed while one intended replica misses the mutation. The hint records that exact miss for later replay.',
         {type: 'image', src: './assets/gifs/hinted-handoff-replica-queue.gif', alt: 'Animated walkthrough of the hinted handoff replica queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
       ],
     },
     {
-      heading: 'The problem',
+      heading: 'Why this exists',
       paragraphs: [
-        'A replicated database wants two properties that pull against each other. It wants writes to remain available during ordinary machine failures, and it wants replicas to converge after those failures end. With replication factor 3, a coordinator may contact replicas A, B, and C. If C is temporarily down but A and B accept the write, a quorum write can succeed for the client while C misses the mutation.',
+        'Replicated databases want writes to stay available during ordinary failures and replicas to converge afterward. If replica C is down but replicas A and B acknowledge a quorum write, the client can succeed while C misses the update. Hinted handoff preserves that known miss as repair state.',
         {type: 'callout', text: 'Hinted handoff turns a known replica miss into bounded queue state, so availability now does not erase repair intent later.'},
-        'That miss is not mysterious. The coordinator knows the target replica, the mutation, and the time of the write. The question is whether the system should preserve that knowledge. Hinted handoff says yes: turn the known miss into durable queue state, replay it when the target returns, and fall back to heavier repair if the outage lasts too long.',
       ],
     },
     {
-      heading: 'The naive approaches',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The strict approach is to require every replica to acknowledge every write. It gives a simple story, but it makes one unavailable replica reduce write availability for the whole replica set. In a large cluster, brief restarts, network hiccups, and rolling maintenance would become user-visible failures far more often than the application wants.',
-        'The loose approach is to accept the write at quorum and trust anti-entropy repair to find stale replicas later. That keeps the write path open, but it throws away precise information. Repair now has to compare ranges or Merkle trees to rediscover a mutation the coordinator already knew C missed at the time of the write.',
+        'The strict approach requires every replica to acknowledge every write. That simplifies convergence but makes one down replica reduce availability. The loose approach accepts quorum and relies only on later repair, but throws away exact miss information.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that availability decisions and convergence work happen on different clocks. The write path needs an answer now. Repair can run later. If the system blocks the write until every replica is healthy, it sacrifices availability. If it accepts the write without remembering the miss, it creates avoidable repair cost and a longer stale window.',
-        'The system also needs a bound. A node can be down for minutes, days, or forever. Infinite hint retention would turn a temporary repair optimization into an unbounded disk liability. Hinted handoff is useful only if it is treated as a real queue with durability, retry, acknowledgement, expiry, throttling, and metrics.',
+        'The write path needs an answer now, while repair can happen later. Blocking sacrifices availability, and forgetting the miss creates avoidable stale time. The queue also needs bounds because a node can be down forever.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'A hint is repair debt represented as a durable record. It usually contains the intended target replica, the mutation or a pointer to it, timestamp or version metadata, replay state, and an expiry time. The hint does not make the original write successful. The configured consistency level decides success. The hint records a later obligation to bring the missed replica closer to the acknowledged state.',
+        'A hint is repair debt made explicit. It records target replica, mutation or pointer, original timestamp or version metadata, replay state, and expiry. The consistency level decides client success; the hint records later obligation.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of server racks in a data center', caption: 'Hinted handoff is about keeping replicas convergent despite temporary node or rack failure. Source: Wikimedia Commons, Wikimedia Foundation servers.'},
-        'This is a data-structure idea as much as a distributed-systems idea. The coordinator maintains a per-target appendable queue. Items move from queued to sending to acknowledged and deleted, or from queued to expired when the window closes. The queue is valuable because it preserves exact repair intent while the failure is still narrow and recent.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A client sends a write to a coordinator. The coordinator chooses the replica set for the key and sends the mutation to those replicas. Suppose the consistency level is quorum and replicas A and B acknowledge, while intended replica C is unavailable. The coordinator can return success because the write met the client-visible acknowledgement rule, then append a durable hint for C.',
+        'A coordinator sends a write to the replica set. If A and B acknowledge while C is unavailable, quorum succeeds and the coordinator appends a durable hint for C. When C returns, a replay worker sends the mutation with original metadata and deletes the hint only after acknowledgement.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Animated packet switching diagram with packets moving through a network', caption: 'Replay workers resend missed mutations much like delayed messages moving through a network. Source: Wikimedia Commons, Packet Switching.'},
-        'The hint must survive coordinator restart, because a memory-only hint would disappear exactly when recovery matters. It also needs enough metadata for safe replay. In a last-write-wins store, timestamps matter. In a versioned or conflict-aware store, vector clocks, logical time, or storage-engine-specific metadata may matter. The replay path should behave like delivering the missed write late, not like inventing a new write with a new timestamp.',
-        'When C becomes reachable, the coordinator drains the hint queue for C. Replay is normally throttled so that a recovering node is not buried under every missed mutation at once. Each item is deleted only after the target acknowledges it. If delivery fails, the item remains queued until another retry or until the configured hint window expires.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Hinted handoff works because many replica failures are short and localized. A process restarts, a node is rebooted, a rack link flaps, or maintenance briefly removes a replica. In those cases, the system already knows the exact mutations that missed the target. Replaying a queue is cheaper and more precise than scanning whole ranges to find differences.',
-        'The invariant is modest: if the hint is durably stored, not expired, and successfully acknowledged by the target, then the target has received the mutation it missed. This does not prove the whole replica is correct. It only resolves the known miss represented by that hint. That modesty is the reason hinted handoff can coexist with read repair and anti-entropy repair instead of replacing them.',
+        'The invariant is narrow: a durable, unexpired hint that is replayed and acknowledged repairs that recorded miss. It does not prove the whole replica is correct. That is why hinted handoff complements read repair and anti-entropy repair instead of replacing them.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Take a Cassandra-like cluster with replication factor 3 and a quorum write. The client writes row K through coordinator X. Replicas A and B are healthy. Replica C is down. A and B persist the mutation and acknowledge. X has enough acknowledgements to satisfy quorum, so the client sees success. X then appends a hint whose target is C, whose payload is the missed mutation for K, and whose expiry is inside the configured hint window.',
-        'Ten minutes later, C returns. X or another node responsible for the hint stream sees C as reachable and starts replaying hints. It sends the mutation for K to C with the original write metadata. C applies it according to the storage engine conflict rules and acknowledges. Only then does the hint leave the durable queue. If C returns after the hint window has passed, the hint may be discarded, and the cluster relies on repair to compare the relevant token ranges.',
+        'Hints consume disk on the holder and replay bandwidth on recovery. If writes arrive at 20,000 per second while C is down for 10 minutes, 12,000,000 hints can accumulate. If replay drains 40,000 per second, clearing takes at least 5 minutes before normal load.',
       ],
     },
     {
-      heading: 'Animation guide',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The write-path view separates the quorum decision from the repair queue. A and B are enough for the write to succeed at quorum, while C remains missing the mutation. The hint node is the important state transition: the system has converted a temporary absence into an explicit future replay item.',
-        'The replay and limits view shows that the queue has lifecycle states. Queued means the target is not ready. Sending means the target is reachable and replay is in progress. Acknowledged means deletion is safe. Expired means the optimization gave up and the problem moves to scheduled repair. That transition is not a bug; it is the bound that keeps hinted handoff from becoming infinite storage.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'Hints consume disk on the nodes that store them. That disk use is usually acceptable for short outages, but it can become dangerous if many targets are unavailable or if a high-write workload keeps generating hints faster than they can drain. This is why real systems define maximum hint windows, maximum file sizes, and backpressure or drop behavior.',
-        'Replay consumes network, CPU, and write bandwidth on a node that may already be recovering. If every coordinator replays at full speed the moment C returns, the repair mechanism can become the next outage. Throttling, per-target scheduling, and observability are not optional details; they are part of the correctness story because overload can prevent convergence.',
-        'Hints also interact with topology. If token ownership changes, if a node is decommissioned, or if replacement hardware takes over an identity, the system must know whether old hints still have a valid target. A hint should respect current cluster membership and storage semantics. It should not smuggle stale placement assumptions into a changed topology.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Hinted handoff wins for short, temporary outages in eventually consistent or tunably consistent replicated stores. It is especially good for node restarts, brief network partitions, short maintenance windows, and cases where the consistency level can still be satisfied without the missing replica.',
-        'It also wins as an operational signal. A hint backlog is a concrete measure of repair debt. Operators can inspect backlog size, age, replay rate, dropped hints, and per-target concentration. Those metrics answer better questions than a generic warning that replicas may diverge.',
+        'Hinted handoff fits eventually consistent or tunably consistent stores during short node restarts, maintenance, and brief network partitions. A hint backlog is also an operational signal: size, age, replay rate, and drops measure repair debt.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Hinted handoff fails as a complete repair strategy for long outages. When hints expire, the system no longer has a complete precise queue of missed mutations. It must compare replica state by range, which is the job of anti-entropy repair. This is why a healthy system still schedules repair even when hinted handoff is enabled.',
+        'It fails as a complete repair strategy for long outages or unobserved divergence. Expired hints, disk corruption, stale topology, and operator mistakes need broader range repair. Hints can only replay what they recorded.',
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt: 'Hash tree diagram with hashes arranged from leaves to root', caption: 'When hints are missing or expired, anti-entropy structures such as Merkle trees can find divergent replica ranges. Source: Wikimedia Commons, Hash Tree.'},
-        'It also fails when the miss is not observed on the write path. Disk corruption, lost data files, rare read paths, operator mistakes, and bugs can all create divergence without producing a neat hint. Hinted handoff can only replay what it recorded. It cannot prove that the rest of the replica is correct.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'One failure mode is unbounded queue growth. A target stays down, coordinators keep accepting writes, and hint files consume disk. Good systems cap the window and surface the risk before disk pressure becomes a second failure. Another failure mode is replay storm: the target returns and gets overloaded by a flood of old writes.',
-        'A subtler failure mode is false confidence. Teams may see hints draining and assume the cluster is fully repaired. That is not guaranteed. Hints resolve the recorded misses that survived until replay. They do not validate all token ranges, all historical data, or all replicas that were affected by earlier failures. Scheduled repair remains the proof mechanism for broader convergence.',
-        'A third failure mode is bad deletion discipline. If a hint is deleted before the target durably applies it, the missed mutation can be lost. If acknowledged hints are never deleted, the queue leaks storage and may replay duplicates. Replay should be idempotent or conflict-safe, but idempotence is a safety net, not an excuse for sloppy queue state.',
+        'Use replication factor 3 and quorum writes. A client writes key K through coordinator X to replicas A, B, and C. C is down, but A and B persist and acknowledge, so quorum is satisfied and X returns success.',
+        'X stores a hint for C with key K, the mutation, original metadata, and a 3-hour expiry. Ten minutes later C returns, X replays the hint, C acknowledges, and X deletes it. If C returns after 4 hours, the hint may expire and scheduled repair must compare ranges.',
       ],
     },
     {
-      heading: 'Design checklist',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A mature hinted handoff implementation answers concrete questions. Where are hints stored, and are they durable across coordinator restart? What metadata is needed to replay without changing conflict ordering? What is the maximum hint age? How are hints grouped by target? How is replay throttled? What happens when topology changes before replay finishes?',
-        'It also exposes evidence. Operators should be able to see current hint count, oldest hint age, replay throughput, failed replay attempts, expired hint count, and per-target backlogs. Without those numbers, hinted handoff becomes invisible repair debt. The mechanism is simple, but invisible queues are dangerous in distributed systems.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Apache Cassandra hinted handoff docs at https://cassandra.apache.org/doc/4.0/cassandra/operating/hints.html, Cassandra repair docs at https://cassandra.apache.org/doc/4.0/cassandra/operating/repair.html, and the Dynamo paper at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf.',
-        'Study Read/Write Quorums for the acknowledgement rule, Amazon Dynamo Case Study for hinted replicas and sloppy quorum, Cassandra Repair Case Study for the range-level fallback, Write-Ahead Log for durable append discipline, Message Queues for replay semantics, and SWIM Failure Detector for the liveness signal that starts replay.',
+        'Read the Amazon Dynamo paper for hinted replicas and sloppy quorum, plus Apache Cassandra hinted handoff and repair docs. Study quorums, Dynamo replication, Cassandra repair, Merkle trees, write-ahead logs, queues, vector clocks, and failure detectors next.',
       ],
     },
   ],
