@@ -865,12 +865,12 @@ async function initTopic() {
     return;
   }
 
-  document.title = `${entry.title} — Visualized`;
+  document.title = `${entry.title} — CMC Open University`;
   titleEl.textContent = entry.title;
   root.querySelector('[data-topic-summary]').textContent = entry.summary;
 
   // Update Open Graph and Twitter Card meta tags for social sharing.
-  const ogTitle = `${entry.title} — Visualized`;
+  const ogTitle = `${entry.title} — CMC Open University`;
   const ogDesc = entry.summary || 'Free, visual computer-science education: every algorithm animated, every step explained.';
   const ogUrl = `${location.origin}${location.pathname}?topic=${encodeURIComponent(entry.id)}`;
   const metaUpdates = {
@@ -1366,4 +1366,3 @@ initTheme();
 const page = document.body.dataset.page || document.querySelector('[data-page]')?.dataset.page;
 if (page === 'home') initHome();
 if (page === 'topic') initTopic();
-

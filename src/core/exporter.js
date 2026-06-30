@@ -5,8 +5,8 @@
 
 import { renderStep } from './visualizer.js';
 
-export const WATERMARK = 'The Chocolate Milk Cult';
-const SITE_URL = 'dl1683.github.io/DataStructuresInJavaScript';
+export const WATERMARK = 'CMC Open University';
+const SITE_URL = 'dl1683.github.io/cmc-open-university';
 
 // Fixed light palette: a shared video must look right everywhere,
 // independent of the viewer's theme.

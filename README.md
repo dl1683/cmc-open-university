@@ -1,6 +1,6 @@
-# Data Structures & Algorithms, Visualized
+# CMC Open University
 
-**Live site: https://dl1683.github.io/DataStructuresInJavaScript/**
+**Live site: https://dl1683.github.io/cmc-open-university/**
 
 Free, visual computer-science education. Pick a topic, press play, and watch the
 algorithm run — with a synchronized plain-English explanation of what is

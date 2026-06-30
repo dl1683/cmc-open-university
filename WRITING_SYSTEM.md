@@ -1,4 +1,4 @@
-# DataStructuresInJavaScript Writing System
+# CMC Open University Writing System
 
 This repository is not a visualization gallery. It is a free computer-science
 course built out of individual, linkable topic pages. Every topic should leave

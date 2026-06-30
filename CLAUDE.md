@@ -1,8 +1,8 @@
-# DataStructuresInJavaScript — Project Mission
+# CMC Open University — Project Mission
 
 ## What this is
 
-Devansh's revived 2017 visualization site, reborn as a **free, ever-growing computer-science education resource**. Live at: https://dl1683.github.io/DataStructuresInJavaScript/ (GitHub Pages, this repo). The old successor project (datastructures.dev) is dead — all references to it and "the team" are gone. This repo is the canonical home again.
+Devansh's revived 2017 visualization site, reborn as **CMC Open University**, a free, ever-growing computer-science education resource. Live at: https://dl1683.github.io/cmc-open-university/ (GitHub Pages, this repo). The old successor project (datastructures.dev) is dead — all references to it and "the team" are gone. This repo is the canonical home again.
 
 ## Mission
 
